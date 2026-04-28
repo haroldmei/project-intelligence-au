@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# gemini-signal-iterate — signal-driven iteration (replaces /signal-iterate).
+# Usage: bin/gemini-signal-iterate "[signal source override]"
+# Pair with cron for weekly cadence (Gemini has no native scheduling):
+#   0 9 * * MON cd /path/to/build-product && bin/gemini-signal-iterate
+set -euo pipefail
+ARG="${1:-}"
+cd "$(dirname "$0")/.."
+gemini -p "@signal-iterate ${ARG}" --yolo

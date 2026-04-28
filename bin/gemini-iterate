@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# gemini-iterate — market-driven iteration loop (replaces /iterate skill).
+# Usage: bin/gemini-iterate "[focus area]"
+set -euo pipefail
+FOCUS="${1:-}"
+cd "$(dirname "$0")/.."
+gemini -p "@iterate ${FOCUS}" --yolo

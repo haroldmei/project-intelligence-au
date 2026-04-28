@@ -1,0 +1,15 @@
+{
+  "$schema": "https://geminicli.com/schemas/settings.json",
+  "general": {
+    "defaultApprovalMode": "default"
+  },
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    }
+  },
+  "security": {
+    "disableYoloMode": false
+  }
+}

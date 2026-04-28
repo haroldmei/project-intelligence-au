@@ -1,0 +1,37 @@
+description = "Default product builder. Drives the build-product-v2 state-machine orchestrator via bash (Gemini cannot self-orchestrate due to the no-nested-subagents rule). Pass the one-sentence product idea as the argument."
+
+prompt = """
+The user wants to build a commercial software product. Drive the
+build-product-v2 orchestrator by invoking the bash entry point:
+
+```
+bin/gemini-build-product-v2 "{{args}}"
+```
+
+The orchestrator will:
+
+1. Bootstrap state and docs/
+2. Run @ceo, then @critic ceo, looping on failure
+3. Run @differentiation, then @critic diff, looping on failure
+4. Surface a HUMAN CHECKPOINT for wedge + scale tier + stack constraints
+5. Run @tech-stack-selector, then @critic stack
+6. Run product-spec → analyst → designer → ux-designer (each gated by @critic)
+7. Surface a HUMAN CHECKPOINT for design target
+8. Run auth-engineer, ai-features (if ai_heavy), email-templates (if needed)
+9. Run backend-developer → frontend-developer → db-migrator (sequential;
+   Gemini does not guarantee parallel subagents)
+10. Run api-docs → e2e-tester
+11. Run quality-gates.sh; loop on failure to backend-developer
+12. Run adversarial-tester → security-auditor → dogfood (with verdict routing)
+13. (launch+ only) Run perf-tester → reviewer
+14. Run pricing → positioning, surface HUMAN CHECKPOINT for headline/tiers
+15. Run landing-page → legal-compliance
+16. (launch+ only) Run background-jobs → env-manager → cicd → deployer →
+    observability → rollback
+17. (scale only) Run production-readiness
+18. Preview-ship per scale tier, surface HUMAN CHECKPOINT for GO/NO-GO
+19. Run analytics; print cron snippet for weekly signal-iterate
+
+Run the command now. Do not paraphrase the orchestrator output —
+forward it verbatim so the user sees the human checkpoints clearly.
+"""

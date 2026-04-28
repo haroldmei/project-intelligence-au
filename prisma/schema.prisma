@@ -1,0 +1,315 @@
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// Stack contract: docs/00-tech-stack.md @ 2026-Q2
+// ORM: prisma 5 | DB: postgres 16 + pgvector 0.7 | Auth: lucia + argon2id
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector", schema: "public"), citext]
+}
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique /// citext in DB (case-insensitive); enforced by Prisma
+  passwordHash  String   @map("password_hash")
+  mobile_e164   String?
+  emailVerified Boolean  @default(false) @map("email_verified")
+  smsOptIn      Boolean  @default(false) @map("sms_opt_in")
+  trade         String   @default("roofing")
+
+  // Billing
+  subscriptionStatus  String  @default("trial") @map("subscription_status") // trial|active|cancelled|past_due
+  accessUntil         DateTime? @map("access_until")
+  stripeCustomerId    String?   @unique @map("stripe_customer_id")
+
+  // Saved roofing query (LGA bundle ids stored in LgaBundleSubscription)
+  savedQueryText String? @map("saved_query_text")
+  // vector(1536) stored as Unsupported until Prisma native vector support
+  savedQueryEmbedding Unsupported("vector(1536)")? @map("saved_query_embedding")
+
+  personalisationNotifiedAt DateTime? @map("personalisation_notified_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  sessions          Session[]
+  emailOtps         EmailOtp[]
+  lgaBundles        LgaBundleSubscription[]
+  digests           Digest[]
+  daFeedback        DaFeedback[]
+  aiCostLog         AiCostLog[]
+  userConsent       UserConsent?
+  teamMemberships   TeamMembership[]
+  ownedTeam         TeamAccount?
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model EmailOtp {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  codeHash    String    @map("code_hash")  // bcrypt or argon2id hash of 6-digit code
+  expiresAt   DateTime  @map("expires_at")
+  consumedAt  DateTime? @map("consumed_at")
+  purpose     String    @default("verify") // verify|reset|login
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_otps")
+}
+
+model UserConsent {
+  id              String   @id @default(cuid())
+  userId          String   @unique @map("user_id")
+  posthogConsent  Boolean  @default(false) @map("posthog_consent")
+  consentedAt     DateTime? @map("consented_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_consent")
+}
+
+// ─── LGA Bundles ─────────────────────────────────────────────────────────────
+
+model LgaBundle {
+  id    String @id // e.g. "western_sydney"
+  label String
+
+  lgas          Lga[]
+  subscriptions LgaBundleSubscription[]
+
+  @@map("lga_bundles")
+}
+
+model Lga {
+  id       String @id // council slug
+  bundleId String @map("bundle_id")
+  name     String
+
+  bundle              LgaBundle              @relation(fields: [bundleId], references: [id])
+  developmentApps     DevelopmentApplication[]
+
+  @@map("lgas")
+}
+
+model LgaBundleSubscription {
+  userId   String @map("user_id")
+  bundleId String @map("bundle_id")
+
+  user   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bundle LgaBundle @relation(fields: [bundleId], references: [id])
+
+  @@id([userId, bundleId])
+  @@map("lga_bundle_subscriptions")
+}
+
+// ─── Development Applications ────────────────────────────────────────────────
+
+model DevelopmentApplication {
+  id             String   @id @default(cuid())
+  daId           String   @map("da_id")      // council-issued DA reference
+  council        String
+  address        String
+  description    String
+  estimatedValue Decimal? @map("estimated_value")
+  lodgementDate  DateTime @map("lodgement_date") @db.Date
+  applicantName  String?  @map("applicant_name")
+  portalUrl      String   @map("portal_url")
+  rawScopeText   String?  @map("raw_scope_text")
+  sourceApi      String   @map("source_api")  // nsw_planning|da_leads|council_da
+  ruleFilteredOut Boolean @default(false) @map("rule_filtered_out")
+  ingestedAt     DateTime @default(now()) @map("ingested_at")
+
+  lgaId String? @map("lga_id")
+  lga   Lga?    @relation(fields: [lgaId], references: [id])
+
+  embedding    DaEmbedding?
+  daFeedback   DaFeedback[]
+  digestDas    DigestDa[]
+  groundTruth  DaGroundTruth[]
+
+  @@unique([daId, council])
+  @@index([council, lodgementDate(sort: Desc)])
+  @@map("development_applications")
+}
+
+model DaEmbedding {
+  daId       String   @id @map("da_id")
+  // vector(1536) — pgvector; stored as Unsupported
+  embedding  Unsupported("vector(1536)")
+  embeddedAt DateTime @default(now()) @map("embedded_at")
+
+  da DevelopmentApplication @relation(fields: [daId], references: [id], onDelete: Cascade)
+
+  @@map("da_embeddings")
+}
+
+model DaGroundTruth {
+  id          String   @id @default(cuid())
+  daId        String   @map("da_id")
+  council     String
+  isRelevant  Boolean  @map("is_relevant")
+  labelledBy  String   @map("labelled_by")
+  labelledAt  DateTime @default(now()) @map("labelled_at")
+
+  da DevelopmentApplication @relation(fields: [daId], references: [id], onDelete: Cascade)
+
+  @@map("da_ground_truth")
+}
+
+// ─── Digest ───────────────────────────────────────────────────────────────────
+
+model DigestRun {
+  id          String    @id @default(cuid())
+  runDate     DateTime  @map("run_date") @db.Date
+  triggeredAt DateTime  @default(now()) @map("triggered_at")
+  completedAt DateTime? @map("completed_at")
+  userCount   Int       @default(0) @map("user_count")
+  status      String    @default("running") // running|done|failed
+  fallbackUsed Boolean  @default(false) @map("fallback_used")
+
+  digests Digest[]
+
+  @@map("digest_runs")
+}
+
+model Digest {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  runId       String    @map("run_id")
+  sentAt      DateTime? @map("sent_at")
+  daCount     Int       @default(0) @map("da_count")
+  emailStatus String?   @map("email_status")
+  smsStatus   String?   @map("sms_status")
+  fallbackUsed Boolean  @default(false) @map("fallback_used")
+
+  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  run     DigestRun @relation(fields: [runId], references: [id])
+  digestDas DigestDa[]
+
+  @@index([userId])
+  @@map("digests")
+}
+
+model DigestDa {
+  id             String @id @default(cuid())
+  digestId       String @map("digest_id")
+  daId           String @map("da_id")
+  relevanceScore Int    @map("relevance_score") // 0–10
+  whyMatched     String @map("why_matched")
+  rank           Int
+
+  digest Digest                 @relation(fields: [digestId], references: [id], onDelete: Cascade)
+  da     DevelopmentApplication @relation(fields: [daId], references: [id])
+
+  @@map("digest_das")
+}
+
+// ─── Feedback ────────────────────────────────────────────────────────────────
+
+model DaFeedback {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  daId      String   @map("da_id")
+  feedback  String   // up|down
+  source    String   @default("portal") // email|portal
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  da   DevelopmentApplication @relation(fields: [daId], references: [id])
+
+  @@unique([userId, daId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("da_feedback")
+}
+
+// ─── AI Cost Tracking ─────────────────────────────────────────────────────────
+
+model AiCostLog {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  phase        String   // embedding|rerank
+  model        String
+  inputTokens  Int      @map("input_tokens")
+  outputTokens Int      @map("output_tokens")
+  costAud      Decimal  @map("cost_aud")
+  weekStart    DateTime @map("week_start") @db.Date
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, weekStart])
+  @@map("ai_cost_log")
+}
+
+// ─── Ingestion Log ────────────────────────────────────────────────────────────
+
+model IngestionLog {
+  id           String   @id @default(cuid())
+  council      String
+  sourceApi    String   @map("source_api")
+  daCount      Int      @default(0) @map("da_count")
+  runAt        DateTime @default(now()) @map("run_at")
+  success      Boolean  @default(true)
+  errorMessage String?  @map("error_message")
+
+  @@index([council, runAt(sort: Desc)])
+  @@map("ingestion_log")
+}
+
+// ─── Team / Billing ──────────────────────────────────────────────────────────
+
+model TeamAccount {
+  id          String   @id @default(cuid())
+  ownerUserId String   @unique @map("owner_user_id")
+  plan        String   @default("solo") // solo|team
+  seats       Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  owner       User             @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  memberships TeamMembership[]
+
+  @@map("team_accounts")
+}
+
+model TeamMembership {
+  id      String @id @default(cuid())
+  teamId  String @map("team_id")
+  userId  String @map("user_id")
+  role    String @default("seat") // owner|seat
+
+  team TeamAccount @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@map("team_memberships")
+}
+
+// ─── Short URLs (SMS) ─────────────────────────────────────────────────────────
+
+model ShortUrl {
+  slug      String   @id
+  targetUrl String   @map("target_url")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("short_urls")
+}

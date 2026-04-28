@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-04-28T04:04:18Z",
+  "product_idea": "Local Construction & Maintenance Project Intelligence platform for AU market. Aggregate council DA portals, government tender boards (AusTender, eTendering NSW, VendorPanel), private-sector planning apps, and news sources into a single dashboard. Layer AI on top to flag relevant projects per user (e.g. 'alert me to all roof-replacement jobs in Western Sydney over $200k'). Sell to subcontractors, suppliers, and trade businesses who currently spend hours on this manually or pay for legacy services like Cordell Connect (CoreLogic) and BCI Central — both expensive and dated. MVP shape: $200–500/month per seat, sold to construction businesses. AU-first, expand globally. Risks: data sources change formats, scraping legal grey areas (stick to public/government data initially).",
+  "wedge_sentence": "The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.",
+  "icp": "Sydney roofing owner-operator, 4–15 staff, AUD 1.5–8M revenue, residential strata + light commercial, NSW Class RT or Roof Plumbing licence, MBA NSW or HIA member.",
+  "axis": "Niche",
+  "anti_axis": "Will not compete on coverage breadth, multi-trade filters, head-contractor tender flow, contact-data enrichment, or free-tier race-to-zero.",
+  "scale_tier": "preview",
+  "current_phase": "email_templates",
+  "phase_status": {
+    "ceo": "done",
+    "differentiation": "done",
+    "tech_stack_selector": "done",
+    "product_spec": "done",
+    "analyst": "done",
+    "designer": "done",
+    "ux_designer": "done",
+    "human_checkpoint_2": "confirmed",
+    "auth_engineer": "done",
+    "ai_features": "done"
+  },
+  "critic_verdicts": {
+    "ceo": "pass",
+    "differentiation": "pass",
+    "tech_stack_selector": "pass",
+    "product_spec": "pass",
+    "designer": "pass-with-surgical-fixes",
+    "ux_designer": "pass-with-surgical-fixes"
+  },
+  "kill_switches": [],
+  "decisions": [
+    {
+      "date": "2026-04-28",
+      "phase": "ceo",
+      "decision": "market analysis complete — 5 open gaps",
+      "reason": "preview tier; AI-relevance + price + AU public-data wedge candidate"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "ceo",
+      "decision": "critic FAIL — 5 must-fix",
+      "reason": "TAM/SAM/SOM math + incumbent pricing unsourced; AI-native unsubstantiated; wedge alternatives absent"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "ceo",
+      "decision": "critic FAIL #2 — TAM chain + platitudes",
+      "reason": "4/5 must-fix resolved; TAM incumbent revenue lacks auditable multiplication chain"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "ceo",
+      "decision": "PASS on revision 3",
+      "reason": "TAM chains now auditable; platitudes removed; evidence_quality=strong"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "differentiation",
+      "decision": "wedge LOCKED",
+      "reason": "Niche axis; Sydney roofing subbies; AUD 199/mo; ai_heavy+mobile_first stack flags"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "differentiation",
+      "decision": "critic FAIL — weekend-copy test",
+      "reason": "incumbent-disincentive argument doesn't block new entrants; need feedback-loop moat or distribution moat"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "differentiation",
+      "decision": "PASS — Section 1.5b adds quantified feedback-loop moat",
+      "reason": "evidence_quality=strong; LOCKED"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "human_checkpoint_1",
+      "decision": "user CONFIRMED wedge",
+      "reason": "Sydney roofing subbies, AUD 199/mo, ai_heavy+mobile_first locked"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "tech-stack-selector",
+      "decision": "contract LOCKED",
+      "reason": "Next15+Tailwind4 / Postgres+pgvector / Lucia / Anthropic+OpenAI / Vercel / Buildkite"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "tech-stack-selector",
+      "decision": "PASS — strong evidence",
+      "reason": "minor pin nice-to-haves deferred (Lucia, OpenAI embedding, promptfoo); not blocking"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "product-spec",
+      "decision": "PASS — 1 critical flow, 3 supporting, 17 V2-tagged",
+      "reason": "minor nice-to-haves on AC tightening; non-blocking"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "analyst",
+      "decision": "SRS written",
+      "reason": "19 wedge-critical FRs / 11 supporting / 17 V2 / 17 NFRs / 12 open assumptions"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "designer",
+      "decision": "PASS + surgical fixes",
+      "reason": "model rename haiku=primary; cron 0 7 UTC = 17 AEST; fallback notif policy; auth rate-limit threat-model note"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "ux-designer",
+      "decision": "design system + 10-step wireframes shipped",
+      "reason": "slate-blue+amber palette avoids all 3 competitor slots; thumb-up/down single-tap is signature micro-interaction"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "ux-designer-critic",
+      "decision": "PASS + 3 surgical fixes applied",
+      "reason": "step numbering 1-4 of 4; all 12 cards render inline (not Load more); cancel-confirm AlertDialog wireframe added as §7.10b"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "human_checkpoint_2",
+      "decision": "user CONFIRMED design target",
+      "reason": "slate+amber palette, 10 wireframes + cancel-confirm, density rubric 6→8 after Load-more removed"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "auth-engineer",
+      "decision": "Lucia + 8 routes + rate limiter + 04-dev-plan",
+      "reason": "argon2id OTP; 5/min IP + 1/min account; tsc clean; email sends stubbed for Phase 6.9"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "ai-features",
+      "decision": "RAG pipeline + 22-case eval + cost ledger",
+      "reason": "haiku primary, sonnet fallback at confidence<0.5; cost cap AUD 0.13/wk degrades to keyword-only with banner"
+    }
+  ],
+  "open_issues": [],
+  "kpi_targets": {},
+  "signal_sources": {
+    "posthog": {
+      "enabled": false,
+      "last_pull": null
+    },
+    "sentry": {
+      "enabled": false,
+      "last_pull": null
+    },
+    "support": {
+      "enabled": false,
+      "last_pull": null
+    }
+  },
+  "stack_constraints": {
+    "ai_heavy": true,
+    "mobile_first": true
+  },
+  "tech_stack": {
+    "ci_provider": "buildkite",
+    "cloud": "vercel+gcp",
+    "auth": "lucia",
+    "ai_heavy": true
+  }
+}

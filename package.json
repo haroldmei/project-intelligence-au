@@ -6,22 +6,40 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:emails": "vitest run evals/emails/render-snapshots.test.ts",
+    "eval:rerank": "promptfoo eval --config evals/rerank/promptfooconfig.yaml --no-cache"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.1",
+    "@lucia-auth/adapter-prisma": "^4.0.1",
+    "@prisma/client": "^5.22.0",
+    "@react-email/components": "^1.0.12",
+    "@react-email/render": "^2.0.7",
+    "argon2": "^0.44.0",
+    "lucia": "^3.2.2",
+    "next": "15.5.15",
+    "openai": "^6.34.0",
+    "pino": "^10.3.1",
+    "prisma": "^5.22.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "next": "15.5.15"
+    "resend": "^6.12.2",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "15.5.15",
-    "@eslint/eslintrc": "^3"
+    "jsdom": "^29.1.0",
+    "promptfoo": "^0.121.9",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4.1.5"
   }
 }

@@ -1,0 +1,287 @@
+#!/usr/bin/env bash
+# gemini-build-product-v2 — orchestrator that drives the build-product-v2
+# state machine using headless `gemini -p` calls to per-phase agents.
+#
+# Why this is a shell script and not an agent:
+# Gemini CLI explicitly forbids subagents from spawning subagents. The
+# orchestrator pattern from .claude/skills/build-product-v2 cannot be
+# implemented as a Gemini agent. So orchestration moves out into bash;
+# each phase still runs in its own isolated agent context (the part
+# Gemini does support).
+#
+# Usage:
+#   bin/gemini-build-product-v2 "<one-sentence product idea>"
+#
+# Requirements:
+#   - gemini-cli installed and authenticated (`gemini` on PATH)
+#   - jq, yq
+#   - Project agents in .gemini/agents/
+#   - scripts/state-init.sh, scripts/state-set.sh, scripts/quality-gates.sh
+
+set -euo pipefail
+
+IDEA="${1:-}"
+if [[ -z "$IDEA" ]]; then
+  echo "Usage: $0 \"<product idea>\""
+  exit 1
+fi
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+# ---------- Helpers ----------
+
+log() { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
+warn() { printf '\033[1;33m! %s\033[0m\n' "$*" >&2; }
+fail() { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
+
+# Run a Gemini agent headlessly. Args: agent_name, prompt
+# Returns: agent stdout. Exits non-zero on agent failure.
+run_agent() {
+  local agent="$1"
+  local prompt="$2"
+  log "@${agent}"
+  gemini -p "@${agent}
+${prompt}" --yolo 2>&1 | tee -a "state/run-${agent}.log"
+}
+
+# Ask the user to confirm/revise/abort. Returns 0 on confirm, 1 on revise, 2 on abort.
+human_checkpoint() {
+  local title="$1"
+  local body="$2"
+  printf '\n\033[1;35m========== HUMAN CHECKPOINT: %s ==========\033[0m\n' "$title"
+  printf '%s\n' "$body"
+  printf '\nOptions: [c]onfirm | [r]evise | [a]bort\n'
+  read -r -p "Choice: " choice
+  case "$choice" in
+    c|C) return 0 ;;
+    r|R) return 1 ;;
+    a|A) exit 1 ;;
+    *)   return 1 ;;
+  esac
+}
+
+# Read a value from state.json
+state_get() { jq -r ".$1 // \"\"" state/state.json; }
+
+# Read a value from docs/00-tech-stack.md (YAML in code fence)
+contract_get() {
+  yq "$1" docs/00-tech-stack.md 2>/dev/null || echo ""
+}
+
+# ---------- Phase 0: Bootstrap ----------
+
+log "Phase 0 — Bootstrap"
+mkdir -p state docs
+[[ -f state/state.json ]] || scripts/state-init.sh "$IDEA"
+git init 2>/dev/null || true
+
+# ---------- Phase 1 + 1c: ceo + critic ----------
+
+run_phase_with_critic() {
+  local producer="$1"
+  local critic_phase="$2"   # phase name for @critic agent (ceo|diff|stack|spec|design|ux|pricing|positioning)
+  local doc="$3"
+  local prompt="$4"
+  local max_attempts="${5:-3}"
+  local attempt=0
+
+  while (( attempt < max_attempts )); do
+    attempt=$(( attempt + 1 ))
+    run_agent "$producer" "$prompt"
+
+    if [[ -z "$critic_phase" ]]; then return 0; fi
+
+    log "Critic: @critic ${critic_phase} ${doc}"
+    local verdict
+    verdict=$(gemini -p "@critic ${critic_phase} ${doc}" --yolo 2>&1 \
+      | tee -a "state/run-critic-${critic_phase}.log" \
+      | grep -oE 'VERDICT: (PASS|FAIL)' | awk '{print $2}' | head -1)
+
+    if [[ "$verdict" == "PASS" ]]; then
+      log "✓ ${producer} passed critic"
+      return 0
+    fi
+
+    warn "${producer} failed critic (attempt $attempt/$max_attempts) — retrying"
+    prompt="The critic rejected the previous output. Read $doc, then revise to fix the issues."
+  done
+
+  fail "${producer} failed critic ${max_attempts} times — surfacing to user"
+}
+
+# Phase 1 — ceo + ceo-critic
+run_phase_with_critic ceo ceo docs/01-market-analysis.md \
+  "Produce docs/01-market-analysis.md for: $IDEA"
+
+# Phase 2 — differentiation + diff-critic
+run_phase_with_critic differentiation diff docs/01c-wedge.md \
+  "Read docs/01-market-analysis.md and produce docs/01c-wedge.md including the Phase 5b stack-constraints section."
+
+# Persist wedge fields
+WEDGE=$(grep -oP '(?<=^## 8\. One-Sentence Wedge Statement.*\n).*' docs/01c-wedge.md 2>/dev/null | head -1 || echo "")
+TIER=$(grep -oP '(?<=## Scale Tier:\s).*' docs/01c-wedge.md | head -1 || echo "preview")
+scripts/state-set.sh '.wedge_sentence' "\"$WEDGE\""
+scripts/state-set.sh '.scale_tier' "\"$TIER\""
+
+# Phase 2.5 — Human checkpoint 1 (wedge + tier + constraints)
+SUMMARY=$(awk '/^## (Chosen Axis|Anti-axis|Stack constraints|One-Sentence Wedge|Scale Tier)/,/^## /' docs/01c-wedge.md | head -50)
+if ! human_checkpoint "Wedge + Tier + Constraints" "$SUMMARY"; then
+  warn "Looping back to differentiation"
+  run_phase_with_critic differentiation diff docs/01c-wedge.md \
+    "Revise docs/01c-wedge.md based on user feedback; ask the user inline if needed."
+fi
+
+# Phase 2.7 — tech-stack-selector + stack-critic
+run_phase_with_critic tech-stack-selector stack docs/00-tech-stack.md \
+  "Read docs/01c-wedge.md and produce docs/00-tech-stack.md (the binding contract)."
+
+CI_PROVIDER=$(contract_get '.ci.provider')
+CLOUD=$(contract_get '.cloud.provider')
+AUTH=$(contract_get '.auth.default')
+AI_HEAVY=$(contract_get '.ai.cost_tracking // empty')
+EMAIL_PROVIDER=$(contract_get '.email.provider // empty')
+scripts/state-set.sh '.tech_stack.ci_provider' "\"$CI_PROVIDER\""
+scripts/state-set.sh '.tech_stack.cloud' "\"$CLOUD\""
+scripts/state-set.sh '.tech_stack.auth' "\"$AUTH\""
+scripts/state-set.sh '.tech_stack.ai_heavy' "$([[ -n "$AI_HEAVY" ]] && echo true || echo false)"
+
+# Phase 3-6 — product-spec, analyst, designer, ux-designer (with critics)
+run_phase_with_critic product-spec spec docs/01b-product-spec.md \
+  "Read docs/00-tech-stack.md, docs/01-market-analysis.md, docs/01c-wedge.md and produce docs/01b-product-spec.md."
+
+run_agent analyst "Read 00, 01, 01b, 01c and produce docs/02-system-requirements.md."
+
+run_phase_with_critic designer design docs/03-system-design.md \
+  "Read 00, 01b, 01c, 02 and produce docs/03-system-design.md. Do not re-pick vendors; the contract is binding."
+
+run_phase_with_critic ux-designer ux docs/03b-ux-design.md \
+  "Read 00, 01b, 01c, 03 and produce docs/03b-ux-design.md. Use the browse extension to screenshot top 3 competitors first."
+
+# Phase 6.5 — Human checkpoint 2
+DESIGN_SUMMARY=$(head -80 docs/03b-ux-design.md)
+if ! human_checkpoint "Design target" "$DESIGN_SUMMARY"; then
+  run_agent ux-designer "Revise docs/03b-ux-design.md based on user feedback."
+fi
+
+# Phase 6.7 — auth-engineer
+if [[ "$AUTH" != "hand-rolled-jwt" ]]; then
+  run_agent auth-engineer "Scaffold auth per contract.auth.default ($AUTH)."
+fi
+
+# Phase 6.8 — ai-features (conditional)
+if [[ "$AI_HEAVY" == "required" ]]; then
+  run_agent ai-features "Wire RAG, prompts, evals, and cost tracking per the contract."
+fi
+
+# Phase 6.9 — email-templates (conditional)
+if grep -qiE 'email|verification|password reset|notification|digest' docs/01b-product-spec.md 2>/dev/null; then
+  run_agent email-templates "Configure $EMAIL_PROVIDER and generate templates."
+fi
+
+# Phase 7 — Implementation fan-out
+# Gemini does NOT guarantee parallel subagent execution. We run sequentially.
+log "Phase 7 — Implementation (sequential; Gemini lacks reliable parallel subagents)"
+run_agent backend-developer "Implement backend per the dev plan, reading docs/00-tech-stack.md as the contract."
+run_agent frontend-developer "Implement frontend per the dev plan."
+run_agent db-migrator "Generate migrations + seed data."
+
+# Phase 7.5 — api-docs
+run_agent api-docs "Scan implemented routes and generate docs/07-api-reference.md + openapi.yaml."
+
+# Phase 7.7 — e2e-tester
+run_agent e2e-tester "Generate Playwright suite covering wedge workflow + auth + error states + responsive."
+
+# Phase 8 — Quality gates
+log "Phase 8 — Quality gates"
+GATE_ATTEMPTS=0
+until scripts/quality-gates.sh; do
+  GATE_ATTEMPTS=$(( GATE_ATTEMPTS + 1 ))
+  (( GATE_ATTEMPTS > 3 )) && fail "Quality gates failed 3 times — surface to user"
+  warn "Quality gate failed; routing to fix"
+  run_agent backend-developer "Fix quality gate failures from scripts/quality-gates.sh output."
+done
+
+# Phase 9 — adversarial-tester
+run_agent adversarial-tester "Write boundary, property, fuzz, and concurrency tests."
+scripts/quality-gates.sh || run_agent backend-developer "Fix mutation/contract failures."
+
+# Phase 10 — security-auditor
+run_agent security-auditor "Run security audit; fix Critical/High."
+
+# Phase 11 — dogfood
+DOGFOOD_VERDICT=$(run_agent dogfood "Boot dev server, walk wedge workflow, score 0-10. Output VERDICT: SHIP|POLISH|LOOP|RETHINK." \
+  | grep -oE 'VERDICT: (SHIP|POLISH|LOOP|RETHINK)' | awk '{print $2}' | head -1)
+case "$DOGFOOD_VERDICT" in
+  SHIP) log "✓ Dogfood SHIP" ;;
+  POLISH) run_agent frontend-developer "Polish per dogfood feedback (one round)." ;;
+  LOOP) run_agent ux-designer "Revise design per dogfood feedback." && run_agent frontend-developer "Reimplement." ;;
+  RETHINK) fail "Dogfood RETHINK — architecture problem, surface to user" ;;
+esac
+
+# Phase 11.5 — perf-tester (launch+ only)
+if [[ "$TIER" == "launch" || "$TIER" == "scale" ]]; then
+  run_agent perf-tester "Generate k6 load tests; check N+1; baseline bundle size."
+fi
+
+# Phase 11.7 — reviewer (launch+ only)
+if [[ "$TIER" == "launch" || "$TIER" == "scale" ]]; then
+  run_agent reviewer "Full-repo cross-cutting review; fix issues."
+fi
+
+# Phase 12 — pricing + positioning
+run_agent pricing "Produce docs/16-pricing.md."
+run_agent positioning "Produce docs/17-positioning.md (reads pricing)."
+
+# Phase 12.5 — Human checkpoint 3
+HEADLINE=$(grep -A1 'Headline:' docs/17-positioning.md 2>/dev/null | head -3)
+TIERS=$(grep -A2 '^## Tiers' docs/16-pricing.md 2>/dev/null | head -10)
+if ! human_checkpoint "Pricing + Positioning" "$TIERS\n\n$HEADLINE"; then
+  run_agent positioning "Revise headline + value prop."
+fi
+
+# Phase 13 — landing-page
+run_agent landing-page "Generate the landing page."
+
+# Phase 13.5 — legal-compliance
+if [[ "$TIER" != "toy" ]]; then
+  run_agent legal-compliance "Generate privacy policy, ToS, cookie banner, GDPR endpoints."
+fi
+
+# Phase 14-18 — Ops (launch+ only)
+if [[ "$TIER" == "launch" || "$TIER" == "scale" ]]; then
+  log "Phase 15-18 — Ops (launch+ tier)"
+  run_agent background-jobs "Wire BullMQ + Redis if async needed."
+  run_agent env-manager "Set up dev/staging/prod env separation."
+  run_agent cicd "Generate Buildkite pipeline + Dockerfile."
+  run_agent deployer "Provision Terraform IaC for $CLOUD."
+  run_agent observability "Wire pino + Sentry + monitoring."
+  run_agent rollback "Wire deploy verification + auto-rollback."
+  if [[ "$TIER" == "scale" ]]; then
+    run_agent production-readiness "Run PRR checklist."
+  fi
+fi
+
+# Phase 19 — Preview ship
+log "Phase 19 — Preview ship"
+case "$TIER" in
+  toy) echo "Run instructions: pnpm dev" ;;
+  preview) gemini -p "@deployer Deploy to preview tier (Vercel/Fly)." --yolo ;;
+  launch|scale) bash .buildkite/scripts/deploy.sh 2>&1 | tee state/deploy.log ;;
+esac
+
+# Phase 19.5 — Human checkpoint 4 (GO/NO-GO)
+if ! human_checkpoint "GO/NO-GO" "Preview ship complete. Confirm public exposure?"; then
+  fail "User aborted at GO/NO-GO"
+fi
+
+# Phase 20 — analytics + handoff
+run_agent analytics "Instrument PostHog on the wedge workflow."
+
+log "✓ Build complete"
+echo
+echo "Next steps:"
+echo "  - Review docs/06-iteration-log.md"
+echo "  - Schedule weekly signal-iterate via cron:"
+echo "      0 9 * * MON cd $ROOT && bin/gemini-signal-iterate"
+echo

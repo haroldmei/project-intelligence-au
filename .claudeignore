@@ -1,0 +1,10 @@
+.claude/
+.deepeval/
+.gemini/
+.githooks/
+.gstack/
+.pytest_cache/
+.ruff_cache/
+.VSCodeCounter/
+node_modules/
+.codex/

@@ -1,0 +1,23 @@
+description = "Signal-driven iteration. Reads PostHog/Sentry/support signals, picks the one change that would most move the wedge funnel, and ships it. Pair with cron for weekly cadence — Gemini has no native scheduling primitive."
+
+prompt = """
+Run the bash wrapper:
+
+```
+bin/gemini-signal-iterate "{{args}}"
+```
+
+The wrapper invokes @signal-iterate, which:
+1. Discovers signal sources (POSTHOG_API_KEY, SENTRY_API_TOKEN, etc.)
+2. Pulls behavior, failure, and voice signals
+3. Forces a single answer: the one change that would move the
+   most-leaking step of the wedge funnel by ≥ 5 percentage points
+4. Re-checks kill switches from docs/01c-wedge.md
+5. Implements + instruments the success metric
+
+For weekly cadence, add to crontab (Gemini lacks native scheduling):
+
+  0 9 * * MON cd $(pwd) && bin/gemini-signal-iterate >> state/signal-iterate.log 2>&1
+
+Forward the output verbatim.
+"""

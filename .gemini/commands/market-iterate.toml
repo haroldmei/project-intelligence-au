@@ -1,0 +1,19 @@
+description = "Market-driven iteration loop. Use post-launch when you want a market re-scan + gap analysis + implementation pass. For signal-driven iteration (PostHog/Sentry), use /signal-iterate instead."
+
+prompt = """
+Run the bash wrapper:
+
+```
+bin/gemini-iterate "{{args}}"
+```
+
+The wrapper invokes @iterate, which:
+1. Re-reads docs/01-market-analysis.md and web-searches for new
+   competitors / pricing / regulatory changes
+2. Performs gap analysis (FRs/NFRs vs. implementation)
+3. Appends [Iteration N] tasks to docs/04-dev-plan.md
+4. Implements + tests until green
+5. Updates docs/06-iteration-log.md
+
+Forward the output verbatim.
+"""
