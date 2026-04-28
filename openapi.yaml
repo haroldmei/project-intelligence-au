@@ -1,0 +1,1595 @@
+openapi: 3.1.0
+info:
+  title: ProjectIntelligence AU API
+  version: 1.0.0
+  description: |
+    API for ProjectIntelligence AU (PI-AU) — a SaaS product delivering weekly curated digests
+    of roofing-relevant Development Applications to Sydney subcontractor businesses.
+
+    **Wedge:** The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+
+    **Tech Stack Contract:** docs/00-tech-stack.md (LOCKED 2026-04-28)
+
+    **Scale Tier:** preview
+  contact:
+    name: ProjectIntelligence AU Support
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:3000/api
+    description: Development
+  - url: https://pi-au.example.com/api
+    description: Production (preview)
+
+tags:
+  - name: Authentication
+    description: User account creation, login, email verification, password reset
+  - name: Account
+    description: User profile, LGA bundle selection, saved query, SMS preferences, data export, account deletion
+  - name: Feedback
+    description: Record DA thumbs feedback (👍/👎) via portal or email links
+  - name: Billing
+    description: Stripe checkout sessions and billing portal management
+  - name: Digests
+    description: List digest history and view sent digests
+  - name: Webhooks
+    description: Inbound verified webhooks from Stripe and Twilio (not for client consumption)
+  - name: Cron
+    description: Internal cron handlers for digestion and ingestion (not for client consumption)
+  - name: Short URLs
+    description: SMS link shortener redirect
+
+paths:
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Authentication Routes
+  # ──────────────────────────────────────────────────────────────────────────────
+
+  /auth/signup:
+    post:
+      summary: Register a new user account
+      operationId: authSignup
+      tags:
+        - Authentication
+      description: |
+        Create a new user account with email, password, and mobile number.
+        Returns a new Lucia session cookie and triggers email OTP verification.
+        Rate limited to 5 requests per minute per IP.
+        **FR-001 (Self-serve signup)**: Enable 60-second account creation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+      responses:
+        '201':
+          description: User created; session cookie set; email OTP dispatched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignupResponse'
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: lucia_session=<session_id>; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000
+        '400':
+          description: Invalid JSON body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Email already in use
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error (email format, password policy, mobile E.164 format)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '429':
+          description: Rate limit exceeded (5/min per IP)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                description: Seconds until rate limit resets
+
+  /auth/login:
+    post:
+      summary: Authenticate with email and password
+      operationId: authLogin
+      tags:
+        - Authentication
+      description: |
+        Authenticate a user with their email and password credentials.
+        Returns a new Lucia session cookie on success.
+        Rate limited to 5 requests per minute per IP.
+        **FR-002 (User authentication)**: Enable user login.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful; session cookie set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: lucia_session=<session_id>; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000
+        '400':
+          description: Invalid JSON body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid email or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '429':
+          description: Rate limit exceeded (5/min per IP)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+
+  /auth/logout:
+    post:
+      summary: Invalidate current session and clear session cookie
+      operationId: authLogout
+      tags:
+        - Authentication
+      description: |
+        Invalidate the authenticated Lucia session and clear the session cookie.
+        No authentication required (can be called by an unauthenticated user).
+        **FR-003 (User logout)**: Enable user logout.
+      security: []
+      responses:
+        '200':
+          description: Logout successful; session cookie cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: lucia_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0
+
+  /auth/me:
+    get:
+      summary: Get current authenticated user
+      operationId: authMe
+      tags:
+        - Authentication
+      description: |
+        Return the minimal session/user shape for the authenticated user.
+        Used by frontend RSC and SWR hooks to hydrate client state.
+        Requires active Lucia session.
+      security:
+        - LuciaSession: []
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/verify-email:
+    post:
+      summary: Verify email with OTP code
+      operationId: authVerifyEmail
+      tags:
+        - Authentication
+      description: |
+        Validate the 6-digit OTP emailed at signup and mark user.emailVerified = true.
+        Requires active Lucia session.
+        Rate limited to 10 requests per hour per user.
+        **FR-004 (Email verification)**: Enable email OTP verification.
+      security:
+        - LuciaSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpVerifyRequest'
+      responses:
+        '200':
+          description: Email verified successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verified:
+                    type: boolean
+                    example: true
+        '400':
+          description: Invalid JSON body or invalid/expired OTP code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error (OTP format)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '429':
+          description: Rate limit exceeded (10/hour per user)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+
+  /auth/verify-email/resend:
+    post:
+      summary: Resend email verification OTP
+      operationId: authResendVerifyEmail
+      tags:
+        - Authentication
+      description: |
+        Resend the email OTP verification code.
+        Rate limited to 1 request per minute per account.
+        Requires active Lucia session.
+      security:
+        - LuciaSession: []
+      responses:
+        '200':
+          description: OTP resent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent:
+                    type: boolean
+                    example: true
+        '400':
+          description: Email already verified or invalid JSON body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded (1/min per account)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+
+  /auth/password-reset/request:
+    post:
+      summary: Request password reset (send email)
+      operationId: authPasswordResetRequest
+      tags:
+        - Authentication
+      description: |
+        Request a password reset for an email address.
+        Always returns 200 (to prevent email enumeration).
+        If user exists, sends a password reset email with OTP code.
+        Rate limited to 5 requests per minute per IP.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequestRequest'
+      responses:
+        '200':
+          description: Password reset request processed (user notified if account exists)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+        '400':
+          description: Invalid JSON body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error (email format)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '429':
+          description: Rate limit exceeded (5/min per IP)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+
+  /auth/password-reset/confirm:
+    post:
+      summary: Confirm password reset with token
+      operationId: authPasswordResetConfirm
+      tags:
+        - Authentication
+      description: |
+        Validate the reset OTP token and set a new password.
+        Invalidates all existing Lucia sessions (force re-login).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmRequest'
+      responses:
+        '200':
+          description: Password reset successful; all sessions invalidated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+        '400':
+          description: Invalid JSON body or invalid/expired reset token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error (missing email, password policy, token format)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Account Routes
+  # ──────────────────────────────────────────────────────────────────────────────
+
+  /account/me:
+    get:
+      summary: Get current account profile
+      operationId: accountGetMe
+      tags:
+        - Account
+      description: |
+        Retrieve the authenticated user's account profile.
+        Requires active Lucia session.
+      security:
+        - LuciaSession: []
+      responses:
+        '200':
+          description: Account profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Update account profile
+      operationId: accountUpdateMe
+      tags:
+        - Account
+      description: |
+        Update the authenticated user's account profile.
+        Requires active Lucia session.
+      security:
+        - LuciaSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        '400':
+          description: Invalid JSON body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  /account/lga-bundles:
+    get:
+      summary: Get user's selected LGA bundles
+      operationId: accountGetLgaBundles
+      tags:
+        - Account
+      description: |
+        Retrieve the authenticated user's selected LGA bundle IDs.
+        **FR-020 (LGA selection)**: Enable self-serve LGA bundle customization.
+      security:
+        - LuciaSession: []
+      responses:
+        '200':
+          description: List of selected LGA bundle IDs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LgaBundlesResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Update user's selected LGA bundles
+      operationId: accountUpdateLgaBundles
+      tags:
+        - Account
+      description: |
+        Update the authenticated user's selected LGA bundles.
+        Accepts an array of bundle IDs.
+      security:
+        - LuciaSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLgaBundlesRequest'
+      responses:
+        '200':
+          description: LGA bundles updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        '400':
+          description: Invalid JSON body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  /account/saved-query:
+    get:
+      summary: Get user's saved search query
+      operationId: accountGetSavedQuery
+      tags:
+        - Account
+      description: |
+        Retrieve the authenticated user's saved search query text.
+        The embedding is stored server-side and used in the relevance pipeline.
+      security:
+        - LuciaSession: []
+      responses:
+        '200':
+          description: Saved query text
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedQueryResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Update user's saved search query
+      operationId: accountUpdateSavedQuery
+      tags:
+        - Account
+      description: |
+        Update the authenticated user's saved search query.
+        Re-embeds the query server-side using OpenAI text-embedding-3-small.
+      security:
+        - LuciaSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSavedQueryRequest'
+      responses:
+        '200':
+          description: Saved query updated and re-embedded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedQueryResponse'
+        '400':
+          description: Invalid JSON body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  /account/sms-opt-in:
+    post:
+      summary: Opt in to SMS digests
+      operationId: accountSmsOptIn
+      tags:
+        - Account
+      description: |
+        Opt the authenticated user in to SMS digest delivery.
+        **FR-022 (SMS delivery)**: Enable user SMS preferences.
+      security:
+        - LuciaSession: []
+      responses:
+        '200':
+          description: SMS opt-in recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /account/sms-opt-out:
+    post:
+      summary: Opt out of SMS digests
+      operationId: accountSmsOptOut
+      tags:
+        - Account
+      description: |
+        Opt the authenticated user out of SMS digest delivery.
+      security:
+        - LuciaSession: []
+      responses:
+        '200':
+          description: SMS opt-out recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /account/export:
+    get:
+      summary: Export account data (Privacy Act)
+      operationId: accountExport
+      tags:
+        - Account
+      description: |
+        Export all authenticated user's account data as JSON.
+        Supports Privacy Act 1988 (Cth) and GDPR data subject access requests.
+      security:
+        - LuciaSession: []
+      responses:
+        '200':
+          description: JSON file download with all user data
+          content:
+            application/json:
+              schema:
+                type: object
+                description: User's personal data export (schema varies)
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="pi-au-data-export-<user_id>.json"
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /account:
+    delete:
+      summary: Delete account (GDPR/Privacy Act erasure)
+      operationId: accountDelete
+      tags:
+        - Account
+      description: |
+        Permanently delete the authenticated user's account and all associated data.
+        Supports Privacy Act 1988 (Cth) right to erasure.
+        Invalidates the current session upon success.
+      security:
+        - LuciaSession: []
+      responses:
+        '200':
+          description: Account deleted; session invalidated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    example: true
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: lucia_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Feedback Routes
+  # ──────────────────────────────────────────────────────────────────────────────
+
+  /feedback:
+    post:
+      summary: Record thumbs feedback (authenticated portal)
+      operationId: feedbackRecord
+      tags:
+        - Feedback
+      description: |
+        Record 👍/👎 feedback on a DA from the web portal.
+        Requires active Lucia session.
+        Feedback is used for personalised reranking after ≥200 labelled pairs.
+        **FR-024 (Portal thumbs feedback)**: Enable in-portal single-tap feedback.
+      security:
+        - LuciaSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PortalFeedbackRequest'
+      responses:
+        '200':
+          description: Feedback recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+        '400':
+          description: Invalid JSON body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  /feedback/{token}:
+    get:
+      summary: Record thumbs feedback from email link (HMAC token)
+      operationId: feedbackRecordFromEmail
+      tags:
+        - Feedback
+      description: |
+        Record 👍/👎 feedback from email link tap.
+        Token is HMAC-signed and valid for 7 days.
+        On success: records feedback and redirects to portal with toast.
+        On failure: returns plain HTML "link expired — view in portal".
+        **FR-023 (Email thumbs feedback)**: Enable email link feedback capture.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+          description: HMAC-signed feedback token from email link
+      responses:
+        '302':
+          description: Feedback recorded; redirected to portal with toast
+          headers:
+            Location:
+              schema:
+                type: string
+                example: https://pi-au.example.com/portal?feedback=recorded&daId=...&vote=up
+        '400':
+          description: Invalid feedback link (malformed token)
+          content:
+            text/html:
+              schema:
+                type: string
+                example: "<html>...</html>"
+        '410':
+          description: Feedback link expired (> 7 days)
+          content:
+            text/html:
+              schema:
+                type: string
+                example: "<html>...</html>"
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Billing Routes
+  # ──────────────────────────────────────────────────────────────────────────────
+
+  /billing/checkout:
+    post:
+      summary: Create Stripe checkout session
+      operationId: billingCheckout
+      tags:
+        - Billing
+      description: |
+        Create a Stripe Checkout session for a billing plan (solo or team).
+        Returns a Stripe Checkout URL.
+        Requires active Lucia session.
+        **FR-018 (Subscription checkout)**: Enable Stripe AU billing with GST.
+      security:
+        - LuciaSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+      responses:
+        '200':
+          description: Checkout session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutResponse'
+        '400':
+          description: Invalid JSON body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error (invalid plan)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  /billing/portal:
+    post:
+      summary: Redirect to Stripe Billing Portal
+      operationId: billingPortal
+      tags:
+        - Billing
+      description: |
+        Create and return a Stripe Billing Portal session URL.
+        Allows users to manage subscriptions, cancel, upgrade/downgrade.
+        Requires active Lucia session.
+        **FR-019 (Subscription management)**: Enable Stripe Billing Portal access.
+      security:
+        - LuciaSession: []
+      responses:
+        '200':
+          description: Billing portal URL created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingPortalResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No billing account found for this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Digests Routes
+  # ──────────────────────────────────────────────────────────────────────────────
+
+  /digests:
+    get:
+      summary: List digest history
+      operationId: digestsList
+      tags:
+        - Digests
+      description: |
+        Retrieve the last 20 digests sent to the authenticated user.
+        **FR-026 (Digest history)**: Enable web portal digest browsing.
+      security:
+        - LuciaSession: []
+      responses:
+        '200':
+          description: List of digests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DigestListResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Webhooks (internal — not for client consumption)
+  # ──────────────────────────────────────────────────────────────────────────────
+
+  /webhooks/stripe:
+    post:
+      summary: '[Internal] Stripe webhook receiver'
+      operationId: webhooksStripe
+      tags:
+        - Webhooks
+      description: |
+        Idempotent Stripe webhook handler.
+        Validates Stripe-Signature header and updates user subscription status.
+        **Not for client consumption.** Stripe calls this endpoint.
+        **FR-030 (Subscription webhooks)**: Handle Stripe subscription state changes.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Stripe event JSON
+      responses:
+        '200':
+          description: Webhook received and processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+        '400':
+          description: Missing or invalid Stripe-Signature header
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Handler error (Stripe will retry)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /webhooks/twilio:
+    post:
+      summary: '[Internal] Twilio SMS webhook receiver'
+      operationId: webhooksTwilio
+      tags:
+        - Webhooks
+      description: |
+        Idempotent Twilio webhook handler.
+        Validates Twilio request signature and processes SMS replies (STOP keyword).
+        **Not for client consumption.** Twilio calls this endpoint.
+        **FR-029 (SMS STOP handling)**: Handle Twilio SMS opt-out via STOP keyword.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                Body:
+                  type: string
+                  description: SMS message text
+                From:
+                  type: string
+                  description: Sender phone number (E.164 format)
+      responses:
+        '200':
+          description: Webhook processed; returns empty TwiML
+          content:
+            application/xml:
+              schema:
+                type: string
+                example: "<Response/>"
+        '403':
+          description: Invalid Twilio signature
+          content:
+            application/xml:
+              schema:
+                type: string
+                example: "<Response/>"
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Cron Routes (internal — not for client consumption)
+  # ──────────────────────────────────────────────────────────────────────────────
+
+  /cron/digest:
+    post:
+      summary: '[Internal] Sunday digest generation (Vercel Cron)'
+      operationId: cronDigest
+      tags:
+        - Cron
+      description: |
+        Vercel Cron handler — Sunday 17:00 AEST (07:00 UTC).
+        Generates and dispatches weekly digests for all active users.
+        **Not for client consumption.** Vercel Cron calls this endpoint.
+        **FR-009 (Weekly digest delivery)**: Generate and send Sunday digests.
+      security:
+        - CronSecret: []
+      responses:
+        '200':
+          description: Digest cron completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronDigestResponse'
+        '401':
+          description: Invalid or missing CRON_SECRET
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Cron execution failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /cron/ingest:
+    post:
+      summary: '[Internal] Nightly DA ingestion (Vercel Cron)'
+      operationId: cronIngest
+      tags:
+        - Cron
+      description: |
+        Vercel Cron handler — daily 13:00 UTC (23:00 AEST).
+        Fetches new DAs from NSW Planning Portal and council APIs.
+        **Not for client consumption.** Vercel Cron calls this endpoint.
+      security:
+        - CronSecret: []
+      responses:
+        '200':
+          description: Ingestion completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronIngestResponse'
+        '401':
+          description: Invalid or missing CRON_SECRET
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Cron execution failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /cron/trial-reminder:
+    post:
+      summary: '[Internal] Trial reminder (Vercel Cron)'
+      operationId: cronTrialReminder
+      tags:
+        - Cron
+      description: |
+        Vercel Cron handler — daily 06:00 UTC (16:00 AEST).
+        Sends trial expiration reminder emails to users on day 12 of trial.
+        **Not for client consumption.** Vercel Cron calls this endpoint.
+        **FR-028 (Trial expiration reminder)**: Notify users before trial ends.
+      security:
+        - CronSecret: []
+      responses:
+        '200':
+          description: Trial reminders sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reminded:
+                    type: integer
+                    example: 5
+        '401':
+          description: Invalid or missing CRON_SECRET
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Short URL Routes
+  # ──────────────────────────────────────────────────────────────────────────────
+
+  /s/{slug}:
+    get:
+      summary: URL shortener redirect
+      operationId: shortUrlRedirect
+      tags:
+        - Short URLs
+      description: |
+        Self-hosted URL shortener redirect for SMS links.
+        No third-party shortener; slugs are stored in Postgres.
+        **FR-011 (SMS shortened links)**: Enable self-hosted URL shortening.
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Short URL slug
+      responses:
+        '302':
+          description: Redirected to target URL
+          headers:
+            Location:
+              schema:
+                type: string
+        '404':
+          description: Short URL not found
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Not found"
+
+components:
+  schemas:
+    # ────────────────────────────────────────────────────────────────────────────
+    # Shared Response Schemas
+    # ────────────────────────────────────────────────────────────────────────────
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+      required:
+        - error
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        issues:
+          type: object
+          description: Field-level validation errors
+      required:
+        - error
+        - issues
+
+    # ────────────────────────────────────────────────────────────────────────────
+    # Authentication Schemas
+    # ────────────────────────────────────────────────────────────────────────────
+
+    SignupRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: eli@roofing-co.com.au
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+          example: MySecurePassword123!
+          description: Minimum 12 characters, mixed case and symbols recommended
+        mobile_e164:
+          type: string
+          pattern: '^\+[1-9]\d{6,14}$'
+          example: '+61412345678'
+          description: E.164 format mobile number
+        trade:
+          type: string
+          enum: [roofing]
+          default: roofing
+          description: Locked to 'roofing' in V1
+        acceptTerms:
+          type: boolean
+          enum: [true]
+          description: User must accept terms to sign up
+      required:
+        - email
+        - password
+        - mobile_e164
+        - acceptTerms
+
+    SignupResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174000
+        otpDispatched:
+          type: boolean
+          example: true
+          description: Email OTP sent for verification
+      required:
+        - userId
+        - otpDispatched
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: eli@roofing-co.com.au
+        password:
+          type: string
+          example: MySecurePassword123!
+      required:
+        - email
+        - password
+
+    LoginResponse:
+      type: object
+      properties:
+        session_set:
+          type: boolean
+          example: true
+      required:
+        - session_set
+
+    MeResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        emailVerified:
+          type: boolean
+        subscriptionStatus:
+          type: string
+          enum: [trial, active, cancelled, past_due]
+        trade:
+          type: string
+          example: roofing
+        sessionExpiresAt:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp
+      required:
+        - userId
+        - email
+        - emailVerified
+        - subscriptionStatus
+        - trade
+        - sessionExpiresAt
+
+    OtpVerifyRequest:
+      type: object
+      properties:
+        code:
+          type: string
+          pattern: '^\d{6}$'
+          minLength: 6
+          maxLength: 6
+          example: '123456'
+          description: 6-digit numeric OTP
+      required:
+        - code
+
+    PasswordResetRequestRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: eli@roofing-co.com.au
+      required:
+        - email
+
+    PasswordResetConfirmRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: eli@roofing-co.com.au
+          description: Email is required to identify account (token alone is not sufficient in V1)
+        token:
+          type: string
+          minLength: 1
+          example: '123456'
+          description: Reset OTP code from email
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+          example: NewSecurePassword456!
+      required:
+        - email
+        - token
+        - password
+
+    # ────────────────────────────────────────────────────────────────────────────
+    # Account Schemas
+    # ────────────────────────────────────────────────────────────────────────────
+
+    AccountResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        lgaBundles:
+          type: array
+          items:
+            type: string
+          example: [sydney-inner-west, sydney-northern-beaches]
+        savedQueryText:
+          type: string
+          nullable: true
+          example: "Residential roof repairs and reroof work in Sydney"
+        smsOptIn:
+          type: boolean
+          example: true
+      required:
+        - id
+        - userId
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        mobile_e164:
+          type: string
+          pattern: '^\+[1-9]\d{6,14}$'
+          example: '+61412345678'
+      description: Only specified fields are updated
+
+    LgaBundlesResponse:
+      type: object
+      properties:
+        bundle_ids:
+          type: array
+          items:
+            type: string
+          example: [sydney-inner-west, sydney-northern-beaches, sydney-western-suburbs]
+      required:
+        - bundle_ids
+
+    UpdateLgaBundlesRequest:
+      type: object
+      properties:
+        bundle_ids:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          example: [sydney-inner-west, sydney-northern-beaches]
+      required:
+        - bundle_ids
+
+    SavedQueryResponse:
+      type: object
+      properties:
+        saved_query_text:
+          type: string
+          nullable: true
+          example: "Residential roof repairs and reroof work in Sydney"
+      required:
+        - saved_query_text
+
+    UpdateSavedQueryRequest:
+      type: object
+      properties:
+        saved_query_text:
+          type: string
+          minLength: 1
+          maxLength: 500
+          example: "Residential roof repairs and reroof work in Sydney"
+      required:
+        - saved_query_text
+
+    # ────────────────────────────────────────────────────────────────────────────
+    # Feedback Schemas
+    # ────────────────────────────────────────────────────────────────────────────
+
+    PortalFeedbackRequest:
+      type: object
+      properties:
+        da_id:
+          type: string
+          example: '2025/123456'
+          description: Development Application ID
+        feedback:
+          type: string
+          enum: [up, down, remove]
+          example: up
+          description: Thumbs up, thumbs down, or remove existing feedback
+      required:
+        - da_id
+        - feedback
+
+    # ────────────────────────────────────────────────────────────────────────────
+    # Billing Schemas
+    # ────────────────────────────────────────────────────────────────────────────
+
+    CheckoutRequest:
+      type: object
+      properties:
+        plan:
+          type: string
+          enum: [solo, team]
+          example: solo
+          description: Solo = AUD 199/mo (1 seat); Team = AUD 499/mo (3 seats)
+      required:
+        - plan
+
+    CheckoutResponse:
+      type: object
+      properties:
+        checkout_url:
+          type: string
+          format: uri
+          example: 'https://checkout.stripe.com/pay/cs_test_...'
+      required:
+        - checkout_url
+
+    BillingPortalResponse:
+      type: object
+      properties:
+        portal_url:
+          type: string
+          format: uri
+          example: 'https://billing.stripe.com/a/...'
+      required:
+        - portal_url
+
+    # ────────────────────────────────────────────────────────────────────────────
+    # Digest Schemas
+    # ────────────────────────────────────────────────────────────────────────────
+
+    DigestSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        sentAt:
+          type: string
+          format: date-time
+        daCount:
+          type: integer
+          example: 7
+        email_sent:
+          type: boolean
+        sms_sent:
+          type: boolean
+
+    DigestListResponse:
+      type: array
+      items:
+        $ref: '#/components/schemas/DigestSummary'
+
+    # ────────────────────────────────────────────────────────────────────────────
+    # Cron Schemas
+    # ────────────────────────────────────────────────────────────────────────────
+
+    CronDigestResponse:
+      type: object
+      properties:
+        users_processed:
+          type: integer
+          example: 42
+        sent:
+          type: integer
+          example: 40
+          description: Email digests sent successfully
+        failed:
+          type: integer
+          example: 2
+          description: Email/SMS delivery failures
+        run_id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174000
+        duration_ms:
+          type: integer
+          example: 45000
+          description: Cron execution time in milliseconds
+
+    CronIngestResponse:
+      type: object
+      properties:
+        ingested:
+          type: integer
+          example: 142
+          description: Total new DAs ingested
+        failed:
+          type: integer
+          example: 3
+          description: DAs that failed to ingest
+        perCouncil:
+          type: object
+          description: Ingestion results per council
+          additionalProperties:
+            type: object
+            properties:
+              ingested:
+                type: integer
+              failed:
+                type: integer
+          example:
+            sydney: { ingested: 50, failed: 1 }
+            randwick: { ingested: 45, failed: 1 }
+            manly: { ingested: 47, failed: 1 }
+
+  securitySchemes:
+    LuciaSession:
+      type: apiKey
+      in: cookie
+      name: lucia_session
+      description: Lucia session cookie (set automatically on login/signup)
+
+    CronSecret:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: |
+        Bearer token for Vercel Cron handlers.
+        Value: `Bearer ${CRON_SECRET}` (from GCP Secret Manager).
+        Not for client consumption.
+
+    HmacToken:
+      type: apiKey
+      in: query
+      name: token
+      description: HMAC-signed token from email feedback links (GET /api/feedback/{token})
