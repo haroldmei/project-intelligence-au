@@ -3,6 +3,7 @@
 // system-design §4 (API table): 5/IP/min rate limit
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
 import { hashPassword } from "@/lib/auth/passwords";
 import { lucia } from "@/lib/auth/lucia";
 import { createOtp } from "@/lib/auth/otp";
@@ -10,6 +11,15 @@ import { rateLimitByIp } from "@/lib/auth/rate-limit";
 import { serializeLuciaCookie } from "@/lib/auth/session";
 import { SignupSchema } from "@/lib/auth/schemas";
 import { sendEmail } from "@/lib/email/client";
+
+// E2E auto-verification bypass: test-mode Stripe + emails on the .test
+// reserved-TLD subdomain we own. Disappears the moment STRIPE_SECRET_KEY
+// is flipped to sk_live_, so it cannot survive into a real launch.
+const E2E_EMAIL_DOMAIN = /@e2e\.test\.pi-au\.com$/i;
+function isE2EAutoVerifyEmail(email: string): boolean {
+  if (!env.STRIPE_SECRET_KEY?.startsWith("sk_test_")) return false;
+  return E2E_EMAIL_DOMAIN.test(email);
+}
 
 export async function POST(req: NextRequest): Promise<Response> {
   // ── Rate limit: 5/min per IP ─────────────────────────────────────────────
@@ -57,6 +67,8 @@ export async function POST(req: NextRequest): Promise<Response> {
   // ── Hash password ─────────────────────────────────────────────────────────
   const passwordHash = await hashPassword(password);
 
+  const autoVerify = isE2EAutoVerifyEmail(normalizedEmail);
+
   // ── Create user (trade locked to 'roofing' — V1 wedge constraint) ─────────
   const user = await db.user.create({
     data: {
@@ -65,6 +77,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       mobile_e164,
       trade: "roofing",
       subscriptionStatus: "trial",
+      emailVerified: autoVerify,
     },
   });
 
@@ -72,18 +85,21 @@ export async function POST(req: NextRequest): Promise<Response> {
   const session = await lucia.createSession(user.id, {});
   const sessionCookie = lucia.createSessionCookie(session.id);
 
-  // ── Create email OTP (10-min expiry per otp.ts) ───────────────────────────
-  const otpCode = await createOtp(user.id, "verify");
-
-  // ── Send verification email ────────────────────────────────────────────────
-  await sendEmail({
-    to: normalizedEmail,
-    template: "verify-email",
-    props: { email: normalizedEmail, code: otpCode },
-  });
+  if (!autoVerify) {
+    const otpCode = await createOtp(user.id, "verify");
+    await sendEmail({
+      to: normalizedEmail,
+      template: "verify-email",
+      props: { email: normalizedEmail, code: otpCode },
+    });
+  }
 
   return Response.json(
-    { userId: user.id, otpDispatched: true },
+    {
+      userId: user.id,
+      otpDispatched: !autoVerify,
+      nextStep: autoVerify ? "/onboarding/area" : "/verify",
+    },
     {
       status: 201,
       headers: {
