@@ -97,9 +97,18 @@ async function signupAutoVerified(page: Page, slug: string): Promise<string> {
 
 async function completeOnboardingArea(page: Page): Promise<void> {
   await dismissCookieBanner(page);
-  // Pick the first LGA bundle and continue.
+  // Step 3 — pick the first LGA bundle and continue.
   await page.getByRole("button", { name: /western sydney/i }).first().click();
   await page.getByRole("button", { name: /^continue$/i }).click();
+
+  // Step 4 — saved-query capture. Use the default to keep the test
+  // deterministic (and to exercise the default-fill path).
+  await page.waitForURL("**/onboarding/query", { timeout: 30_000 });
+  await dismissCookieBanner(page);
+  await page.getByRole("button", { name: /use the default/i }).click();
+  await page.getByRole("button", { name: /^continue$/i }).click();
+
+  // Step 5 — plan picker.
   await page.waitForURL("**/plan", { timeout: 30_000 });
   await dismissCookieBanner(page);
 }

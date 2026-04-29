@@ -58,7 +58,7 @@ export default function AreaPage() {
         setServerError(json.error ?? "Failed to save area. Please try again.");
         return;
       }
-      router.push("/plan");
+      router.push("/onboarding/query");
     } catch {
       setServerError("Network error. Please try again.");
     } finally {
@@ -69,7 +69,7 @@ export default function AreaPage() {
   return (
     <div className="bg-white rounded-xl border border-[#E5E5E5] shadow-sm p-6 space-y-5">
       <div className="flex items-center justify-end text-xs text-[#829AB1]">
-        <span>Step 3 of 4</span>
+        <span>Step 3 of 5</span>
       </div>
 
       <div>

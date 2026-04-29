@@ -101,7 +101,7 @@ export default function VerifyPage() {
   return (
     <div className="bg-white rounded-xl border border-[#E5E5E5] shadow-sm p-6 space-y-5">
       <div className="flex items-center justify-end text-xs text-[#829AB1]">
-        <span>Step 2 of 4</span>
+        <span>Step 2 of 5</span>
       </div>
 
       <div>

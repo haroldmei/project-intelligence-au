@@ -56,7 +56,7 @@ export default function SignupPage() {
         >
           ← Back
         </Link>
-        <span>Step 1 of 4</span>
+        <span>Step 1 of 5</span>
       </div>
 
       <div>
