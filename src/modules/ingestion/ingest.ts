@@ -16,25 +16,27 @@ import type { RawDaRecord } from "./sources";
 
 const log = pino({ name: "ingestion" });
 
-/** All 15 supported LGA council slugs (wedge: 15 LGAs). */
+/** All 15 supported LGA council slugs. Keep in sync with prisma/seed.ts LGAS. */
 export const ALL_COUNCIL_SLUGS = [
-  // NSW Planning Portal coverage
+  // Western Sydney
   "blacktown",
-  "blue_mountains",
-  "camden",
-  "campbelltown_nsw",
-  "fairfield",
-  "hawkesbury",
-  "hills_shire",
-  "liverpool",
+  "cumberland",
   "parramatta",
   "penrith",
-  "wollondilly",
-  // DA Leads / Council DA coverage
-  "bayside_nsw",
+  "the_hills",
+  // Inner West & City
+  "burwood",
   "canada_bay",
+  "city_of_sydney",
   "inner_west",
-  "strathfield",
+  // Northern Sydney
+  "hornsby",
+  "ku_ring_gai",
+  "northern_beaches",
+  // Southern Sydney
+  "bayside",
+  "georges_river",
+  "sutherland",
 ] as const;
 
 export type CouncilSlug = (typeof ALL_COUNCIL_SLUGS)[number];

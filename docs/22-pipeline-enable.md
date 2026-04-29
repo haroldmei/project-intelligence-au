@@ -89,6 +89,14 @@ That's a shortcut for `tsx --env-file-if-exists=.env.production.local scripts/im
 
 It's **idempotent**: `(daId, council)` uniqueness means you can edit the file and re-run; existing rows get updated, embeddings get refreshed.
 
+If OpenAI billing/quota is temporarily blocked, the DA rows can still be loaded without vectors:
+
+```bash
+pnpm import-das:prod data/das/2026-04-week3.json --skip-embeddings
+```
+
+Use that only as an operational fallback. The digest pipeline needs embeddings for vector ranking, so fix OpenAI quota and rerun the normal import before sending a real Sunday digest.
+
 ### Cost
 
 Each DA costs one OpenAI `text-embedding-3-small` call — about **AUD $0.00006** per record at current pricing. 100 DAs = ~AUD $0.006. The script attributes embeddings to `userId: null` so nothing hits the per-user weekly cost ledger.

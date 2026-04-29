@@ -5,6 +5,7 @@
 //
 // Usage:
 //   pnpm exec tsx --env-file-if-exists=.env.local scripts/import-das.ts data/das/sample-roofing-week.json
+//   pnpm exec tsx --env-file-if-exists=.env.local scripts/import-das.ts data/das/sample-roofing-week.json --skip-embeddings
 //
 // Against production:
 //   DATABASE_URL=$(grep '^DATABASE_URL=' .env.production.local | cut -d= -f2-) \
@@ -22,7 +23,8 @@ import { embedBatch } from "@/lib/ai/embeddings";
 import { ALL_COUNCIL_SLUGS } from "@/modules/ingestion/ingest";
 import pino from "pino";
 
-const log = pino({ name: "import-das", transport: { target: "pino-pretty" } }).child({});
+const log = pino({ name: "import-das" });
+const SKIP_EMBEDDINGS_FLAG = "--skip-embeddings";
 
 const DaInputSchema = z.object({
   daId: z.string().min(1),
@@ -36,15 +38,23 @@ const DaInputSchema = z.object({
   rawScopeText: z.string().nullable().optional(),
 });
 
-type DaInput = z.infer<typeof DaInputSchema>;
-
 const FileSchema = z.array(DaInputSchema).min(1);
 
 async function main(): Promise<void> {
-  const filePath = process.argv[2];
+  const args = process.argv.slice(2);
+  const skipEmbeddings = args.includes(SKIP_EMBEDDINGS_FLAG);
+  const unknownFlags = args.filter((arg) => arg.startsWith("--") && arg !== SKIP_EMBEDDINGS_FLAG);
+  if (unknownFlags.length > 0) {
+    console.error(`unknown option(s): ${unknownFlags.join(", ")}`);
+    process.exitCode = 2;
+    return;
+  }
+
+  const filePath = args.find((arg) => !arg.startsWith("--"));
   if (!filePath) {
-    console.error("usage: tsx scripts/import-das.ts <path-to-json-file>");
-    process.exit(2);
+    console.error(`usage: tsx scripts/import-das.ts <path-to-json-file> [${SKIP_EMBEDDINGS_FLAG}]`);
+    process.exitCode = 2;
+    return;
   }
 
   const raw = readFileSync(filePath, "utf-8");
@@ -52,7 +62,8 @@ async function main(): Promise<void> {
   if (!parsed.success) {
     console.error("[import] validation failed:");
     console.error(JSON.stringify(parsed.error.issues, null, 2));
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   const records = parsed.data;
   log.info({ count: records.length, file: filePath }, "[import] starting");
@@ -92,6 +103,53 @@ async function main(): Promise<void> {
   // Stage 2 — embed every record. This pre-warms the cache so the Sunday
   // digest cron doesn't spend its per-user budget on first-touch embedding.
   // userId=null → no cost ledger row (system-level reference data).
+  if (skipEmbeddings) {
+    log.warn(
+      { count: records.length },
+      "[import] embeddings skipped; digests may fail or rank poorly until embeddings are backfilled",
+    );
+  } else {
+    try {
+      await writeEmbeddings(records);
+    } catch (err) {
+      if (isOpenAiQuotaError(err)) {
+        console.error(
+          [
+            "[import] OpenAI quota exhausted while writing DA embeddings.",
+            "The DA rows were already upserted; rerunning this importer is idempotent.",
+            `Fix OpenAI billing/quota and rerun, or rerun with ${SKIP_EMBEDDINGS_FLAG} to import rows without vectors.`,
+          ].join(" "),
+        );
+      }
+      throw err;
+    }
+  }
+  if (!skipEmbeddings) log.info({ count: records.length }, "[import] embeddings written");
+
+  // Stage 3 — write an ingestion_log entry per council so drift detection
+  // doesn't false-alarm on a council that's only fed by manual imports.
+  const byCouncil = new Map<string, number>();
+  for (const r of records) byCouncil.set(r.council, (byCouncil.get(r.council) ?? 0) + 1);
+  for (const [council, count] of byCouncil) {
+    await db.ingestionLog.create({
+      data: { council, sourceApi: "manual", daCount: count, success: true },
+    });
+  }
+  log.info({ councils: byCouncil.size }, "[import] ingestion_log written");
+
+  log.info({ skippedEmbeddings: skipEmbeddings }, "[import] done");
+}
+
+main()
+  .catch((err: unknown) => {
+    console.error("[import] fatal:", err);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await db.$disconnect();
+  });
+
+async function writeEmbeddings(records: z.infer<typeof DaInputSchema>[]): Promise<void> {
   const texts = records.map((r) =>
     `${r.address}. ${r.description}. ${r.rawScopeText ?? ""}`.trim(),
   );
@@ -113,24 +171,13 @@ async function main(): Promise<void> {
       ON CONFLICT (da_id) DO UPDATE SET embedding = EXCLUDED.embedding, embedded_at = now()
     `;
   }
-  log.info({ count: records.length }, "[import] embeddings written");
-
-  // Stage 3 — write an ingestion_log entry per council so drift detection
-  // doesn't false-alarm on a council that's only fed by manual imports.
-  const byCouncil = new Map<string, number>();
-  for (const r of records) byCouncil.set(r.council, (byCouncil.get(r.council) ?? 0) + 1);
-  for (const [council, count] of byCouncil) {
-    await db.ingestionLog.create({
-      data: { council, sourceApi: "manual", daCount: count, success: true },
-    });
-  }
-  log.info({ councils: byCouncil.size }, "[import] ingestion_log written");
-
-  log.info("[import] done");
-  await db.$disconnect();
 }
 
-main().catch((err: unknown) => {
-  console.error("[import] fatal:", err);
-  process.exit(1);
-});
+function isOpenAiQuotaError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const candidate = err as { code?: unknown; type?: unknown; status?: unknown };
+  return (
+    candidate.status === 429 &&
+    (candidate.code === "insufficient_quota" || candidate.type === "insufficient_quota")
+  );
+}
