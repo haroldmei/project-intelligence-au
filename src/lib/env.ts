@@ -99,9 +99,13 @@ const Schema = z.object(baseShape).superRefine((data, ctx) => {
     };
 
     requireProd("RESEND_API_KEY");
+    // Accept sk_live_ (real charges) or sk_test_ (end-to-end testing on prod
+    // URL with test cards). Mismatches between key mode and price/webhook mode
+    // surface as Stripe 400s, not as env errors. Test mode in prod is logged
+    // loudly below so it can't slip into a real launch unnoticed.
     requireProd("STRIPE_SECRET_KEY", {
-      regex: /^sk_live_/,
-      reason: "must start with sk_live_ in production (sk_test_ is test mode)",
+      regex: /^sk_(live|test)_/,
+      reason: "must start with sk_live_ or sk_test_",
     });
     requireProd("STRIPE_WEBHOOK_SECRET", { regex: /^whsec_/, reason: "must start with whsec_" });
     requireProd("STRIPE_PRICE_ID_SOLO", { regex: /^price_/, reason: "must start with price_" });
@@ -141,6 +145,19 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 export type Env = typeof env;
+
+// Loud warning if test-mode Stripe creds are running in a production env.
+// Intentional during pre-launch end-to-end testing; should disappear before
+// real customers can pay.
+if (
+  (env.NODE_ENV === "production" || env.VERCEL_ENV === "production") &&
+  env.STRIPE_SECRET_KEY?.startsWith("sk_test_")
+) {
+  console.warn(
+    "[env] STRIPE in TEST MODE on a production deploy — real cards will be rejected. " +
+      "Switch to sk_live_ + live webhook + live price IDs before launch.",
+  );
+}
 
 /**
  * Names of every var the schema knows about, with a `required` flag derived
