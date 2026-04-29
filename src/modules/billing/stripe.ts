@@ -69,7 +69,7 @@ export async function ensureStripeCustomer(userId: string, email: string, stripe
 
   const customer = await stripePost<StripeCustomer>("/customers", {
     email,
-    metadata: JSON.stringify({ user_id: userId }),
+    "metadata[user_id]": userId,
   });
   log.info({ userId, customerId: customer.id }, "[billing] Stripe customer created");
   return customer.id;
