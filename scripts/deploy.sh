@@ -173,12 +173,12 @@ cmd_env_up() {
   local all_vars=("${REQUIRED_VARS[@]}" "${OPTIONAL_VARS[@]}")
   for v in "${all_vars[@]}"; do
     local val="${!v:-}"
-    if [[ -z "$val" ]]; then ((skipped++)); continue; fi
+    if [[ -z "$val" ]]; then ((skipped+=1)); continue; fi
     # Idempotent: remove first (silently), then add.
     vercel env rm "$v" production --yes >/dev/null 2>&1 || true
     printf '%s' "$val" | vercel env add "$v" production >/dev/null
     echo "  pushed $v"
-    ((pushed++))
+    ((pushed+=1))
   done
   ok "env-up done — $pushed pushed, $skipped skipped (empty)"
 }
