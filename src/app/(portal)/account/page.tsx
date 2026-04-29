@@ -105,6 +105,11 @@ export default function AccountPage() {
   const isPendingCancellation = !isCancelled && account.cancelAtPeriodEnd;
   const isTrial = status === "trial";
   const isPastDue = status === "past_due";
+  // The DB sets status="trial" at signup, before Stripe Checkout has run.
+  // accessUntil is only populated by the subscription.created webhook, so it's
+  // the reliable signal that a Stripe subscription actually exists.
+  const hasStripeSubscription = account.accessUntil != null;
+  const needsCheckout = !isCancelled && !hasStripeSubscription;
 
   return (
     <div className="px-4 py-6 space-y-6 max-w-xl">
@@ -125,7 +130,9 @@ export default function AccountPage() {
           <Row label="Plan" value={priceLabel} />
           <Row label="Seats" value={String(seats)} />
 
-          {isTrial ? (
+          {needsCheckout ? (
+            <Row label="Status" value="Trial not started" />
+          ) : isTrial ? (
             <Row label="Trial ends" value={formatDate(account.accessUntil)} />
           ) : isPendingCancellation || isCancelled ? (
             <Row label="Access until" value={formatDate(account.accessUntil)} />
@@ -136,7 +143,19 @@ export default function AccountPage() {
           )}
 
           <div className="px-4 py-3 space-y-2">
-            {isCancelled ? (
+            {needsCheckout ? (
+              <>
+                <p className="text-sm text-[#627D98]">
+                  Pick a plan to start your 14-day trial. Your card isn&apos;t charged until day 15.
+                </p>
+                <Link
+                  href="/plan"
+                  className="inline-flex items-center justify-center font-semibold rounded-md transition-all duration-[150ms] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] focus-visible:ring-offset-2 active:scale-95 bg-[#D97706] text-white hover:bg-[#B45309] min-h-[44px] h-12 px-6 text-base w-full"
+                >
+                  Choose a plan
+                </Link>
+              </>
+            ) : isCancelled ? (
               <>
                 <p className="text-sm text-[#A3A3A3]">
                   Subscription cancelled. Access ended {formatDate(account.accessUntil)}.
@@ -167,15 +186,17 @@ export default function AccountPage() {
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={handleManageBilling}
-              disabled={isPortalLoading}
-              aria-busy={isPortalLoading}
-              className="text-sm text-[#627D98] underline hover:text-[#102A43] transition-colors duration-[150ms] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D97706] rounded min-h-[44px] flex items-center disabled:opacity-50"
-            >
-              {isPortalLoading ? "Opening Stripe…" : "Manage billing (update card, invoices)"}
-            </button>
+            {!needsCheckout && (
+              <button
+                type="button"
+                onClick={handleManageBilling}
+                disabled={isPortalLoading}
+                aria-busy={isPortalLoading}
+                className="text-sm text-[#627D98] underline hover:text-[#102A43] transition-colors duration-[150ms] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D97706] rounded min-h-[44px] flex items-center disabled:opacity-50"
+              >
+                {isPortalLoading ? "Opening Stripe…" : "Manage billing (update card, invoices)"}
+              </button>
+            )}
           </div>
         </div>
       </section>
