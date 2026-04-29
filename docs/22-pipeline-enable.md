@@ -82,10 +82,10 @@ This reads `DATABASE_URL` and `OPENAI_API_KEY` from `.env.local`.
 ### Against production
 
 ```bash
-DATABASE_URL=$(grep '^DATABASE_URL=' .env.production.local | cut -d= -f2- | tr -d '"') \
-OPENAI_API_KEY=$(grep '^OPENAI_API_KEY=' .env.production.local | cut -d= -f2- | tr -d '"') \
-pnpm exec tsx scripts/import-das.ts data/das/2026-04-week3.json
+pnpm import-das:prod data/das/2026-04-week3.json
 ```
+
+That's a shortcut for `tsx --env-file-if-exists=.env.production.local scripts/import-das.ts <file>`, which loads every var the env validator needs from one file. Don't try to set `DATABASE_URL=…` and `OPENAI_API_KEY=…` on separate lines — bash variable assignments without `export` don't persist to the next command.
 
 It's **idempotent**: `(daId, council)` uniqueness means you can edit the file and re-run; existing rows get updated, embeddings get refreshed.
 
@@ -143,11 +143,16 @@ The endpoint runs `runDigestCron()` synchronously — for N ≤ 100 subscribers 
 
 ### Per-user manual run (no real email/SMS)
 
-If you want to drive the relevance pipeline for one user without sending an email, use the local script and point at the prod DB:
+If you want to drive the relevance pipeline for one user without sending an email, run the local script against prod credentials:
 
 ```bash
-DATABASE_URL=… OPENAI_API_KEY=… ANTHROPIC_API_KEY=… RESEND_API_KEY="" \
-pnpm digest:now <userId>
+pnpm digest:now:prod <userId>
+```
+
+To suppress real email sends during this dry run, blank `RESEND_API_KEY` for the call:
+
+```bash
+RESEND_API_KEY="" pnpm digest:now:prod <userId>
 ```
 
 Setting `RESEND_API_KEY=""` puts `email/client.ts` into dev-mode no-op (it `console.log`s instead of sending). The `Digest` and `DigestDa` rows still get created, so you can inspect what *would* have been emailed via SQL or the `/digest` portal page.

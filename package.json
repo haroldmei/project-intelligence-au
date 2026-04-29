@@ -13,7 +13,9 @@
     "test:billing": "vitest run -c vitest.backend.config.ts __tests__/billing __tests__/webhooks/stripe.test.ts",
     "test:billing:prod": "playwright test -c playwright.prod.config.ts",
     "import-das": "tsx --env-file-if-exists=.env.local scripts/import-das.ts",
+    "import-das:prod": "tsx --env-file-if-exists=.env.production.local scripts/import-das.ts",
     "digest:now": "tsx --env-file-if-exists=.env.local scripts/run-digest-now.ts",
+    "digest:now:prod": "tsx --env-file-if-exists=.env.production.local scripts/run-digest-now.ts",
     "eval:rerank": "promptfoo eval --config evals/rerank/promptfooconfig.yaml --no-cache"
   },
   "prisma": {
