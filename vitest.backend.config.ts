@@ -14,6 +14,7 @@ export default defineConfig({
     pool: "forks",
     fileParallelism: false,
     include: ["__tests__/**/*.test.ts"],
+    setupFiles: ["__tests__/setup-env.ts"],
     coverage: {
       provider: "v8",
       thresholds: {

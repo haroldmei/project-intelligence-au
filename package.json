@@ -10,6 +10,7 @@
     "vercel-build": "prisma generate && prisma migrate deploy && prisma db seed && tsx --env-file-if-exists=.env.local scripts/dev-seed.ts && next build",
     "dev:seed": "tsx --env-file-if-exists=.env.local scripts/dev-seed.ts",
     "test:emails": "vitest run evals/emails/render-snapshots.test.ts",
+    "test:billing": "vitest run -c vitest.backend.config.ts __tests__/billing __tests__/webhooks/stripe.test.ts",
     "eval:rerank": "promptfoo eval --config evals/rerank/promptfooconfig.yaml --no-cache"
   },
   "prisma": {

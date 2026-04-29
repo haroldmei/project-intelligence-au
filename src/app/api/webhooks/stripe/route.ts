@@ -61,8 +61,10 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 function isUniqueViolation(err: unknown): boolean {
-  // Prisma P2002 = unique constraint violation.
-  return err instanceof Error && err.message.includes("P2002");
+  // Prisma's known-request errors expose P2002 as a `code` property; the
+  // human-readable message ("Unique constraint failed…") doesn't include it.
+  if (typeof err !== "object" || err === null) return false;
+  return (err as { code?: unknown }).code === "P2002";
 }
 
 async function handleStripeEvent(type: string, obj: Record<string, unknown>): Promise<void> {

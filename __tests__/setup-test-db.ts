@@ -31,6 +31,7 @@ export async function truncateAll(): Promise<void> {
       user_consent,
       email_otps,
       sessions,
+      stripe_webhook_events,
       users,
       lgas,
       lga_bundles
