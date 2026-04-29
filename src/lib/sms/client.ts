@@ -8,6 +8,7 @@
 // NFR-027: every SMS includes "Reply STOP to opt out"
 import { createHmac } from "node:crypto";
 import pino from "pino";
+import { env } from "@/lib/env";
 
 const log = pino({ name: "sms" });
 
@@ -26,8 +27,8 @@ interface TwilioClient {
 }
 
 function getClient(): TwilioClient | null {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
+  const sid = env.TWILIO_ACCOUNT_SID;
+  const token = env.TWILIO_AUTH_TOKEN;
   if (!sid || !token) return null;
   if (_client) return _client;
   // Dynamic import — twilio isn't in package.json yet; we use the REST API directly
@@ -76,7 +77,7 @@ export async function sendSms(opts: SmsOptions): Promise<boolean> {
     log.debug({ to: opts.to }, "[DEV] SMS stub (TWILIO_* not set)");
     return false;
   }
-  const from = process.env.TWILIO_PHONE_NUMBER;
+  const from = env.TWILIO_PHONE_NUMBER;
   if (!from) {
     log.warn("TWILIO_PHONE_NUMBER not set — cannot send SMS");
     return false;
@@ -101,7 +102,7 @@ export function validateTwilioSignature(
   params: Record<string, string>,
   signature: string,
 ): boolean {
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const authToken = env.TWILIO_AUTH_TOKEN;
   if (!authToken) return false;
 
   // Twilio signature: HMAC-SHA1 over sorted param key=value pairs appended to URL

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DigestHeader } from "@/components/digest-header";
 import { DACard } from "@/components/da-card";
+import { env } from "@/lib/env";
 
 export const metadata: Metadata = {
   title: "Your Digest — ProjectIntelligence AU",
@@ -31,7 +32,7 @@ async function getCurrentDigest(): Promise<{
 } | null> {
   try {
     const res = await fetch(
-      `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/digests/current`,
+      `${env.NEXT_PUBLIC_APP_URL}/api/digests/current`,
       { cache: "no-store" }
     );
     if (!res.ok) return null;

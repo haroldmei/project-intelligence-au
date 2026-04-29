@@ -9,6 +9,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { env } from "@/lib/env";
 import {
   priceFor,
   recordAiCost,
@@ -64,13 +65,7 @@ export interface RerankResult {
 let _client: Anthropic | null = null;
 function getClient(): Anthropic {
   if (_client) return _client;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "[rerank] ANTHROPIC_API_KEY missing — set in env or .env.local",
-    );
-  }
-  _client = new Anthropic({ apiKey });
+  _client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   return _client;
 }
 

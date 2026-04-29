@@ -9,6 +9,7 @@
 // Replay window: we do NOT store used tokens (preview tier, no Redis);
 // email HMAC links are idempotent — submitting the same feedback twice just upserts.
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { env } from "@/lib/env";
 
 const WINDOW_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
@@ -18,12 +19,6 @@ export interface FeedbackTokenPayload {
   /** 1 = thumbs up, 0 = thumbs down */
   vote: 1 | 0;
   issuedAt: number; // unix seconds
-}
-
-function getSecret(): string {
-  const s = process.env.FEEDBACK_HMAC_SECRET;
-  if (!s) throw new Error("[hmac] FEEDBACK_HMAC_SECRET not set");
-  return s;
 }
 
 function canonical(payload: FeedbackTokenPayload): string {
@@ -36,7 +31,7 @@ function canonical(payload: FeedbackTokenPayload): string {
 }
 
 function sign(data: string): string {
-  return createHmac("sha256", getSecret()).update(data).digest("hex");
+  return createHmac("sha256", env.FEEDBACK_HMAC_SECRET).update(data).digest("hex");
 }
 
 /**

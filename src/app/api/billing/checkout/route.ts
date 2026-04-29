@@ -5,8 +5,9 @@ import { z } from "zod";
 import { validateRequest } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { ensureStripeCustomer, createCheckoutSession } from "@/modules/billing/stripe";
+import { env } from "@/lib/env";
 
-const APP_BASE = process.env.NEXT_PUBLIC_APP_URL ?? "https://pi-au.example.com";
+const APP_BASE = env.NEXT_PUBLIC_APP_URL;
 
 const CheckoutInput = z.object({
   plan: z.enum(["solo", "team"]),

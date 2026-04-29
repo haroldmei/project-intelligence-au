@@ -6,12 +6,13 @@ import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email/client";
 import { sendSms } from "@/lib/sms/client";
 import { issueFeedbackToken } from "@/lib/hmac/token";
+import { env } from "@/lib/env";
 import type { RelevanceRunResult } from "@/modules/relevance/run";
 import pino from "pino";
 
 const log = pino({ name: "digest-assemble" });
 
-const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://pi-au.example.com";
+const APP_BASE_URL = env.NEXT_PUBLIC_APP_URL;
 const SMS_MAX_CARDS = 3;
 
 export interface DigestSendResult {

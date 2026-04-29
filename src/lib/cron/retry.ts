@@ -6,6 +6,7 @@
 // On the second failure, rethrows so Vercel logs it and Sentry captures it.
 // Preview tier: no BullMQ, no queue (contract.queue.engine: none).
 import pino from "pino";
+import { env } from "@/lib/env";
 
 const log = pino({ name: "cron-retry" });
 
@@ -37,10 +38,8 @@ function delay(ms: number): Promise<void> {
 
 /** Verify the Vercel Cron secret header. Returns 401 Response if invalid. */
 export function verifyCronSecret(request: Request): Response | null {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return null; // dev: allow unauthenticated (no secret configured)
   const auth = request.headers.get("authorization");
-  if (auth !== `Bearer ${secret}`) {
+  if (auth !== `Bearer ${env.CRON_SECRET}`) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
   }
   return null;

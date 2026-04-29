@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PrecisionBadge } from "@/components/precision-badge";
+import { env } from "@/lib/env";
 
 export const metadata: Metadata = {
   title: "Digest History — ProjectIntelligence AU",
@@ -18,7 +19,7 @@ interface DigestSummary {
 async function getDigestHistory(): Promise<DigestSummary[]> {
   try {
     const res = await fetch(
-      `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/digests`,
+      `${env.NEXT_PUBLIC_APP_URL}/api/digests`,
       { cache: "no-store" }
     );
     if (!res.ok) return [];

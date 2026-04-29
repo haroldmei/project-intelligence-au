@@ -8,6 +8,7 @@
 // GST: Stripe AU / Stripe Tax handles GST line items (NFR-029) — no app-side GST logic needed.
 import { db } from "@/lib/db";
 import { validateStripeWebhook } from "@/modules/billing/stripe";
+import { env } from "@/lib/env";
 import pino from "pino";
 
 const log = pino({ name: "webhook-stripe" });
@@ -24,14 +25,13 @@ export async function POST(request: Request): Promise<Response> {
     return new Response(JSON.stringify({ error: "Missing Stripe-Signature" }), { status: 400 });
   }
 
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!webhookSecret) {
-    log.error("STRIPE_WEBHOOK_SECRET not set");
+  if (!env.STRIPE_WEBHOOK_SECRET) {
+    log.error("STRIPE_WEBHOOK_SECRET not set — webhook disabled in this environment");
     return new Response(JSON.stringify({ error: "Server misconfiguration" }), { status: 500 });
   }
 
   const rawBody = await request.text();
-  const { valid, event } = validateStripeWebhook(rawBody, signature, webhookSecret);
+  const { valid, event } = validateStripeWebhook(rawBody, signature, env.STRIPE_WEBHOOK_SECRET);
   if (!valid || !event) {
     log.warn({ signature: signature.slice(0, 30) }, "[webhook-stripe] invalid signature");
     return new Response(JSON.stringify({ error: "Invalid signature" }), { status: 400 });

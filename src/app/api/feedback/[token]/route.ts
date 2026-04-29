@@ -8,10 +8,11 @@
 import { NextResponse } from "next/server";
 import { validateFeedbackToken } from "@/lib/hmac/token";
 import { recordFeedback } from "@/modules/feedback/service";
+import { env } from "@/lib/env";
 import pino from "pino";
 
 const log = pino({ name: "feedback-token" });
-const APP_BASE = process.env.NEXT_PUBLIC_APP_URL ?? "https://pi-au.example.com";
+const APP_BASE = env.NEXT_PUBLIC_APP_URL;
 
 export async function GET(
   _request: Request,

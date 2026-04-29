@@ -4,8 +4,9 @@ import { NextResponse } from "next/server";
 import { validateRequest } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { createBillingPortalSession } from "@/modules/billing/stripe";
+import { env } from "@/lib/env";
 
-const APP_BASE = process.env.NEXT_PUBLIC_APP_URL ?? "https://pi-au.example.com";
+const APP_BASE = env.NEXT_PUBLIC_APP_URL;
 
 export async function POST(_request: Request): Promise<NextResponse> {
   const auth = await validateRequest();

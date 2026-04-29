@@ -6,6 +6,7 @@
 // Only public endpoints listed in system-design §2 "ingestion" component.
 // DO NOT add Cordell, LeadManager, or EstimateOne (contract.security.public_data_only).
 import { fetchWithRetry, politeDelay } from "./fetch";
+import { env } from "@/lib/env";
 
 export type SourceApi = "nsw_planning" | "da_leads" | "council_da";
 
@@ -24,12 +25,10 @@ export interface RawDaRecord {
 }
 
 /** NSW Planning Portal API base URL */
-const NSW_PLANNING_BASE =
-  process.env.NSW_PLANNING_API_BASE ?? "https://api.planningportal.nsw.gov.au/v1";
+const NSW_PLANNING_BASE = env.NSW_PLANNING_API_BASE;
 
 /** DA Leads API base URL */
-const DA_LEADS_BASE =
-  process.env.DA_LEADS_API_BASE ?? "https://api.daleads.com.au/v1";
+const DA_LEADS_BASE = env.DA_LEADS_API_BASE;
 
 // LGAs served by the NSW Planning Portal (majority)
 const NSW_PLANNING_COUNCILS = new Set([
@@ -85,7 +84,7 @@ async function fetchNswPlanningDAs(
   const sinceStr = since.toISOString().slice(0, 10);
 
   const url = `${NSW_PLANNING_BASE}/development-applications?council=${encodeURIComponent(council)}&since=${sinceStr}&limit=200`;
-  const apiKey = process.env.NSW_PLANNING_API_KEY;
+  const apiKey = env.NSW_PLANNING_API_KEY;
   const headers: Record<string, string> = {};
   if (apiKey) headers["x-api-key"] = apiKey;
 
@@ -125,7 +124,7 @@ async function fetchDaLeadsDAs(
   sinceDaysBack: number,
 ): Promise<RawDaRecord[]> {
   const url = `${DA_LEADS_BASE}/das?council=${encodeURIComponent(council)}&days=${sinceDaysBack}`;
-  const apiKey = process.env.DA_LEADS_API_KEY;
+  const apiKey = env.DA_LEADS_API_KEY;
   const headers: Record<string, string> = {};
   if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 

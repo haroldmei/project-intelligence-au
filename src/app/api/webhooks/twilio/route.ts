@@ -8,6 +8,7 @@
 // NFR-027: Twilio handles STOP regulatory compliance (carrier-level opt-out).
 import { db } from "@/lib/db";
 import { validateTwilioSignature } from "@/lib/sms/client";
+import { env } from "@/lib/env";
 import pino from "pino";
 
 const log = pino({ name: "webhook-twilio" });
@@ -23,9 +24,9 @@ export async function POST(request: Request): Promise<Response> {
 
   // Validate Twilio signature (NFR-015)
   const signature = request.headers.get("x-twilio-signature") ?? "";
-  const url = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://pi-au.example.com"}/api/webhooks/twilio`;
+  const url = `${env.NEXT_PUBLIC_APP_URL}/api/webhooks/twilio`;
 
-  if (process.env.TWILIO_AUTH_TOKEN) {
+  if (env.TWILIO_AUTH_TOKEN) {
     const valid = validateTwilioSignature(url, params, signature);
     if (!valid) {
       log.warn("[webhook-twilio] invalid Twilio signature");

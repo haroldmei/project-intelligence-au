@@ -12,6 +12,7 @@
 // `users.saved_query_embedding`). For DA chunks, this is called once per
 // new DA at digest time per the system-design data flow.
 import OpenAI from "openai";
+import { env } from "@/lib/env";
 import {
   priceFor,
   recordAiCost,
@@ -23,20 +24,14 @@ const EMBEDDING_MODEL = "text-embedding-3-small";
 const EMBEDDING_DIMS = 1536;
 
 /**
- * Lazily-created OpenAI client. We don't construct at module load so
- * tests can swap `process.env.OPENAI_API_KEY` and so a missing key in
- * dev doesn't crash the whole module on import.
+ * Lazily-created OpenAI client — kept lazy so tests can mock OpenAI without
+ * having to set OPENAI_API_KEY. Validation of the key happened at import of
+ * @/lib/env, so we know it's set by the time getClient() is called.
  */
 let _client: OpenAI | null = null;
 function getClient(): OpenAI {
   if (_client) return _client;
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "[embeddings] OPENAI_API_KEY missing — set in env or .env.local",
-    );
-  }
-  _client = new OpenAI({ apiKey });
+  _client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
   return _client;
 }
 

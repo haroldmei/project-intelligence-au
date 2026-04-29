@@ -4,6 +4,7 @@
 import { Lucia, TimeSpan } from "lucia";
 import { PrismaAdapter } from "@lucia-auth/adapter-prisma";
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
 
 const adapter = new PrismaAdapter(db.session, db.user);
 
@@ -12,7 +13,7 @@ export const lucia = new Lucia(adapter, {
     attributes: {
       // SameSite=Lax: CSRF protection for all mutating routes
       // Secure: enforced on Vercel (HTTPS); dev: next.js dev = http, ok
-      secure: process.env.NODE_ENV === "production",
+      secure: env.NODE_ENV === "production",
       sameSite: "lax",
     },
   },

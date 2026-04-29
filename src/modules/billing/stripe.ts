@@ -8,25 +8,29 @@
 // db-migrator request: no new schema changes — User already has stripeCustomerId, subscriptionStatus, accessUntil.
 import { createHmac, timingSafeEqual } from "node:crypto";
 import pino from "pino";
+import { env } from "@/lib/env";
 
 const log = pino({ name: "billing" });
 
 const STRIPE_BASE = "https://api.stripe.com/v1";
 
-// AUD pricing per contract.payments.plans
+// AUD pricing per contract.payments.plans. Optional in dev (env.ts gates them
+// on prod); the placeholder strings below ensure type-stability without
+// silently letting bad config reach Stripe.
 export const PRICE_IDS: Record<string, string> = {
-  solo: process.env.STRIPE_PRICE_ID_SOLO ?? "price_solo_placeholder",
-  team: process.env.STRIPE_PRICE_ID_TEAM ?? "price_team_placeholder",
+  solo: env.STRIPE_PRICE_ID_SOLO ?? "price_solo_placeholder",
+  team: env.STRIPE_PRICE_ID_TEAM ?? "price_team_placeholder",
 };
 
-function getStripeSecret(): string {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) throw new Error("[billing] STRIPE_SECRET_KEY not set");
-  return key;
+function getStripeKey(): string {
+  if (!env.STRIPE_SECRET_KEY) {
+    throw new Error("[billing] STRIPE_SECRET_KEY not set — Stripe routes are dev-disabled");
+  }
+  return env.STRIPE_SECRET_KEY;
 }
 
 async function stripePost<T>(path: string, params: Record<string, string>): Promise<T> {
-  const auth = Buffer.from(`${getStripeSecret()}:`).toString("base64");
+  const auth = Buffer.from(`${getStripeKey()}:`).toString("base64");
   const res = await fetch(`${STRIPE_BASE}${path}`, {
     method: "POST",
     headers: {
@@ -43,7 +47,7 @@ async function stripePost<T>(path: string, params: Record<string, string>): Prom
 }
 
 async function stripeGet<T>(path: string): Promise<T> {
-  const auth = Buffer.from(`${getStripeSecret()}:`).toString("base64");
+  const auth = Buffer.from(`${getStripeKey()}:`).toString("base64");
   const res = await fetch(`${STRIPE_BASE}${path}`, {
     headers: { Authorization: `Basic ${auth}` },
   });

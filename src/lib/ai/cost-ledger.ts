@@ -6,6 +6,7 @@
 // on AI inference (contract.ai.cost_tracking_impl). Weekly equivalent
 // AUD 0.13 triggers a Sentry alert (FR-006).
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
 
 export type AiCostPhase = "embedding" | "rerank";
 
@@ -32,7 +33,7 @@ export interface AiCostInput {
  * Override at deploy via env if FX drift > 5%; default 1 USD ≈ 1.52 AUD
  * (2026-Q2 anchor; quarterly review per stack contract).
  */
-const USD_TO_AUD = Number.parseFloat(process.env.USD_TO_AUD ?? "1.52");
+const USD_TO_AUD = env.USD_TO_AUD;
 
 /**
  * Per-1M-token rates in USD, pinned to the contract's model IDs.

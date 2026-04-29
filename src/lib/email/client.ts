@@ -4,10 +4,11 @@
 
 import { Resend } from "resend";
 import pino from "pino";
+import { env } from "@/lib/env";
 
 const logger = pino({ name: "email" });
 
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+const resend = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
 
 export interface EmailProps {
   to: string;
