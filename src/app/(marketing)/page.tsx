@@ -103,7 +103,7 @@ const PLANS = [
     price: 199,
     gstTotal: 218.9,
     seats: "1 seat",
-    highlight: false,
+    highlight: true,
     includes: [
       "1 seat — your Sunday digest, your phone",
       "All 15 Greater Sydney LGAs (Western Sydney, Inner West, Northern, Southern)",
@@ -115,22 +115,8 @@ const PLANS = [
     ],
     finePrint: "AUD 199/mo + GST (AUD 218.90/mo total). Card required. No charge for 14 days. Cancel anytime.",
   },
-  {
-    id: "team",
-    name: "Team",
-    tagline: "For firms with an estimating team.",
-    price: 499,
-    gstTotal: 548.9,
-    seats: "3 seats",
-    highlight: true,
-    includes: [
-      "Everything in Solo",
-      "3 seats — invite 2 estimators, each gets their own Sunday digest",
-      "Independent thumbs feedback per seat",
-      "Shared billing, one subscription",
-    ],
-    finePrint: "AUD 499/mo + GST (AUD 548.90/mo total). Up to 3 seats. Card required. No charge for 14 days. Cancel anytime.",
-  },
+  // Team plan is gated off until multi-seat is implemented. Restore the entry
+  // here AND re-enable the picker in /plan to bring it back.
 ] as const;
 
 // ── Competitor comparison data — docs/16-pricing.md §7.5 ─────────────────
@@ -424,7 +410,8 @@ export default function MarketingPage() {
 
           {/* ═══════════════════════════════════════════════════════════════
               PRICING SECTION
-              LOCKED: Solo AUD 199/mo + GST · Team AUD 499/mo + GST
+              LOCKED: Solo AUD 199/mo + GST
+              Team plan disabled until multi-seat ships
               14-day card-on-file trial · cancel in-app
           ═══════════════════════════════════════════════════════════════ */}
           <section
@@ -443,11 +430,11 @@ export default function MarketingPage() {
                 Simple pricing. No surprises. Cancel anytime.
               </h2>
               <p className="text-sm text-[#627D98] mb-10">
-                One plan for owner-operators. One for small teams. No sales call. No annual lock-in.
+                One plan for owner-operators. No sales call. No annual lock-in.
               </p>
 
               {/* Pricing cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mb-12">
+              <div className="grid grid-cols-1 gap-6 max-w-md mb-12">
                 {PLANS.map((plan) => (
                   <div
                     key={plan.id}
@@ -459,7 +446,7 @@ export default function MarketingPage() {
                   >
                     {plan.highlight && (
                       <span className="self-start text-xs font-semibold uppercase tracking-widest bg-[#D97706] text-white px-3 py-1 rounded-full">
-                        Teams
+                        14-day free trial
                       </span>
                     )}
                     <div>
@@ -523,9 +510,6 @@ export default function MarketingPage() {
                       <th scope="col" className="text-left py-3 px-3 text-[#1E3A5F] font-bold bg-[#EEF2F7] rounded-t">
                         PI-AU Solo
                       </th>
-                      <th scope="col" className="text-left py-3 px-3 text-[#1E3A5F] font-bold bg-[#EEF2F7]">
-                        PI-AU Team
-                      </th>
                       <th scope="col" className="text-left py-3 px-3 text-[#627D98] font-semibold">
                         Cordell Connect Lite
                       </th>
@@ -545,7 +529,6 @@ export default function MarketingPage() {
                       >
                         <td className="py-2.5 pr-4 text-[#627D98] font-medium">{row.label}</td>
                         <td className="py-2.5 px-3 text-[#102A43] font-medium">{row.piSolo}</td>
-                        <td className="py-2.5 px-3 text-[#102A43] font-medium">{row.piTeam}</td>
                         <td className="py-2.5 px-3 text-[#627D98]">{row.cordell}</td>
                         <td className="py-2.5 px-3 text-[#627D98]">{row.estimateOne}</td>
                         <td className="py-2.5 px-3 text-[#627D98]">{row.leadManager}</td>

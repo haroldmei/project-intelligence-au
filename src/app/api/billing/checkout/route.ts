@@ -10,7 +10,11 @@ import { env } from "@/lib/env";
 const APP_BASE = env.NEXT_PUBLIC_APP_URL;
 
 const CheckoutInput = z.object({
-  plan: z.enum(["solo", "team"]),
+  // Team is gated off until multi-seat is implemented — see the plan picker.
+  // The enum keeps the type for future re-enabling; the refine rejects it now.
+  plan: z
+    .enum(["solo", "team"])
+    .refine((p) => p !== "team", { message: "Team plan is not available yet" }),
 });
 
 export async function POST(request: Request): Promise<NextResponse> {

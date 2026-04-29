@@ -165,7 +165,7 @@ export default function AccountPage() {
                   variant="primary"
                   size="lg"
                   className="w-full"
-                  onClick={() => handleResubscribe(plan as "solo" | "team")}
+                  onClick={() => handleResubscribe("solo")}
                   disabled={isResubLoading}
                   aria-busy={isResubLoading}
                 >

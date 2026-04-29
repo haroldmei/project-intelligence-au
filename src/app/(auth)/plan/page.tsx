@@ -4,19 +4,15 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+// Team plan is gated off until the multi-seat flow is built (no team-creation
+// UI, no invites, no per-seat digest fan-out). Re-add the team entry below to
+// re-enable in the picker.
 const PLANS = [
   {
     id: "solo",
     name: "Solo",
     price: "AUD 199/mo + GST",
     seats: "1 seat",
-    features: "All 15 LGAs",
-  },
-  {
-    id: "team",
-    name: "Team",
-    price: "AUD 499/mo + GST",
-    seats: "3 seats",
     features: "All 15 LGAs",
   },
 ] as const;
