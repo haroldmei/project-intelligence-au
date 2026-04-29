@@ -22,6 +22,8 @@ export interface AccountDTO {
   trade: string;
   subscriptionStatus: string;
   accessUntil: string | null;
+  plan: string | null;
+  cancelAtPeriodEnd: boolean;
   savedQueryText: string | null;
   lgaBundles: string[];
   createdAt: string;
@@ -196,6 +198,8 @@ type UserWithBundles = {
   trade: string;
   subscriptionStatus: string;
   accessUntil: Date | null;
+  plan: string | null;
+  cancelAtPeriodEnd: boolean;
   savedQueryText: string | null;
   createdAt: Date;
   lgaBundles: Array<{ bundleId: string }>;
@@ -211,6 +215,8 @@ function toDTO(user: UserWithBundles): AccountDTO {
     trade: user.trade,
     subscriptionStatus: user.subscriptionStatus,
     accessUntil: user.accessUntil?.toISOString() ?? null,
+    plan: user.plan,
+    cancelAtPeriodEnd: user.cancelAtPeriodEnd,
     savedQueryText: user.savedQueryText,
     lgaBundles: user.lgaBundles.map((s) => s.bundleId),
     createdAt: user.createdAt.toISOString(),

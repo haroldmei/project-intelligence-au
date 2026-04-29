@@ -4,18 +4,14 @@
 // FR-030 | system-design §2 webhooks + §6.2 NFR-015
 //
 // Validates Stripe-Signature header, updates User.subscriptionStatus + accessUntil.
-// Idempotent: keyed on event.id (FR-030).
+// Idempotent: keyed on event.id (FR-030) via the stripe_webhook_events table.
 // GST: Stripe AU / Stripe Tax handles GST line items (NFR-029) — no app-side GST logic needed.
 import { db } from "@/lib/db";
-import { validateStripeWebhook } from "@/modules/billing/stripe";
+import { validateStripeWebhook, planFromPriceId } from "@/modules/billing/stripe";
 import { env } from "@/lib/env";
 import pino from "pino";
 
 const log = pino({ name: "webhook-stripe" });
-
-// Processed events cache (in-memory at preview tier, sufficient for idempotency within one serverless instance)
-// At launch tier, use a DB table for cross-instance idempotency.
-const processedEvents = new Set<string>();
 
 export const runtime = "nodejs";
 
@@ -37,22 +33,36 @@ export async function POST(request: Request): Promise<Response> {
     return new Response(JSON.stringify({ error: "Invalid signature" }), { status: 400 });
   }
 
-  // Idempotency check (FR-030)
-  if (processedEvents.has(event.id)) {
-    log.info({ eventId: event.id }, "[webhook-stripe] duplicate event — skipping");
-    return new Response(JSON.stringify({ received: true }), { status: 200 });
+  // Idempotency (FR-030). Insert-first: a unique-constraint violation means
+  // another invocation already claimed this event, so we ack and skip.
+  try {
+    await db.stripeWebhookEvent.create({
+      data: { id: event.id, type: event.type },
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      log.info({ eventId: event.id }, "[webhook-stripe] duplicate event — skipping");
+      return new Response(JSON.stringify({ received: true }), { status: 200 });
+    }
+    log.error({ eventId: event.id, err }, "[webhook-stripe] dedupe insert failed");
+    return new Response(JSON.stringify({ error: "Dedupe failed" }), { status: 500 });
   }
-  processedEvents.add(event.id);
 
   try {
     await handleStripeEvent(event.type, event.data.object);
   } catch (err) {
+    // Roll back the dedupe row so Stripe's retry has a chance to land.
+    await db.stripeWebhookEvent.delete({ where: { id: event.id } }).catch(() => {});
     log.error({ eventId: event.id, type: event.type, err }, "[webhook-stripe] handler error");
-    // Return 500 so Stripe retries
     return new Response(JSON.stringify({ error: "Handler failed" }), { status: 500 });
   }
 
   return new Response(JSON.stringify({ received: true }), { status: 200 });
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  // Prisma P2002 = unique constraint violation.
+  return err instanceof Error && err.message.includes("P2002");
 }
 
 async function handleStripeEvent(type: string, obj: Record<string, unknown>): Promise<void> {
@@ -68,22 +78,32 @@ async function handleStripeEvent(type: string, obj: Record<string, unknown>): Pr
   switch (type) {
     case "customer.subscription.created":
     case "customer.subscription.updated": {
-      const status = mapStripeStatus(obj["status"] as string);
+      const status = mapStripeStatus(obj["status"] as string, user.subscriptionStatus);
       const periodEnd = obj["current_period_end"] as number | undefined;
+      const cancelAtPeriodEnd = obj["cancel_at_period_end"] === true;
+      const items = obj["items"] as { data?: Array<{ price?: { id?: string } }> } | undefined;
+      const priceId = items?.data?.[0]?.price?.id;
+      const plan = priceId ? planFromPriceId(priceId) : undefined;
+
       await db.user.update({
         where: { id: user.id },
         data: {
           subscriptionStatus: status,
           accessUntil: periodEnd ? new Date(periodEnd * 1000) : undefined,
+          cancelAtPeriodEnd,
+          ...(plan ? { plan } : {}),
         },
       });
-      log.info({ userId: user.id, status }, "[webhook-stripe] subscription updated");
+      log.info(
+        { userId: user.id, status, cancelAtPeriodEnd, plan },
+        "[webhook-stripe] subscription updated",
+      );
       break;
     }
     case "customer.subscription.deleted": {
       await db.user.update({
         where: { id: user.id },
-        data: { subscriptionStatus: "cancelled" },
+        data: { subscriptionStatus: "cancelled", cancelAtPeriodEnd: false },
       });
       log.info({ userId: user.id }, "[webhook-stripe] subscription cancelled");
       break;
@@ -117,7 +137,7 @@ async function handleStripeEvent(type: string, obj: Record<string, unknown>): Pr
   }
 }
 
-function mapStripeStatus(stripeStatus: string): string {
+function mapStripeStatus(stripeStatus: string, currentStatus: string): string {
   const map: Record<string, string> = {
     active: "active",
     trialing: "trial",
@@ -126,5 +146,7 @@ function mapStripeStatus(stripeStatus: string): string {
     unpaid: "past_due",
     paused: "past_due",
   };
-  return map[stripeStatus] ?? "trial";
+  // Unknown statuses (incomplete, incomplete_expired, future Stripe additions)
+  // shouldn't silently downgrade the user — keep the existing DB value.
+  return map[stripeStatus] ?? currentStatus;
 }

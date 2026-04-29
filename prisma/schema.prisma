@@ -28,6 +28,8 @@ model User {
   subscriptionStatus  String  @default("trial") @map("subscription_status") // trial|active|cancelled|past_due
   accessUntil         DateTime? @map("access_until")
   stripeCustomerId    String?   @unique @map("stripe_customer_id")
+  plan                String?   @map("plan") // solo|team — captured from Stripe on subscription event
+  cancelAtPeriodEnd   Boolean   @default(false) @map("cancel_at_period_end")
 
   // Saved roofing query (LGA bundle ids stored in LgaBundleSubscription)
   savedQueryText String? @map("saved_query_text")
@@ -304,6 +306,18 @@ model TeamMembership {
 
   @@unique([teamId, userId])
   @@map("team_memberships")
+}
+
+// Stripe webhook idempotency. Replaces the in-memory Set, which was lost on
+// every cold start. Stripe retries failed deliveries and does not guarantee
+// ordering — without dedupe, a retry on a different instance can re-apply an
+// older event and roll subscription state backwards.
+model StripeWebhookEvent {
+  id         String   @id // Stripe event.id
+  type       String
+  receivedAt DateTime @default(now()) @map("received_at")
+
+  @@map("stripe_webhook_events")
 }
 
 // ─── Short URLs (SMS) ─────────────────────────────────────────────────────────

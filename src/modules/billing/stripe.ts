@@ -29,14 +29,20 @@ function getStripeKey(): string {
   return env.STRIPE_SECRET_KEY;
 }
 
-async function stripePost<T>(path: string, params: Record<string, string>): Promise<T> {
+async function stripePost<T>(
+  path: string,
+  params: Record<string, string>,
+  opts: { idempotencyKey?: string } = {},
+): Promise<T> {
   const auth = Buffer.from(`${getStripeKey()}:`).toString("base64");
+  const headers: Record<string, string> = {
+    Authorization: `Basic ${auth}`,
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
+  if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
   const res = await fetch(`${STRIPE_BASE}${path}`, {
     method: "POST",
-    headers: {
-      Authorization: `Basic ${auth}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
+    headers,
     body: new URLSearchParams(params).toString(),
   });
   if (!res.ok) {
@@ -67,12 +73,27 @@ export interface StripeCustomer {
 export async function ensureStripeCustomer(userId: string, email: string, stripeCustomerId: string | null): Promise<string> {
   if (stripeCustomerId) return stripeCustomerId;
 
-  const customer = await stripePost<StripeCustomer>("/customers", {
-    email,
-    "metadata[user_id]": userId,
-  });
+  // Idempotency-Key on Customer create protects against double-clicks creating
+  // duplicate Stripe customers when the DB write hasn't landed yet. Stripe
+  // remembers keys for 24h — long after the User row is updated.
+  const customer = await stripePost<StripeCustomer>(
+    "/customers",
+    {
+      email,
+      "metadata[user_id]": userId,
+    },
+    { idempotencyKey: `customer:${userId}` },
+  );
   log.info({ userId, customerId: customer.id }, "[billing] Stripe customer created");
   return customer.id;
+}
+
+/** Map a Stripe price id back to the plan name the app uses. */
+export function planFromPriceId(priceId: string): string | undefined {
+  for (const [plan, id] of Object.entries(PRICE_IDS)) {
+    if (id === priceId) return plan;
+  }
+  return undefined;
 }
 
 export interface CheckoutSession {
@@ -90,14 +111,14 @@ export async function createCheckoutSession(
   plan: "solo" | "team",
   successUrl: string,
   cancelUrl: string,
+  opts: { withTrial?: boolean } = {},
 ): Promise<CheckoutSession> {
   const priceId = PRICE_IDS[plan];
-  const session = await stripePost<{ url: string; id: string }>("/checkout/sessions", {
+  const params: Record<string, string> = {
     customer: stripeCustomerId,
     mode: "subscription",
     "line_items[0][price]": priceId,
     "line_items[0][quantity]": "1",
-    "subscription_data[trial_period_days]": "14",
     // Stripe Tax for GST (NFR-029). `customer_update[address]=auto` lets
     // Checkout write the collected billing address back to the Customer,
     // which automatic_tax requires for the location lookup.
@@ -106,7 +127,11 @@ export async function createCheckoutSession(
     currency: "aud",
     success_url: successUrl,
     cancel_url: cancelUrl,
-  });
+  };
+  if (opts.withTrial !== false) {
+    params["subscription_data[trial_period_days]"] = "14";
+  }
+  const session = await stripePost<{ url: string; id: string }>("/checkout/sessions", params);
   return { url: session.url, id: session.id };
 }
 

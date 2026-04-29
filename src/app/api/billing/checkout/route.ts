@@ -36,11 +36,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     await db.user.update({ where: { id: user.id }, data: { stripeCustomerId: customerId } });
   }
 
+  // Re-subscribers (previously cancelled) don't get another 14-day trial —
+  // they've already had one. Trial-eligible: anyone who hasn't cancelled.
+  const withTrial = user.subscriptionStatus !== "cancelled";
+
   const session = await createCheckoutSession(
     customerId,
     parsed.data.plan,
     `${APP_BASE}/account?billing=success`,
     `${APP_BASE}/account?billing=cancelled`,
+    { withTrial },
   );
 
   return NextResponse.json({ checkout_url: session.url });

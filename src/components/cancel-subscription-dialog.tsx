@@ -6,8 +6,10 @@ import { AlertDialog } from "@/components/ui/alert-dialog";
 interface CancelSubscriptionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** ISO date string of period end */
+  /** ISO date string of period end (current best-known value, before the API confirms) */
   periodEnd: string;
+  /** Called with the canonical ISO accessUntil returned by the cancel API. */
+  onCancelled?: (accessUntil: string) => void;
 }
 
 function formatDate(iso: string) {
@@ -24,6 +26,7 @@ export function CancelSubscriptionDialog({
   open,
   onOpenChange,
   periodEnd,
+  onCancelled,
 }: CancelSubscriptionDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -35,8 +38,11 @@ export function CancelSubscriptionDialog({
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Request failed");
+      const json = (await res.json().catch(() => ({}))) as { accessUntil?: string };
+      const confirmedUntil = json.accessUntil ?? periodEnd;
+      onCancelled?.(confirmedUntil);
       onOpenChange(false);
-      setToast(`Cancelled. You're good until ${formatDate(periodEnd)}.`);
+      setToast(`Cancelled. You're good until ${formatDate(confirmedUntil)}.`);
       setTimeout(() => setToast(null), 8000);
     } catch {
       setToast("Something went wrong. Please try again.");

@@ -12,7 +12,7 @@ const resend = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
 
 export interface EmailProps {
   to: string;
-  template: "verify-email" | "password-reset" | "weekly-digest" | "digest-fallback-notice" | "welcome-after-verify";
+  template: "verify-email" | "password-reset" | "weekly-digest" | "digest-fallback-notice" | "welcome-after-verify" | "trial-reminder";
   props: Record<string, unknown>;
 }
 
@@ -49,6 +49,10 @@ export async function sendEmail({ to, template, props }: EmailProps): Promise<vo
     case "welcome-after-verify":
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       templateFn = require("@/emails/welcome-after-verify").WelcomeAfterVerifyTemplate;
+      break;
+    case "trial-reminder":
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      templateFn = require("@/emails/trial-reminder").TrialReminderTemplate;
       break;
     default:
       throw new Error(`Unknown email template: ${template}`);

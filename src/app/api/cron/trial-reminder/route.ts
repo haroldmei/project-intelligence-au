@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { verifyCronSecret } from "@/lib/cron/retry";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email/client";
+import { env } from "@/lib/env";
 import pino from "pino";
 
 const log = pino({ name: "trial-reminder" });
@@ -34,14 +35,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     select: { id: true, email: true },
   });
 
+  const manageBillingUrl = `${env.NEXT_PUBLIC_APP_URL}/account`;
   let reminded = 0;
   for (const user of users) {
     try {
-      // [V2] Use dedicated trial-reminder template; for now reuse generic email
       await sendEmail({
         to: user.email,
-        template: "digest-fallback-notice", // TODO[V2]: add trial-reminder template
-        props: { lgas: [], daCount: 0 },
+        template: "trial-reminder",
+        props: { daysLeft: 2, manageBillingUrl },
       });
       reminded++;
       log.info({ userId: user.id }, "[trial-reminder] sent");

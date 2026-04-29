@@ -1,49 +1,117 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CancelSubscriptionDialog } from "@/components/cancel-subscription-dialog";
 import { Button } from "@/components/ui/button";
+import type { AccountDTO } from "@/modules/account/service";
 
-// TODO: fetch from GET /api/account once backend-developer publishes the route.
-// Stub values for now.
-const STUB_ACCOUNT = {
-  email: "eli@example.com",
-  plan: "Solo",
-  priceLabel: "AUD 199/mo + GST",
-  seats: 1,
-  nextCharge: "27 May 2026",
-  periodEnd: "2026-05-24T00:00:00Z",
-  subscriptionStatus: "active" as "active" | "trial" | "cancelled",
-  trialEnd: null as string | null,
+const PLAN_LABELS: Record<string, string> = {
+  solo: "Solo — AUD 199/mo + GST",
+  team: "Team — AUD 499/mo + GST",
 };
+const PLAN_SEATS: Record<string, number> = { solo: 1, team: 3 };
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-AU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
 
 export default function AccountPage() {
   const router = useRouter();
+  const [account, setAccount] = useState<AccountDTO | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const account = STUB_ACCOUNT;
+  const [isPortalLoading, setIsPortalLoading] = useState(false);
+  const [isResubLoading, setIsResubLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/account/me")
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return (await res.json()) as AccountDTO;
+      })
+      .then((data) => { if (!cancelled) setAccount(data); })
+      .catch(() => { if (!cancelled) setLoadError("Couldn't load your account. Refresh to try again."); });
+    return () => { cancelled = true; };
+  }, []);
 
   async function handleLogout() {
     setIsLoggingOut(true);
     try {
       await fetch("/api/auth/logout", { method: "POST" });
     } catch {
-      /* best-effort — session cleared server-side; redirect regardless */
+      /* best-effort */
     }
     router.push("/login");
   }
+
+  async function handleManageBilling() {
+    setIsPortalLoading(true);
+    try {
+      const res = await fetch("/api/billing/portal", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok || !json.portal_url) throw new Error("portal failed");
+      window.location.href = json.portal_url;
+    } catch {
+      setIsPortalLoading(false);
+    }
+  }
+
+  async function handleResubscribe(plan: "solo" | "team") {
+    setIsResubLoading(true);
+    try {
+      const res = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.checkout_url) throw new Error("checkout failed");
+      window.location.href = json.checkout_url;
+    } catch {
+      setIsResubLoading(false);
+    }
+  }
+
+  if (loadError) {
+    return (
+      <div className="px-4 py-6 max-w-xl">
+        <div role="alert" className="rounded-md bg-[#FEE2E2] text-[#7F1D1D] text-sm px-4 py-3">
+          {loadError}
+        </div>
+      </div>
+    );
+  }
+
+  if (!account) {
+    return (
+      <div className="px-4 py-6 max-w-xl text-sm text-[#627D98]">Loading account…</div>
+    );
+  }
+
+  const plan = account.plan ?? "solo";
+  const priceLabel = PLAN_LABELS[plan] ?? "—";
+  const seats = PLAN_SEATS[plan] ?? 1;
+  const status = account.subscriptionStatus;
+  const isCancelled = status === "cancelled";
+  const isPendingCancellation = !isCancelled && account.cancelAtPeriodEnd;
+  const isTrial = status === "trial";
+  const isPastDue = status === "past_due";
 
   return (
     <div className="px-4 py-6 space-y-6 max-w-xl">
       <h1 className="text-2xl font-bold text-[#102A43]">Account</h1>
 
-      {/* Profile */}
       <section aria-label="Profile" className="space-y-2">
-        <h2 className="text-sm font-semibold text-[#627D98] uppercase tracking-wide">
-          Profile
-        </h2>
+        <h2 className="text-sm font-semibold text-[#627D98] uppercase tracking-wide">Profile</h2>
         <div className="bg-white rounded-md border border-[#E5E5E5] divide-y divide-[#F5F5F5]">
           <Row label="Email" value={account.email} />
           <RowLink label="Notifications" href="/account/sms" />
@@ -51,21 +119,45 @@ export default function AccountPage() {
         </div>
       </section>
 
-      {/* Subscription */}
       <section aria-label="Subscription" className="space-y-2">
-        <h2 className="text-sm font-semibold text-[#627D98] uppercase tracking-wide">
-          Subscription
-        </h2>
+        <h2 className="text-sm font-semibold text-[#627D98] uppercase tracking-wide">Subscription</h2>
         <div className="bg-white rounded-md border border-[#E5E5E5] divide-y divide-[#F5F5F5]">
-          <Row label="Plan" value={`${account.plan} — ${account.priceLabel}`} />
-          <Row label="Seats" value={String(account.seats)} />
-          {account.subscriptionStatus === "trial" && account.trialEnd ? (
-            <Row label="Trial ends" value={account.trialEnd} />
+          <Row label="Plan" value={priceLabel} />
+          <Row label="Seats" value={String(seats)} />
+
+          {isTrial ? (
+            <Row label="Trial ends" value={formatDate(account.accessUntil)} />
+          ) : isPendingCancellation || isCancelled ? (
+            <Row label="Access until" value={formatDate(account.accessUntil)} />
+          ) : isPastDue ? (
+            <Row label="Status" value="Payment failed — update card" />
           ) : (
-            <Row label="Next charge" value={account.nextCharge} />
+            <Row label="Next charge" value={formatDate(account.accessUntil)} />
           )}
-          <div className="px-4 py-3">
-            {account.subscriptionStatus !== "cancelled" ? (
+
+          <div className="px-4 py-3 space-y-2">
+            {isCancelled ? (
+              <>
+                <p className="text-sm text-[#A3A3A3]">
+                  Subscription cancelled. Access ended {formatDate(account.accessUntil)}.
+                </p>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="lg"
+                  className="w-full"
+                  onClick={() => handleResubscribe(plan as "solo" | "team")}
+                  disabled={isResubLoading}
+                  aria-busy={isResubLoading}
+                >
+                  {isResubLoading ? "Redirecting…" : "Resubscribe"}
+                </Button>
+              </>
+            ) : isPendingCancellation ? (
+              <p className="text-sm text-[#A3A3A3]">
+                Cancellation scheduled. You&apos;re good until {formatDate(account.accessUntil)}.
+              </p>
+            ) : (
               <button
                 type="button"
                 onClick={() => setCancelOpen(true)}
@@ -73,22 +165,21 @@ export default function AccountPage() {
               >
                 Cancel subscription
               </button>
-            ) : (
-              <p className="text-sm text-[#A3A3A3]">
-                Subscription cancelled. Access until{" "}
-                {new Date(account.periodEnd).toLocaleDateString("en-AU", {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                })}
-                .
-              </p>
             )}
+
+            <button
+              type="button"
+              onClick={handleManageBilling}
+              disabled={isPortalLoading}
+              aria-busy={isPortalLoading}
+              className="text-sm text-[#627D98] underline hover:text-[#102A43] transition-colors duration-[150ms] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D97706] rounded min-h-[44px] flex items-center disabled:opacity-50"
+            >
+              {isPortalLoading ? "Opening Stripe…" : "Manage billing (update card, invoices)"}
+            </button>
           </div>
         </div>
       </section>
 
-      {/* Log out */}
       <section aria-label="Session" className="pt-2">
         <Button
           type="button"
@@ -106,7 +197,10 @@ export default function AccountPage() {
       <CancelSubscriptionDialog
         open={cancelOpen}
         onOpenChange={setCancelOpen}
-        periodEnd={account.periodEnd}
+        periodEnd={account.accessUntil ?? new Date().toISOString()}
+        onCancelled={(newAccessUntil) => {
+          setAccount((prev) => prev ? { ...prev, cancelAtPeriodEnd: true, accessUntil: newAccessUntil } : prev);
+        }}
       />
     </div>
   );
