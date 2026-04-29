@@ -209,7 +209,7 @@ cmd_smoke() {
   check() {
     local path="$1" expected="$2" desc="${3:-$1}"
     local got
-    got=$(curl -s -o /dev/null -w '%{http_code}' "$url$path" || echo "000")
+    got=$(curl -sL -o /dev/null -w '%{http_code}' "$url$path" || echo "000")
     if [[ "$got" == "$expected" ]]; then
       ok "$desc → $got"
     else
@@ -221,7 +221,7 @@ cmd_smoke() {
   check "/" 200 "landing page"
   check "/login" 200 "login page"
   check "/signup" 200 "signup page"
-  check "/pricing" 200 "pricing page"
+  check "/privacy" 200 "privacy page"
   # /api/auth/me requires DB. Unauthenticated → 401 (not 500 = DB unreachable).
   check "/api/auth/me" 401 "auth/me (DB connectivity check)"
 
