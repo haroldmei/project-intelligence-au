@@ -98,8 +98,11 @@ export async function createCheckoutSession(
     "line_items[0][price]": priceId,
     "line_items[0][quantity]": "1",
     "subscription_data[trial_period_days]": "14",
-    // Stripe Tax for GST (NFR-029)
+    // Stripe Tax for GST (NFR-029). `customer_update[address]=auto` lets
+    // Checkout write the collected billing address back to the Customer,
+    // which automatic_tax requires for the location lookup.
     "automatic_tax[enabled]": "true",
+    "customer_update[address]": "auto",
     currency: "aud",
     success_url: successUrl,
     cancel_url: cancelUrl,
