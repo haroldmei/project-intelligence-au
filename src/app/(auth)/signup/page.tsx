@@ -38,7 +38,7 @@ export default function SignupPage() {
         setServerError(json.error ?? "Signup failed. Please try again.");
         return;
       }
-      router.push("/verify");
+      router.push(typeof json.nextStep === "string" ? json.nextStep : "/verify");
     } catch {
       setServerError("Network error. Please try again.");
     } finally {
