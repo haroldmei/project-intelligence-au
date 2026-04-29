@@ -38,3 +38,4 @@
 - [2026-04-29] human_checkpoint_3: user CONFIRMED pricing + headline — because Solo $199 / Team $499; 14d card-on-file trial; Sunday roofing digest for Sydney subbies headline
 - [2026-04-29] landing-page: 7-section RSC + OG/Twitter + JSON-LD Product; build pass — because no new deps; locked headline+pricing verbatim; CTAs wired to /signup; WCAG AA
 - [2026-04-29] legal-compliance: Privacy/Terms/AUP + cookie consent + APP 1-13 + GET export + DELETE account — because AU NSW jurisdiction; consent-gated PostHog; 9 third-party processors named; build pass
+- [2026-04-29] preview-ship: local-only commit + tag v0.1.0-preview-ready — because user chose local-only path; no public URL; deploy hand-off documented in dogfood SUMMARY

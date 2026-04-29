@@ -13,19 +13,19 @@ const LGA_BUNDLES = [
     lgas: "Penrith · Blacktown · Parramatta · Cumberland · The Hills",
   },
   {
-    id: "inner_west",
+    id: "inner_west_and_city",
     label: "Inner West & City",
-    lgas: "Inner West · City of Sydney · Strathfield · Burwood",
+    lgas: "Inner West · City of Sydney · Burwood · Canada Bay",
   },
   {
     id: "northern_sydney",
     label: "Northern Sydney",
-    lgas: "Hornsby · Ku-ring-gai · Ryde · Lane Cove · Willoughby",
+    lgas: "Hornsby · Ku-ring-gai · Northern Beaches",
   },
   {
     id: "southern_sydney",
     label: "Southern Sydney",
-    lgas: "Sutherland Shire · St George · Hurstville · Rockdale",
+    lgas: "Sutherland · Bayside · Georges River",
   },
 ];
 

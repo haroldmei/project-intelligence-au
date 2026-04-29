@@ -7,7 +7,7 @@
   "axis": "Niche",
   "anti_axis": "Will not compete on coverage breadth, multi-trade filters, head-contractor tender flow, contact-data enrichment, or free-tier race-to-zero.",
   "scale_tier": "preview",
-  "current_phase": "preview_ship_decision",
+  "current_phase": "complete",
   "phase_status": {
     "ceo": "done",
     "differentiation": "done",
@@ -35,7 +35,8 @@
     "positioning": "done",
     "human_checkpoint_3": "confirmed",
     "landing_page": "done",
-    "legal_compliance": "done"
+    "legal_compliance": "done",
+    "preview_ship": "local-only-handoff"
   },
   "critic_verdicts": {
     "ceo": "pass",
@@ -264,6 +265,12 @@
       "phase": "legal-compliance",
       "decision": "Privacy/Terms/AUP + cookie consent + APP 1-13 + GET export + DELETE account",
       "reason": "AU NSW jurisdiction; consent-gated PostHog; 9 third-party processors named; build pass"
+    },
+    {
+      "date": "2026-04-29",
+      "phase": "preview-ship",
+      "decision": "local-only commit + tag v0.1.0-preview-ready",
+      "reason": "user chose local-only path; no public URL; deploy hand-off documented in dogfood SUMMARY"
     }
   ],
   "open_issues": [],
