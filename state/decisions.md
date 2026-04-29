@@ -20,3 +20,21 @@
 - [2026-04-28] human_checkpoint_2: user CONFIRMED design target — because slate+amber palette, 10 wireframes + cancel-confirm, density rubric 6→8 after Load-more removed
 - [2026-04-28] auth-engineer: Lucia + 8 routes + rate limiter + 04-dev-plan — because argon2id OTP; 5/min IP + 1/min account; tsc clean; email sends stubbed for Phase 6.9
 - [2026-04-28] ai-features: RAG pipeline + 22-case eval + cost ledger — because haiku primary, sonnet fallback at confidence<0.5; cost cap AUD 0.13/wk degrades to keyword-only with banner
+- [2026-04-28] email-templates: Resend + 5 React Email templates wired — because iOS-Mail table layout; HMAC thumb tokens; <100KB; auth routes wired; test:emails passes
+- [2026-04-28] db-migrator: init migration + RawDA/DigestCandidate/RateLimit + seed + docker-compose + .env.example — because 412-line init migration via prisma migrate diff (offline); 4 LGA bundles / 15 LGAs seed; demo user eli@example.com
+- [2026-04-28] frontend-developer: 13 pages + DACard + cancel-subscription AlertDialog + 5 RTL tests — because all wedge wireframes shipped; portal RSC auth-gated; thumb up/down optimistic + undo toast
+- [2026-04-28] backend-developer: 8 modules + 3 crons + 2 webhooks + 9 test files — because Stripe/Twilio/feedback HMAC; 80% coverage target; cron schedule documented; needs GIN+HNSW indexes follow-up
+- [2026-04-28] api-docs: 29 routes documented (openapi.yaml + 07-api-reference.md) — because 8 modules; security policy table; wedge FR coverage matrix verified
+- [2026-04-28] e2e-tester: 51 specs, 14 pass / 37 skip / 0 fail; 6 bugs documented — because BUG-001 duplicate /area route; BUG-003 missing DELETE billing/sub; BUG-004/5/6 endpoint name drift backend↔frontend
+- [2026-04-28] quality-gates: all 10 gates pass after route-failure fix loop — because fixed BUG-001/3/4/5/6 + GAP-002 + 22 TS errors + 10 lint errors + vitest config + react plugin
+- [2026-04-28] adversarial-tester: 119 tests / 5 real bugs surfaced (2 CRIT, 2 HIGH, 1 MED) — because fast-check 1545+ generated cases; bugs deliberately not fixed — routed to security-auditor
+- [2026-04-28] security-auditor: 5 Crit/High fixed; 124/124 adversarial pass — because Rollup GHSA-mw96 build-only accepted; 9 Med/Low deferred to launch tier
+- [2026-04-28] dogfood: POLISH (health 8.4) — one capped frontend round — because 5 polish items: OTP paste, phone E.164, Lucide icons, button type=submit, onboarding tip
+- [2026-04-28] frontend-polish: 5/5 polish items shipped — typecheck clean — because OTP paste+iOS one-time-code; phone E.164 with specific errors; Lucide tab icons; type=submit; onboarding tip on empty digest
+- [2026-04-29] pricing: Solo 99 / Team 99 / 14d card-on-file trial / no annual — because wedge-locked AUD prices; 3x cheaper than Cordell; no free tier; second-seat = upgrade trigger
+- [2026-04-29] positioning: Hero=The Sunday roofing digest for Sydney subbies; trade-peer voice — because 7-word wedge transform; 3 feature blocks tied to wedge steps; anti-positioning explicit
+- [2026-04-29] pricing-critic: PASS + 4 surgical fixes applied — because removed literal Unlimited; concrete LeadManager AUD 333/mo cell with footnote; deleted founder-discretion clause; canonicalised refund wording to zero-digest-interactions
+- [2026-04-29] positioning-critic: PASS clean — because wedge-anchored; names Cordell/E1/BCI by name and price; specific anti-positioning; no platitudes; voice consistent
+- [2026-04-29] human_checkpoint_3: user CONFIRMED pricing + headline — because Solo $199 / Team $499; 14d card-on-file trial; Sunday roofing digest for Sydney subbies headline
+- [2026-04-29] landing-page: 7-section RSC + OG/Twitter + JSON-LD Product; build pass — because no new deps; locked headline+pricing verbatim; CTAs wired to /signup; WCAG AA
+- [2026-04-29] legal-compliance: Privacy/Terms/AUP + cookie consent + APP 1-13 + GET export + DELETE account — because AU NSW jurisdiction; consent-gated PostHog; 9 third-party processors named; build pass

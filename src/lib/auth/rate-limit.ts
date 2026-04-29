@@ -50,7 +50,11 @@ export function checkRateLimit(
   const entry = store.get(key);
 
   if (!entry || now - entry.windowStart >= windowMs) {
-    // New window
+    // New window — deny immediately if limit === 0 (kill-switch, AT-003).
+    if (limit === 0) {
+      store.set(key, { count: 1, windowStart: now });
+      return { allowed: false, retryAfterSeconds: Math.ceil(windowMs / 1000) };
+    }
     store.set(key, { count: 1, windowStart: now });
     return { allowed: true, retryAfterSeconds: 0 };
   }

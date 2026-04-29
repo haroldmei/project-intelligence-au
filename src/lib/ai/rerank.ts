@@ -143,7 +143,7 @@ function parseModelOutput(raw: string): ParsedModelOutput {
   let parsed: unknown;
   try {
     parsed = JSON.parse(cleaned);
-  } catch (e) {
+  } catch {
     throw new Error(
       `[rerank] model returned non-JSON: ${cleaned.slice(0, 200)}…`,
     );

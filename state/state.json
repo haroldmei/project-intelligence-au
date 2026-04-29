@@ -7,7 +7,7 @@
   "axis": "Niche",
   "anti_axis": "Will not compete on coverage breadth, multi-trade filters, head-contractor tender flow, contact-data enrichment, or free-tier race-to-zero.",
   "scale_tier": "preview",
-  "current_phase": "email_templates",
+  "current_phase": "preview_ship_decision",
   "phase_status": {
     "ceo": "done",
     "differentiation": "done",
@@ -18,7 +18,24 @@
     "ux_designer": "done",
     "human_checkpoint_2": "confirmed",
     "auth_engineer": "done",
-    "ai_features": "done"
+    "ai_features": "done",
+    "email_templates": "done",
+    "db_migrator": "done",
+    "frontend_developer": "done",
+    "backend_developer": "done",
+    "impl_fanout": "done",
+    "api_docs": "done",
+    "e2e_tester": "done",
+    "quality_gates": "done",
+    "adversarial_tester": "done",
+    "security_auditor": "done",
+    "dogfood": "polish",
+    "frontend_polish": "done",
+    "pricing": "done",
+    "positioning": "done",
+    "human_checkpoint_3": "confirmed",
+    "landing_page": "done",
+    "legal_compliance": "done"
   },
   "critic_verdicts": {
     "ceo": "pass",
@@ -26,7 +43,9 @@
     "tech_stack_selector": "pass",
     "product_spec": "pass",
     "designer": "pass-with-surgical-fixes",
-    "ux_designer": "pass-with-surgical-fixes"
+    "ux_designer": "pass-with-surgical-fixes",
+    "pricing": "pass-with-surgical-fixes",
+    "positioning": "pass"
   },
   "kill_switches": [],
   "decisions": [
@@ -137,6 +156,114 @@
       "phase": "ai-features",
       "decision": "RAG pipeline + 22-case eval + cost ledger",
       "reason": "haiku primary, sonnet fallback at confidence<0.5; cost cap AUD 0.13/wk degrades to keyword-only with banner"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "email-templates",
+      "decision": "Resend + 5 React Email templates wired",
+      "reason": "iOS-Mail table layout; HMAC thumb tokens; <100KB; auth routes wired; test:emails passes"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "db-migrator",
+      "decision": "init migration + RawDA/DigestCandidate/RateLimit + seed + docker-compose + .env.example",
+      "reason": "412-line init migration via prisma migrate diff (offline); 4 LGA bundles / 15 LGAs seed; demo user eli@example.com"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "frontend-developer",
+      "decision": "13 pages + DACard + cancel-subscription AlertDialog + 5 RTL tests",
+      "reason": "all wedge wireframes shipped; portal RSC auth-gated; thumb up/down optimistic + undo toast"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "backend-developer",
+      "decision": "8 modules + 3 crons + 2 webhooks + 9 test files",
+      "reason": "Stripe/Twilio/feedback HMAC; 80% coverage target; cron schedule documented; needs GIN+HNSW indexes follow-up"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "api-docs",
+      "decision": "29 routes documented (openapi.yaml + 07-api-reference.md)",
+      "reason": "8 modules; security policy table; wedge FR coverage matrix verified"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "e2e-tester",
+      "decision": "51 specs, 14 pass / 37 skip / 0 fail; 6 bugs documented",
+      "reason": "BUG-001 duplicate /area route; BUG-003 missing DELETE billing/sub; BUG-004/5/6 endpoint name drift backend↔frontend"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "quality-gates",
+      "decision": "all 10 gates pass after route-failure fix loop",
+      "reason": "fixed BUG-001/3/4/5/6 + GAP-002 + 22 TS errors + 10 lint errors + vitest config + react plugin"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "adversarial-tester",
+      "decision": "119 tests / 5 real bugs surfaced (2 CRIT, 2 HIGH, 1 MED)",
+      "reason": "fast-check 1545+ generated cases; bugs deliberately not fixed — routed to security-auditor"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "security-auditor",
+      "decision": "5 Crit/High fixed; 124/124 adversarial pass",
+      "reason": "Rollup GHSA-mw96 build-only accepted; 9 Med/Low deferred to launch tier"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "dogfood",
+      "decision": "POLISH (health 8.4) — one capped frontend round",
+      "reason": "5 polish items: OTP paste, phone E.164, Lucide icons, button type=submit, onboarding tip"
+    },
+    {
+      "date": "2026-04-28",
+      "phase": "frontend-polish",
+      "decision": "5/5 polish items shipped — typecheck clean",
+      "reason": "OTP paste+iOS one-time-code; phone E.164 with specific errors; Lucide tab icons; type=submit; onboarding tip on empty digest"
+    },
+    {
+      "date": "2026-04-29",
+      "phase": "pricing",
+      "decision": "Solo 99 / Team 99 / 14d card-on-file trial / no annual",
+      "reason": "wedge-locked AUD prices; 3x cheaper than Cordell; no free tier; second-seat = upgrade trigger"
+    },
+    {
+      "date": "2026-04-29",
+      "phase": "positioning",
+      "decision": "Hero=The Sunday roofing digest for Sydney subbies; trade-peer voice",
+      "reason": "7-word wedge transform; 3 feature blocks tied to wedge steps; anti-positioning explicit"
+    },
+    {
+      "date": "2026-04-29",
+      "phase": "pricing-critic",
+      "decision": "PASS + 4 surgical fixes applied",
+      "reason": "removed literal Unlimited; concrete LeadManager AUD 333/mo cell with footnote; deleted founder-discretion clause; canonicalised refund wording to zero-digest-interactions"
+    },
+    {
+      "date": "2026-04-29",
+      "phase": "positioning-critic",
+      "decision": "PASS clean",
+      "reason": "wedge-anchored; names Cordell/E1/BCI by name and price; specific anti-positioning; no platitudes; voice consistent"
+    },
+    {
+      "date": "2026-04-29",
+      "phase": "human_checkpoint_3",
+      "decision": "user CONFIRMED pricing + headline",
+      "reason": "Solo $199 / Team $499; 14d card-on-file trial; Sunday roofing digest for Sydney subbies headline"
+    },
+    {
+      "date": "2026-04-29",
+      "phase": "landing-page",
+      "decision": "7-section RSC + OG/Twitter + JSON-LD Product; build pass",
+      "reason": "no new deps; locked headline+pricing verbatim; CTAs wired to /signup; WCAG AA"
+    },
+    {
+      "date": "2026-04-29",
+      "phase": "legal-compliance",
+      "decision": "Privacy/Terms/AUP + cookie consent + APP 1-13 + GET export + DELETE account",
+      "reason": "AU NSW jurisdiction; consent-gated PostHog; 9 third-party processors named; build pass"
     }
   ],
   "open_issues": [],

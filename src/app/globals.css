@@ -1,26 +1,150 @@
 @import "tailwindcss";
 
+/* ── PI-AU Design Tokens — Tailwind 4 @theme block (verbatim from docs/03b-ux-design.md §11) ── */
+@theme {
+  /* Brand colours */
+  --color-brand-50:  #EEF2F7;
+  --color-brand-100: #D4DDE8;
+  --color-brand-200: #A9BBCF;
+  --color-brand-300: #7E99B6;
+  --color-brand-400: #53779D;
+  --color-brand-500: #2E5580;
+  --color-brand-600: #1E3A5F;   /* primary */
+  --color-brand-700: #162C47;
+  --color-brand-800: #0F1E2F;
+  --color-brand-900: #070F18;
+  --color-brand-950: #030810;
+
+  --color-accent-50:  #FFFBEB;
+  --color-accent-100: #FEF3C7;
+  --color-accent-200: #FDE68A;
+  --color-accent-300: #FCD34D;
+  --color-accent-400: #FBBF24;
+  --color-accent-500: #F59E0B;
+  --color-accent-600: #D97706;   /* accent primary */
+  --color-accent-700: #B45309;   /* accent AA on white */
+  --color-accent-800: #92400E;
+  --color-accent-900: #78350F;
+
+  /* Semantic */
+  --color-success:        #16A34A;
+  --color-success-bg:     #DCFCE7;
+  --color-success-text:   #14532D;
+  --color-warning:        #D97706;
+  --color-warning-bg:     #FEF3C7;
+  --color-warning-text:   #78350F;
+  --color-error:          #DC2626;
+  --color-error-bg:       #FEE2E2;
+  --color-error-text:     #7F1D1D;
+  --color-info:           #0284C7;
+  --color-info-bg:        #E0F2FE;
+  --color-info-text:      #0C4A6E;
+
+  /* Typography */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  /* Type scale — mobile-first */
+  --text-xs:   0.75rem;
+  --text-sm:   0.875rem;
+  --text-base: 1rem;
+  --text-lg:   1.125rem;
+  --text-xl:   1.25rem;
+  --text-2xl:  1.5rem;
+  --text-3xl:  1.75rem;
+  --text-4xl:  2rem;
+  --text-5xl:  2.25rem;
+
+  /* Spacing — 4px base unit */
+  --spacing: 0.25rem;
+
+  /* Border radius */
+  --radius-sm:   0.125rem;
+  --radius:      0.25rem;
+  --radius-md:   0.375rem;
+  --radius-lg:   0.5rem;
+  --radius-xl:   0.75rem;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow:    0 1px 3px 0 rgb(0 0 0 / 0.10), 0 1px 2px -1px rgb(0 0 0 / 0.10);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.10), 0 2px 4px -2px rgb(0 0 0 / 0.10);
+
+  /* Transitions */
+  --transition-fast:   150ms cubic-bezier(0, 0, 0.2, 1);
+  --transition-normal: 300ms cubic-bezier(0, 0, 0.2, 1);
+  --transition-slow:   500ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── shadcn/ui CSS variable mapping ── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background:    0 0% 98%;
+  --foreground:    215 50% 16%;
+  --primary:       215 52% 24%;
+  --primary-foreground: 0 0% 100%;
+  --secondary:     215 30% 90%;
+  --secondary-foreground: 215 52% 24%;
+  --accent:        38 92% 50%;
+  --accent-foreground: 215 50% 10%;
+  --destructive:   0 84% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border:        0 0% 90%;
+  --input:         0 0% 90%;
+  --ring:          38 92% 43%;
+  --radius:        0.375rem;
+  --muted:         215 20% 95%;
+  --muted-foreground: 215 20% 50%;
+  --card:          0 0% 100%;
+  --card-foreground: 215 50% 16%;
+  --popover:       0 0% 100%;
+  --popover-foreground: 215 50% 16%;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ── Base styles ── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #FAFAFA;
+  color: #070F18;
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Focus ring ── */
+:focus-visible {
+  outline: 2px solid #D97706;
+  outline-offset: 2px;
+}
+
+/* ── Skip to main ── */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 0;
+  padding: 0.5rem 1rem;
+  background: #1E3A5F;
+  color: #fff;
+  font-weight: 600;
+  z-index: 9999;
+  text-decoration: none;
+}
+.skip-link:focus {
+  top: 0;
 }

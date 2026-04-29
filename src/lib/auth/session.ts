@@ -4,6 +4,9 @@
 import { cookies } from "next/headers";
 import { lucia } from "@/lib/auth/lucia";
 import type { Session, User } from "lucia";
+import pino from "pino";
+
+const log = pino({ name: "auth-session" });
 
 export type ValidatedRequest = {
   user: User;
@@ -24,10 +27,17 @@ export async function validateRequest(): Promise<ValidatedRequest | null> {
   const sessionId = cookieStore.get(lucia.sessionCookieName)?.value ?? null;
   if (!sessionId) return null;
 
-  const { session, user } = await lucia.validateSession(sessionId);
-  if (!session) return null;
-
-  return { session, user };
+  try {
+    const { session, user } = await lucia.validateSession(sessionId);
+    if (!session) return null;
+    return { session, user };
+  } catch (err) {
+    // DB-less fallback: return null on connection failure so the portal layout
+    // redirects cleanly to /login instead of 500ing. Production requires a live DB
+    // or all portal pages will appear unauthenticated. (KNOWN-GAP-001)
+    log.warn({ err }, "[auth] validateRequest: DB connection error — returning null");
+    return null;
+  }
 }
 
 /**

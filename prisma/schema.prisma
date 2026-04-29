@@ -48,6 +48,7 @@ model User {
   userConsent       UserConsent?
   teamMemberships   TeamMembership[]
   ownedTeam         TeamAccount?
+  digestCandidates  DigestCandidate[]
 
   @@map("users")
 }
@@ -205,6 +206,7 @@ model Digest {
   user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   run     DigestRun @relation(fields: [runId], references: [id])
   digestDas DigestDa[]
+  digestCandidates DigestCandidate[]
 
   @@index([userId])
   @@map("digests")
@@ -312,4 +314,60 @@ model ShortUrl {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("short_urls")
+}
+
+// ─── Ingestion (Raw Data) ────────────────────────────────────────────────────
+
+model RawDA {
+  id              String   @id @default(cuid())
+  source          String   // "nsw_planning" | "council_<lga_slug>" | "vendor_panel"
+  sourceRecordId  String   @map("source_record_id")
+  lgaSlug         String   @map("lga_slug")
+  fetchedAt       DateTime @default(now()) @map("fetched_at")
+  payload         Json     // raw record as fetched
+  contentHash     String   @map("content_hash")  // dedupe
+  processed       Boolean  @default(false)
+
+  candidates DigestCandidate[]
+
+  @@unique([source, sourceRecordId])
+  @@index([processed, fetchedAt])
+  @@index([lgaSlug, fetchedAt])
+  @@map("raw_da")
+}
+
+// ─── Relevance Pipeline (Digest Candidates) ──────────────────────────────────
+
+model DigestCandidate {
+  id            String   @id @default(cuid())
+  userId        String   @map("user_id")
+  digestId      String?  @map("digest_id")  // null = not yet bundled into a digest
+  rawDaId       String   @map("raw_da_id")
+  relevance     Int      // 0-5 (LLM rerank score)
+  whyMatched    String   @map("why_matched")
+  prefilterScore Float    @map("prefilter_score")
+  vectorScore    Float?   @map("vector_score")
+  llmModel      String   @map("llm_model")
+  scoredAt      DateTime @default(now()) @map("scored_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  digest  Digest? @relation(fields: [digestId], references: [id], onDelete: SetNull)
+  rawDa   RawDA   @relation(fields: [rawDaId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, rawDaId])
+  @@index([userId, digestId])
+  @@map("digest_candidate")
+}
+
+// ─── Rate Limiting ────────────────────────────────────────────────────────────
+
+model RateLimit {
+  id        String   @id @default(cuid())
+  key       String   // e.g. "ip:1.2.3.4:signup" or "account:user_123:login"
+  window    DateTime // bucket start
+  count     Int      @default(1)
+
+  @@unique([key, window])
+  @@index([window])  // for cleanup
+  @@map("rate_limit")
 }

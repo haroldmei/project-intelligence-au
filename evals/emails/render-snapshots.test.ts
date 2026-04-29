@@ -4,6 +4,7 @@
  * Run with: pnpm test:emails
  */
 
+import { describe, test, expect } from "vitest";
 import { VerifyEmailTemplate } from "@/emails/verify-email";
 import { PasswordResetTemplate } from "@/emails/password-reset";
 import { WeeklyDigestTemplate } from "@/emails/weekly-digest";
@@ -105,7 +106,7 @@ describe("Email templates", () => {
           const url = match.slice(6, -1); // Extract URL from href="..."
           // Allow mailto: and relative paths starting with /
           if (!url.startsWith("http") && !url.startsWith("mailto:") && !url.startsWith("/")) {
-            fail(`Found relative URL: ${url}`);
+            expect.fail(`Found relative URL: ${url}`);
           }
         });
       });

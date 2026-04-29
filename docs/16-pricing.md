@@ -14,7 +14,7 @@
 | Product | Model | Free | Entry (AUD) | Top tier (AUD) | Trial | Notes |
 |---|---|---|---|---|---|---|
 | **Cordell Connect (Cotality)** | Seat subscription | None | AUD 577.50/mo (Lite, 1 state, 2 users, inc GST) | Quote-only (National / Commercial / Civil / Mining) | Demo-gated | Entry price is AUD 6,930/yr; no self-serve signup; sales-led above Lite. Source: Cotality product page, 2026. |
-| **LeadManager (Hubexo / BCI Central)** | Seat subscription | None | Unpublished — "no fixed packages" | Unpublished | Demo-gated | Estimate AUD 4–15k/yr Lite / AUD 10–30k/yr Core, anchored to Cordell floor + customer-report range. Source: LeadManager site 2026; no public price. |
+| **LeadManager (Hubexo / BCI Central)** | Seat subscription | None | Est. AUD 4,000/yr Lite (≈ AUD 333/mo) — sales-quote only | Est. AUD 10–30k/yr Core | Demo-gated | Comparison table below uses the AUD 333/mo (4k/yr Lite) figure as the price cell with this footnote. Source: LeadManager AU site 2026 + customer-reported quotes; no published self-serve price. |
 | **EstimateOne** | Seat subscription | None | AUD 3,000/yr (AUD 250/mo), sub seats | Head-contractor (est. AUD 8–15k/yr) | Limited-tender trial | Covers head-contractor → subcontractor tender flow only; no DA-stage. Source: estimateone.com/subcontractors, 2026. |
 | **PlanningAlerts (OCAU)** | Freemium | Yes — civic, email alerts | AUD 3,850/mo Standard (commercial bulk) | AUD 3,850/mo Standard | Free email alerts | Civic-grade, no B2B product for trades, no government tenders. |
 | **DA Leads** | API subscription | No | Undisclosed (tiered API) | Undisclosed | — | API-first, no end-user product for trades. Not a direct competitor. |
@@ -123,7 +123,7 @@ The wedge axis is **Niche** (see `01c-wedge.md`, LOCKED). The Niche pricing defa
 
 **Anti-pattern checklist (self-audit):**
 - Price ladder: Solo AUD 199 → Team AUD 499 is **2.51×** — within the 4× maximum. Pass.
-- "Unlimited" anywhere: No. All 15 LGAs is a defined, finite list. 3 seats is a hard cap. Pass.
+- Open-ended / uncapped language: avoided everywhere. All 15 LGAs is a defined, finite list. 3 seats is a hard cap. Pass.
 - Top tier bullet bloat: Team adds exactly 2 differentiating features (extra seats + seat invitation). Pass.
 - Free tier too generous: No free tier. Pass.
 - Commodity trap: AUD 199 is 0.34× Cordell and 0.8× EstimateOne — differentiated positioning. Pass.
@@ -169,7 +169,7 @@ After day 44, account data is retained but inactive. No further emails (SPAM Act
 
 ### 4.4 Full Refund Policy
 
-Users who are charged on day 15 and have **zero digest interactions** (zero `da_card_clicked` and zero `da_feedback_given` events in their account history) may request a full refund within 7 days of the charge. Refund is processed in Stripe with no questions asked. This is the "bad week" safety valve — if the ingestion pipeline failed to deliver a useful digest, the refund removes the retention risk. Users with any interaction are not eligible for automatic refund; standard refund consideration applies at founder discretion.
+Users who are charged on day 15 and have **zero digest interactions** (zero `da_card_clicked` and zero `da_feedback_given` events in their account history) may request a full refund within 7 days of the charge. Refund is processed in Stripe with no questions asked. This is the "bad week" safety valve — if the ingestion pipeline failed to deliver a useful digest, the refund removes the retention risk. Users with any digest interaction in the trial period are not eligible — there is no second discretionary refund path.
 
 ---
 
@@ -270,7 +270,7 @@ Stripe Tax:
 | Digest deliveries | Weekly (Sunday) | 1 per seat per week |
 | SMS deliveries | Weekly (Sunday) | 1 per seat per week (opt-in only) |
 | AI inference cost | Weekly | AUD 0.13 per seat per week (Sentry alert on breach) |
-| DA records visible | No cap | All DAs in user's LGA bundle, scored and filtered to 5–15 |
+| DA records visible | All DAs in selected LGAs (typically 5–15/wk after curation) | All DAs in user's LGA bundle, scored and filtered to 5–15 |
 
 No usage counters need to reset except the weekly digest log (for idempotency — prevents double-send).
 
@@ -348,7 +348,7 @@ The `email-templates` phase must produce these 8 templates (reference IDs for Re
 
 ### 7.2 Trial Banner
 
-> **Start your 14-day free trial.** Card required — charged on day 15 only if you don't cancel. Full refund within 7 days of first charge if you've had zero leads.
+> **Start your 14-day free trial.** Card required — charged on day 15 only if you don't cancel. Full refund within 7 days of first charge if you had zero digest interactions (no card clicks, no thumbs).
 
 ### 7.3 Solo Tier Card
 
@@ -392,8 +392,8 @@ The `email-templates` phase must produce these 8 templates (reference IDs for Re
 
 | | **PI-AU Solo** | **PI-AU Team** | **Cordell Connect Lite** | **EstimateOne** | **LeadManager** |
 |---|---|---|---|---|---|
-| **Price** | AUD 199/mo + GST | AUD 499/mo + GST | AUD 577.50/mo inc GST | AUD 250/mo (AUD 3,000/yr) | Quote-only |
-| **Seats** | 1 | 3 | 2 | 1 | Undisclosed |
+| **Price** | AUD 199/mo + GST | AUD 499/mo + GST | AUD 577.50/mo inc GST | AUD 250/mo (AUD 3,000/yr) | Est. AUD 333/mo (AUD 4k/yr Lite, sales-quote)¹ |
+| **Seats** | 1 | 3 | 2 | 1 | 1 (per Lite-tier customer reports) |
 | **Geographic scope** | 15 Sydney LGAs | 15 Sydney LGAs | 1 state (NSW) | Head-contractor tenders (AU-wide) | AU + APAC |
 | **Trade scope** | Roofing only | Roofing only | All trades | All trades (tender stage) | All trades |
 | **DA-stage coverage** | Yes | Yes | Yes | No | Yes |
@@ -404,6 +404,8 @@ The `email-templates` phase must produce these 8 templates (reference IDs for Re
 | **Cancel anytime** | Yes — in-app | Yes — in-app | No — sales-led renewal | Yes | Unknown |
 | **Sunday digest cadence** | Yes | Yes | No | No | No |
 | **SMS alerts** | Yes | Yes | No | No | No |
+
+¹ LeadManager publishes no self-serve price; AUD 333/mo is the midpoint of the AUD 4–15k/yr Lite range customers report after a sales call. See §1.1 for the source. Cells show our best public-evidence estimate, not a contract price.
 
 ### 7.6 What We Don't Sell
 

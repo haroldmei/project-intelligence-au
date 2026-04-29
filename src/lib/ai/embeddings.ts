@@ -148,3 +148,16 @@ function estimateTokens(text: string): number {
 
 export const EMBEDDING_DIMENSIONS = EMBEDDING_DIMS;
 export const EMBEDDING_MODEL_ID = EMBEDDING_MODEL;
+
+/**
+ * Parse a pgvector text representation back into a number[].
+ * pgvector serialises vectors as "[1.2,3.4,...]" — strip brackets and split.
+ * Used when reading Unsupported("vector(1536)") columns via $queryRaw.
+ */
+export function parseVector(s: string): number[] {
+  return s
+    .replace(/^\[/, "")
+    .replace(/\]$/, "")
+    .split(",")
+    .map(Number);
+}

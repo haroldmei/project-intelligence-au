@@ -10,13 +10,24 @@ const passwordSchema = z
   .max(128, "Password must be at most 128 characters.");
 
 // ── E.164 mobile ──────────────────────────────────────────────────────────────
+// Accepts 9-digit AU mobile (starting with 4) — frontend sends just the trailing digits;
+// the API route prepends +61 before storing. Full E.164 (+61XXXXXXXXX) is also accepted
+// for server-side calls that already have the normalised value.
 const mobileE164Schema = z
   .string()
-  .regex(/^\+[1-9]\d{6,14}$/, "Mobile must be in E.164 format (e.g. +61412345678).");
+  .transform((v) => (v.startsWith("+") ? v : `+61${v}`))
+  .pipe(
+    z
+      .string()
+      .regex(
+        /^\+614\d{8}$/,
+        "Australian mobile must start with 4 and be 9 digits (e.g. 412 345 678)."
+      )
+  );
 
 // ── Signup ────────────────────────────────────────────────────────────────────
 export const SignupSchema = z.object({
-  email: z.string().email("Invalid email address."),
+  email: z.string().email("Invalid email address.").max(254, "Email must be at most 254 characters (RFC 5321)."),
   password: passwordSchema,
   mobile_e164: mobileE164Schema,
   /** AU roofing product — trade is locked to 'roofing' in V1. */
@@ -30,8 +41,9 @@ export type SignupInput = z.infer<typeof SignupSchema>;
 
 // ── Login ─────────────────────────────────────────────────────────────────────
 export const LoginSchema = z.object({
-  email: z.string().email("Invalid email address."),
-  password: z.string().min(1, "Password is required."),
+  email: z.string().email("Invalid email address.").max(254, "Email must be at most 254 characters (RFC 5321)."),
+  // Max 128 chars mirrors signup passwordSchema — stops argon2.verify receiving a huge candidate (AT-004).
+  password: z.string().min(1, "Password is required.").max(128, "Password must be at most 128 characters."),
 });
 export type LoginInput = z.infer<typeof LoginSchema>;
 
@@ -47,7 +59,7 @@ export type OtpVerifyInput = z.infer<typeof OtpVerifySchema>;
 
 // ── Password-reset request ────────────────────────────────────────────────────
 export const PasswordResetRequestSchema = z.object({
-  email: z.string().email("Invalid email address."),
+  email: z.string().email("Invalid email address.").max(254, "Email must be at most 254 characters (RFC 5321)."),
 });
 export type PasswordResetRequestInput = z.infer<typeof PasswordResetRequestSchema>;
 

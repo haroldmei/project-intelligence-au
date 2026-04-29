@@ -1039,6 +1039,7 @@ Billing endpoints integrate with Stripe AU. All endpoints require active Lucia s
 |--------|----------|---------|----------|
 | `POST` | `/billing/checkout` | Create Stripe checkout session | FR-018 |
 | `POST` | `/billing/portal` | Redirect to Stripe Billing Portal | FR-019 |
+| `DELETE` | `/billing/subscription` | Cancel subscription at period end | FR-021 |
 
 ### POST /billing/checkout
 
@@ -1123,6 +1124,64 @@ No request body required.
 ```bash
 curl -X POST http://localhost:3000/api/billing/portal \
   -b cookies.txt
+```
+
+---
+
+### DELETE /billing/subscription
+
+**Cancel subscription at period end.**
+
+Sets `cancel_at_period_end = true` on the user's active Stripe subscription. Access continues until
+the current period ends; no immediate revocation.
+
+**Wedge FR-021:** Enable in-app subscription cancellation.
+
+#### Request
+
+Optional JSON body:
+
+```json
+{
+  "reason": "Too expensive"
+}
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `reason` | string | No | Max 500 chars. V1: logged only, not persisted. |
+
+#### Response
+
+**200 OK:**
+
+```json
+{
+  "ok": true,
+  "accessUntil": "2026-05-28T23:59:59.000Z"
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `ok` | boolean | Always `true` on success |
+| `accessUntil` | string | ISO 8601 — the `current_period_end` from Stripe |
+
+#### Errors
+
+| Status | Code | Description |
+|--------|------|-------------|
+| `401` | — | Unauthorized (no active session) |
+| `404` | — | No active subscription found |
+| `500` | — | Stripe API error |
+
+#### Curl Example
+
+```bash
+curl -X DELETE http://localhost:3000/api/billing/subscription \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{"reason": "Too expensive"}'
 ```
 
 ---

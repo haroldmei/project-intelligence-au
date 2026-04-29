@@ -8,3 +8,4 @@
 .VSCodeCounter/
 node_modules/
 .codex/
+.next/
