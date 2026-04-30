@@ -220,8 +220,16 @@ The public NSW Planning Portal register at `https://www.planningportal.nsw.gov.a
 
 To enable in production:
 
-1. Set `DAEX_INGEST_ENABLED=true` in Vercel env (Production scope).
-2. Trigger the ingest cron once to verify:
+1. Append `DAEX_INGEST_ENABLED=true` to `.env.production.local`.
+2. Push the env var to Vercel **and** redeploy:
+   ```bash
+   scripts/deploy.sh env-up    # writes to Vercel project settings
+   scripts/deploy.sh deploy    # rebuilds with the new env baked in
+   ```
+   Both steps are required. `env-up` alone updates Vercel's stored env values
+   but the running deployment keeps using the env baked in at its build time —
+   `src/lib/env.ts` reads `process.env` at module load and Next.js inlines it.
+3. Trigger the ingest cron once to verify (or wait for the next 13:00 UTC tick):
    ```bash
    CRON_SECRET=$(grep '^CRON_SECRET=' .env.production.local | cut -d= -f2- | tr -d '"')
    curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://www.pi-au.com/api/cron/ingest
