@@ -76,7 +76,19 @@ export interface PipelineInput {
   sinceIsoDate?: string;
   /** How many to send to the LLM rerank stage. Default 30 per contract. */
   topKForRerank?: number;
-  /** Min score from rerank to surface in digest. Default 4. */
+  /**
+   * Min score (0–5) from rerank to surface in digest.
+   *
+   * Default 3 — captures "moderately relevant" leads alongside high-precision
+   * matches. Was 4 originally, but at 4 a roofer-implicit new-build like
+   * "construction of a two storey dwelling" gets dropped because the LLM
+   * scores it as 3 against a re-roof-focused saved query — even though every
+   * new dwelling actually needs a roof. Threshold of 3 means the digest may
+   * include new builds + alterations + additions; LLM still ranks them below
+   * explicit re-roofs when both are present.
+   *
+   * Tighten back to 4 once we have abundant explicit re-roof data.
+   */
   minScoreForDigest?: number;
   /** Hard ceiling on digest size (wedge: 5–15 leads). Default 15. */
   maxDigestSize?: number;
@@ -114,7 +126,7 @@ export async function runRelevancePipeline(
 ): Promise<PipelineOutput> {
   const sinceIsoDate = input.sinceIsoDate ?? defaultSinceIso();
   const topKForRerank = input.topKForRerank ?? 30;
-  const minScoreForDigest = input.minScoreForDigest ?? 4;
+  const minScoreForDigest = input.minScoreForDigest ?? 3;
   const maxDigestSize = input.maxDigestSize ?? 15;
 
   // Stage 1 — rule pass
