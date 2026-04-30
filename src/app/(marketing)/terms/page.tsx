@@ -142,7 +142,7 @@ export default function TermsPage() {
               <strong>Pricing:</strong> Solo plan: AUD 199/month + GST. Team plan: AUD 499/month + GST (3 seats). Prices are inclusive of GST as displayed at checkout.
             </p>
             <p className="mt-4">
-              <strong>Trial:</strong> New accounts start with a 14-day full-access trial at no charge. No payment is required during the trial. On day 15, if you have not cancelled, your saved card is charged AUD 199/499 + GST for the first month.
+              <strong>Trial:</strong> New accounts start with a 28-day full-access trial at no charge. No payment is required during the trial. On day 29, if you have not cancelled, your saved card is charged AUD 199/499 + GST for the first month.
             </p>
             <p className="mt-4">
               <strong>No free tier:</strong> After the trial, the Service is not available at zero cost. Trial is the entry point; there is no perpetual free tier.
@@ -151,7 +151,7 @@ export default function TermsPage() {
               <strong>Billing:</strong> Subscription renews automatically each month. Billing is processed by Stripe AU. Charges appear on your card statement as &ldquo;ProjectIntelligence AU.&rdquo;
             </p>
             <p className="mt-4">
-              <strong>Cancellation and refunds:</strong> You can cancel your subscription anytime from Account → Subscription → Cancel. Cancellation is effective immediately; you retain read-only access to digest history until your paid period ends. No refunds are issued for partial months. On day 15 of cancellation, your account and all data are permanently deleted.
+              <strong>Cancellation and refunds:</strong> You can cancel your subscription anytime from Account → Subscription → Cancel. Cancellation is effective immediately; you retain read-only access to digest history until your paid period ends. No refunds are issued for partial months. On day 29 of cancellation, your account and all data are permanently deleted.
             </p>
             <p className="mt-4">
               <strong>Failed payment:</strong> If your card is declined, we will attempt to re-charge on the next billing date. After 3 failed attempts, your subscription is marked past_due and access is suspended. Contact support to update your payment method.

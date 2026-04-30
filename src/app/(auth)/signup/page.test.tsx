@@ -16,7 +16,7 @@ vi.mock("react-hook-form", async (importOriginal) => {
 describe("SignupPage", () => {
   it("renders heading and step indicator", () => {
     render(<SignupPage />);
-    expect(screen.getByRole("heading", { name: /Start your 14-day trial/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Start your 28-day trial/i })).toBeTruthy();
     expect(screen.getByText(/Step 1 of 4/i)).toBeTruthy();
   });
 

@@ -102,9 +102,15 @@ export interface CheckoutSession {
 }
 
 /**
- * Create a Stripe Checkout session for subscription with 14-day trial.
+ * Create a Stripe Checkout session for subscription with 28-day trial.
  * AUD pricing; GST handled by Stripe Tax (NFR-029).
- * FR-018 | contract.payments.trial = 14-day full-access
+ *
+ * Trial length 28 days (was 14) so subscribers get 4 Sunday digests during
+ * trial instead of 2. The wedge cycle is "Sunday digest → tradie chases →
+ * quote → win" which takes 4–6 weeks; 14 days didn't give the user time
+ * to validate ROI before the cancel/pay decision.
+ *
+ * FR-018 | contract.payments.trial = N-day full-access
  */
 export async function createCheckoutSession(
   stripeCustomerId: string,
@@ -129,7 +135,7 @@ export async function createCheckoutSession(
     cancel_url: cancelUrl,
   };
   if (opts.withTrial !== false) {
-    params["subscription_data[trial_period_days]"] = "14";
+    params["subscription_data[trial_period_days]"] = "28";
   }
   const session = await stripePost<{ url: string; id: string }>("/checkout/sessions", params);
   return { url: session.url, id: session.id };

@@ -40,7 +40,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     await db.user.update({ where: { id: user.id }, data: { stripeCustomerId: customerId } });
   }
 
-  // Re-subscribers (previously cancelled) don't get another 14-day trial —
+  // Re-subscribers (previously cancelled) don't get another 28-day trial —
   // they've already had one. Trial-eligible: anyone who hasn't cancelled.
   const withTrial = user.subscriptionStatus !== "cancelled";
 

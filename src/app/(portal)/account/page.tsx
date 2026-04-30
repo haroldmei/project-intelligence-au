@@ -146,7 +146,7 @@ export default function AccountPage() {
             {needsCheckout ? (
               <>
                 <p className="text-sm text-[#627D98]">
-                  Pick a plan to start your 14-day trial. Your card isn&apos;t charged until day 15.
+                  Pick a plan to start your 28-day trial. Your card isn&apos;t charged until day 29.
                 </p>
                 <Link
                   href="/plan"
