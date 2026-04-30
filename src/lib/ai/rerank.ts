@@ -268,7 +268,10 @@ export async function rerankCandidates(
     }
   }
 
-  const minScore = opts.minScore ?? 4;
+  // Default min-score 3 matches relevance-pipeline.ts. The pipeline always
+  // passes one explicitly, so this default only applies to ad-hoc callers
+  // (eval scripts, future utilities). Keep them aligned.
+  const minScore = opts.minScore ?? 3;
   const sorted = [...byId.values()]
     .filter((r) => r.score >= minScore)
     .sort((a, b) => b.score - a.score || b.confidence - a.confidence);

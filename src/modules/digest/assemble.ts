@@ -2,6 +2,7 @@
 // WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 // FR-009, FR-010, FR-011, FR-012 | system-design §2 digest component
+import * as Sentry from "@sentry/nextjs";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email/client";
 import { sendSms } from "@/lib/sms/client";
@@ -69,30 +70,28 @@ export async function assembleAndSendDigest(
   const weekStart = getWeekStartLabel();
   const lgaLabels = user.lgaBundles.map((sub) => sub.bundle.label);
 
-  // Build email cards with HMAC-signed feedback links (FR-023)
-  const cards = await Promise.all(
-    results.map(async (r) => {
-      const da = await db.developmentApplication.findUnique({
-        where: { id: r.daId },
-        select: { address: true, council: true, estimatedValue: true, portalUrl: true, applicantName: true, description: true },
-      });
-      const thumbUpUrl = buildFeedbackUrl(userId, r.daId, 1);
-      const thumbDownUrl = buildFeedbackUrl(userId, r.daId, 0);
-      return {
-        id: r.daId,
-        address: da?.address ?? "",
-        lga: da?.council ?? "",
-        value: da?.estimatedValue ? `AUD ${formatValue(Number(da.estimatedValue))}` : undefined,
-        why: r.why,
-        scope: (da?.description ?? "").slice(0, 200),
-        applicant: da?.applicantName ?? "",
-        relevanceScore: r.score * 2,
-        portalUrl: da?.portalUrl ?? "",
-        thumbUpUrl,
-        thumbDownUrl,
-      };
-    }),
-  );
+  // Build email cards from the relevance candidates we already have. No
+  // per-card DB roundtrip — the candidate carries everything we need
+  // (CandidateDA includes address, description, council, estimatedValue,
+  // applicantName, portalUrl).
+  const cards = results.map((r) => {
+    const c = r.candidate;
+    const thumbUpUrl = buildFeedbackUrl(userId, r.daId, 1);
+    const thumbDownUrl = buildFeedbackUrl(userId, r.daId, 0);
+    return {
+      id: r.daId,
+      address: c.address,
+      lga: c.council,
+      value: c.estimatedValue ? `AUD ${formatValue(c.estimatedValue)}` : undefined,
+      why: r.why,
+      scope: c.description.slice(0, 200),
+      applicant: c.applicantName ?? "",
+      relevanceScore: r.score * 2,
+      portalUrl: c.portalUrl,
+      thumbUpUrl,
+      thumbDownUrl,
+    };
+  });
 
   // Send email (FR-010)
   let emailStatus = "pending";
@@ -106,19 +105,38 @@ export async function assembleAndSendDigest(
         lgas: lgaLabels,
         cards,
         smsEnabled: user.smsOptIn,
+        fallbackUsed: relevance.fallbackUsed,
       },
     });
     emailStatus = "sent";
   } catch (err) {
     emailStatus = "failed";
     log.error({ userId, digestId: digest.id, err }, "[digest] email send failed");
+    Sentry.captureException(err, {
+      tags: { phase: "digest-email", userId, digestId: digest.id },
+    });
   }
 
   // Send SMS to top-3 if opted in (FR-011)
   let smsStatus = "skipped";
   if (user.smsOptIn && user.mobile_e164 && cards.length > 0) {
     const top3 = cards.slice(0, SMS_MAX_CARDS);
-    const smsBody = buildSmsBody(top3, lgaLabels, weekStart);
+    // Persist a ShortUrl row per card BEFORE building the SMS body so
+    // the /s/<slug> redirect handler can resolve clicks. Without these
+    // upserts the redirect endpoint returns 404 for every SMS link
+    // (the historical bug C1 from the code review).
+    const linkedTop3 = await Promise.all(
+      top3.map(async (c) => {
+        const slug = shortSlug(c.portalUrl);
+        await db.shortUrl.upsert({
+          where: { slug },
+          create: { slug, targetUrl: c.portalUrl },
+          update: { targetUrl: c.portalUrl }, // refresh in case the council URL was rewritten
+        });
+        return c;
+      }),
+    );
+    const smsBody = buildSmsBody(linkedTop3, lgaLabels, weekStart);
     const sent = await sendSms({ to: user.mobile_e164, body: smsBody });
     smsStatus = sent ? "sent" : "failed";
   }
@@ -141,18 +159,51 @@ function buildFeedbackUrl(userId: string, daId: string, vote: 1 | 0): string {
   return `${APP_BASE_URL}/api/feedback?token=${encodeURIComponent(token)}`;
 }
 
+/**
+ * Build the SMS body. Stays within 2 SMS parts (~320 chars) to avoid
+ * carrier mangling and double-billing — addresses are truncated as needed.
+ */
+const SMS_MAX_CHARS = 320;
+const SMS_FOOTER = "\nReply STOP to opt out.";
+const SMS_ADDRESS_FALLBACK_LEN = 40;
+
 function buildSmsBody(
   cards: Array<{ address: string; lga: string; value?: string; portalUrl: string }>,
   lgas: string[],
   weekStart: string,
 ): string {
-  const header = `PI-AU Roofing leads ${weekStart} (${lgas.join(", ")}):\n`;
-  const lines = cards.map((c, i) => {
+  // Don't include every LGA in the header — the SMS doesn't need them, and a
+  // user with all 4 bundles selected blows the char budget on the header alone.
+  const lgaLabel = lgas.length === 1 ? lgas[0] : `${lgas.length} areas`;
+  const header = `PI-AU ${weekStart} (${lgaLabel}):\n`;
+
+  const renderLine = (
+    c: { address: string; value?: string; portalUrl: string },
+    i: number,
+    addressLen: number,
+  ) => {
     const val = c.value ? ` ${c.value}` : "";
-    // Keep short for SMS (160-char parts)
-    return `${i + 1}. ${c.address}${val}\n${APP_BASE_URL}/s/${shortSlug(c.portalUrl)}`;
-  });
-  return `${header}${lines.join("\n\n")}\nReply STOP to opt out.`;
+    const addr = c.address.length > addressLen ? `${c.address.slice(0, addressLen - 1)}…` : c.address;
+    return `${i + 1}. ${addr}${val}\n${APP_BASE_URL}/s/${shortSlug(c.portalUrl)}`;
+  };
+
+  // First pass: full addresses.
+  let lines = cards.map((c, i) => renderLine(c, i, c.address.length));
+  let body = `${header}${lines.join("\n\n")}${SMS_FOOTER}`;
+  if (body.length <= SMS_MAX_CHARS) return body;
+
+  // Second pass: truncate addresses to a fixed length.
+  lines = cards.map((c, i) => renderLine(c, i, SMS_ADDRESS_FALLBACK_LEN));
+  body = `${header}${lines.join("\n\n")}${SMS_FOOTER}`;
+  if (body.length <= SMS_MAX_CHARS) return body;
+
+  // Last resort: drop the lowest-ranked card.
+  if (cards.length > 1) {
+    return buildSmsBody(cards.slice(0, cards.length - 1), lgas, weekStart);
+  }
+  // Single card already over budget — just send the over-budget version.
+  // Twilio will split into multiple parts; preferable to silently dropping.
+  return body;
 }
 
 function getWeekStartLabel(): string {
@@ -166,9 +217,13 @@ function formatValue(n: number): string {
   return String(n);
 }
 
-/** Derive a short slug from a portal URL for SMS links (system-design §9.2 self-hosted shortener) */
+/**
+ * Deterministic 8-char base64url slug from the portal URL — for SMS short
+ * links (system-design §9.2 self-hosted shortener). Caller persists a
+ * `ShortUrl` row keyed on this slug before sending the SMS so the
+ * /api/s/[slug] redirect can resolve. 8 base64url chars = 48 bits of
+ * entropy, more than enough for per-DA uniqueness.
+ */
 function shortSlug(url: string): string {
-  // We store ShortUrl rows at digest time; for now return a hash-based slug
-  const hash = Buffer.from(url).toString("base64url").slice(0, 8);
-  return hash;
+  return Buffer.from(url).toString("base64url").slice(0, 8);
 }

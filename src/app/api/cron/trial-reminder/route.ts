@@ -40,6 +40,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       createdAt: { gte: targetCutoffStart, lte: targetCutoffEnd },
     },
     select: { id: true, email: true },
+    take: 1000, // bounded daily cohort; matches NFR-008 ceiling
   });
 
   const manageBillingUrl = `${env.NEXT_PUBLIC_APP_URL}/account`;

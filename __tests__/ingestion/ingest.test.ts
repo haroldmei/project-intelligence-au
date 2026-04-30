@@ -96,10 +96,18 @@ describe("runIngest", () => {
     (fetchWithRetry as ReturnType<typeof vi.fn>).mockResolvedValue(mockDA);
 
     await runIngest(1);
-    await runIngest(1);
+    const countAfterFirstRun = await testDb.developmentApplication.count({ where: { daId: "DA-DUP" } });
+    expect(countAfterFirstRun).toBeGreaterThan(0);
 
-    const count = await testDb.developmentApplication.count({ where: { daId: "DA-DUP" } });
-    expect(count).toBe(1); // not duplicated
+    await runIngest(1);
+    const countAfterSecondRun = await testDb.developmentApplication.count({ where: { daId: "DA-DUP" } });
+
+    // Idempotency: re-ingesting the same DA doesn't create new rows.
+    // Each row is keyed on (daId, council); the mock returns the same DA for
+    // every council the dispatcher routes to, so countAfterFirstRun depends
+    // on how many councils match the configured adapter — but it MUST equal
+    // countAfterSecondRun for upsert idempotency.
+    expect(countAfterSecondRun).toBe(countAfterFirstRun);
   });
 });
 

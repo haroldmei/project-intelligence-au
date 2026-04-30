@@ -27,6 +27,8 @@ export interface CandidateDA {
   rawScopeText: string | null;
   estimatedValue: number | null;
   lodgementDate: string; // yyyy-mm-dd
+  applicantName: string | null;
+  portalUrl: string;
   /** Cosine similarity from stage 2 — used for tie-break and logging. */
   cosineSimilarity?: number;
 }

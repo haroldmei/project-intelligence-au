@@ -137,6 +137,10 @@ export async function weeklyCostAud(
   const rows = await db.aiCostLog.findMany({
     where: { userId, weekStart },
     select: { costAud: true },
+    // Hard cap: a single user can't generate > 5000 ledger rows in a week
+    // unless something is broken (would be ~AUD $0.65 at current rates,
+    // well past the 0.13 ceiling). Defends against runaway queries.
+    take: 5000,
   });
   return rows.reduce((sum, r) => sum + Number(r.costAud), 0);
 }

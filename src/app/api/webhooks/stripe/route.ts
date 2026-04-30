@@ -110,12 +110,16 @@ async function handleStripeEvent(type: string, obj: Record<string, unknown>): Pr
       log.info({ userId: user.id }, "[webhook-stripe] subscription cancelled");
       break;
     }
-    case "invoice.payment_failed": {
+    case "invoice.payment_failed":
+    case "invoice.payment_action_required": {
+      // payment_action_required = card needs 3DS / SCA challenge. Treat as
+      // past_due so the user sees "update card" CTA on /account; portal
+      // surfaces the Stripe-hosted 3DS confirmation flow.
       await db.user.update({
         where: { id: user.id },
         data: { subscriptionStatus: "past_due" },
       });
-      log.warn({ userId: user.id }, "[webhook-stripe] payment failed → past_due");
+      log.warn({ userId: user.id, type }, "[webhook-stripe] payment requires action → past_due");
       break;
     }
     case "invoice.payment_succeeded": {

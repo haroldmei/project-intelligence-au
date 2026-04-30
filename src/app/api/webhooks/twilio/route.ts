@@ -22,9 +22,13 @@ export async function POST(request: Request): Promise<Response> {
     params[k] = v;
   }
 
-  // Validate Twilio signature (NFR-015)
+  // Validate Twilio signature (NFR-015). In production, refuse the request
+  // if TWILIO_AUTH_TOKEN isn't set — without it any HTTP POST could opt
+  // users out of SMS. In dev/preview, log a warning and accept (so local
+  // testing without Twilio doesn't break).
   const signature = request.headers.get("x-twilio-signature") ?? "";
   const url = `${env.NEXT_PUBLIC_APP_URL}/api/webhooks/twilio`;
+  const isProd = env.NODE_ENV === "production" || env.VERCEL_ENV === "production";
 
   if (env.TWILIO_AUTH_TOKEN) {
     const valid = validateTwilioSignature(url, params, signature);
@@ -32,6 +36,11 @@ export async function POST(request: Request): Promise<Response> {
       log.warn("[webhook-twilio] invalid Twilio signature");
       return new Response("<Response/>", { status: 403, headers: { "Content-Type": "text/xml" } });
     }
+  } else if (isProd) {
+    log.error("[webhook-twilio] TWILIO_AUTH_TOKEN unset in production — refusing request");
+    return new Response("<Response/>", { status: 503, headers: { "Content-Type": "text/xml" } });
+  } else {
+    log.warn("[webhook-twilio] TWILIO_AUTH_TOKEN unset (dev mode) — skipping signature check");
   }
 
   const body = (params["Body"] ?? "").trim().toUpperCase();

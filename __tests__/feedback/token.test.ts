@@ -1,11 +1,15 @@
 // Unit tests for HMAC token issue/validate (no DB needed)
 // system-design §6.3 NFR-016
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { issueFeedbackToken, validateFeedbackToken } from "@/lib/hmac/token";
 
-beforeEach(() => {
-  process.env.FEEDBACK_HMAC_SECRET = "test-secret-at-least-32-chars-long";
-});
+// FEEDBACK_HMAC_SECRET is set by __tests__/setup-env.ts before any module loads,
+// so env.ts caches the same value the test uses below. The previous fixture
+// reset process.env in beforeEach, which broke validation because env.ts
+// snapshots at import time — the validator and the test ended up using
+// different keys (test signed with the override; validator verified with the
+// cached value), surfacing as "tampered" instead of "expired".
+const TEST_HMAC_SECRET = process.env.FEEDBACK_HMAC_SECRET!;
 
 describe("issueFeedbackToken / validateFeedbackToken", () => {
   it("round-trips a thumbs-up token", () => {
@@ -47,7 +51,7 @@ describe("issueFeedbackToken / validateFeedbackToken", () => {
     // Build the token manually (bypass issueFeedbackToken's now())
     const { createHmac } = require("node:crypto");
     const data = JSON.stringify(payload);
-    const sig = createHmac("sha256", process.env.FEEDBACK_HMAC_SECRET!).update(data).digest("hex");
+    const sig = createHmac("sha256", TEST_HMAC_SECRET).update(data).digest("hex");
     const envelope = JSON.stringify({ payload, sig });
     const token = Buffer.from(envelope).toString("base64url");
 

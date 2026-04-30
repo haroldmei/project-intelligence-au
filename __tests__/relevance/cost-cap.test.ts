@@ -7,11 +7,17 @@ vi.mock("@/lib/ai/cost-ledger", () => ({
   weekStartAEST: vi.fn().mockReturnValue(new Date("2026-04-28T00:00:00Z")),
 }));
 
+// $queryRaw is used by run.ts to fetch saved_query_embedding (Prisma can't
+// type Unsupported("vector(1536)") via the model API). The factory inlines
+// the embedding string because vi.mock is hoisted above top-level consts.
 vi.mock("@/lib/db", () => ({
   db: {
     user: {
       findUnique: vi.fn(),
     },
+    $queryRaw: vi.fn().mockResolvedValue([
+      { saved_query_embedding: `[${Array(1536).fill(0).join(",")}]` },
+    ]),
   },
 }));
 
