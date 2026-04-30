@@ -86,22 +86,26 @@ async function ingestCouncil(council: string, sinceDaysBack: number): Promise<In
       await upsertDa(r);
       ingested++;
     }
+    // sourceApi reflects what the dispatcher actually returned. When records
+    // is empty we don't know which adapter ran (or whether the dispatcher
+    // returned [] because no source was configured), so use "none" rather
+    // than lying that nsw_planning was tried.
     await db.ingestionLog.create({
       data: {
         council,
-        sourceApi: records[0]?.sourceApi ?? "nsw_planning",
+        sourceApi: records[0]?.sourceApi ?? "none",
         daCount: ingested,
         success: true,
       },
     });
-    log.info({ council, ingested }, "[ingest] council done");
+    log.info({ council, ingested, sourceApi: records[0]?.sourceApi ?? "none" }, "[ingest] council done");
     return { council, ingested, failed: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ council, err: msg }, "[ingest] council failed");
     Sentry.captureException(err, { tags: { council, phase: "ingestion" } });
     await db.ingestionLog.create({
-      data: { council, sourceApi: "nsw_planning", daCount: 0, success: false, errorMessage: msg },
+      data: { council, sourceApi: "error", daCount: 0, success: false, errorMessage: msg },
     });
     return { council, ingested: 0, failed: true, errorMessage: msg };
   }
