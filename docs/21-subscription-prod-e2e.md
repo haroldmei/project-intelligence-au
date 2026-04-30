@@ -1,36 +1,56 @@
-# Subscription lifecycle — production E2E suite
+# Subscription lifecycle — deployed E2E suite
 
-Drives the **live deployment** end-to-end through every state a paying user can land in. Real Stripe Checkout (test mode), real webhooks, real Postgres. No real email — signup auto-verifies for `@e2e.test.pi-au.com`. ~3.6 min for the full suite.
+Drives a **live deployment** end-to-end through every state a paying user can land in. Real Stripe Checkout (test mode), real webhooks, real Postgres. No real email — signup auto-verifies for `@e2e.test.pi-au.com`. ~3.6 min for the full suite.
 
 **Spec:** `e2e/billing-lifecycle-prod.spec.ts`
 **Config:** `playwright.prod.config.ts`
 **Counterpart:** unit-level coverage of the same state machine lives in `__tests__/billing/lifecycle.test.ts` (`docs/20-subscription-test-suite.md`)
 
+The suite is **safe by default for staging** — pointed at `staging.pi-au.com` with test-mode Stripe. Running against production is gated to "prod still in test mode" (typically pre-launch) and refuses if it sees `sk_live_` keys.
+
 ---
 
 ## How to run
 
+### Against staging (the normal case)
+
 ```bash
-PROD_BASE_URL=https://www.pi-au.com \
-STRIPE_TEST_SECRET_KEY=sk_test_... \
+pnpm test:billing:staging
+```
+
+That's it. The wrapper auto-loads `.env.staging.local`, which provides:
+- `NEXT_PUBLIC_APP_URL=https://staging.pi-au.com` → tests' `baseURL`
+- `STRIPE_SECRET_KEY=sk_test_...` → falls back to `STRIPE_TEST_SECRET_KEY` in the spec
+
+The suite **refuses to run** unless the Stripe key starts with `sk_test_`, so you can't torch live customer data even if `.env.staging.local` was misconfigured.
+
+### Against production (rare, pre-launch only)
+
+```bash
 pnpm test:billing:prod
 ```
 
-`STRIPE_TEST_SECRET_KEY` falls back to `STRIPE_SECRET_KEY` if unset. The suite **refuses to run** unless the key starts with `sk_test_` — guards against torching live customer data.
+Auto-loads `.env.production.local`. Same `sk_test_` guard applies. **After you flip prod to live mode (`sk_live_`), this script auto-skips every test** — you can't accidentally run the E2E against real customers.
 
-`PROD_BASE_URL` defaults to `https://www.pi-au.com`. Point it elsewhere to test a preview deployment.
-
-Single test:
+### Single test
 
 ```bash
-STRIPE_TEST_SECRET_KEY=... pnpm exec playwright test -c playwright.prod.config.ts --grep "Stage 3"
+bash scripts/with-env.sh .env.staging.local pnpm exec playwright test -c playwright.prod.config.ts --grep "Stage 3"
 ```
 
-Headed (watch the browser):
+### Headed (watch the browser)
 
 ```bash
-STRIPE_TEST_SECRET_KEY=... pnpm exec playwright test -c playwright.prod.config.ts --headed
+bash scripts/with-env.sh .env.staging.local pnpm exec playwright test -c playwright.prod.config.ts --headed
 ```
+
+### Override URL (preview deployments, custom URLs)
+
+```bash
+PROD_BASE_URL=https://project-intelligence-abc123.vercel.app pnpm test:billing:staging
+```
+
+`PROD_BASE_URL` wins over the `NEXT_PUBLIC_APP_URL` from the env file.
 
 Failure artifacts (screenshot, trace, page snapshot) land in `test-results-prod/`. Open a trace with `pnpm exec playwright show-trace test-results-prod/<dir>/trace.zip`.
 

@@ -1,8 +1,18 @@
-// Playwright config for production E2E tests against the live deployment.
-// Does NOT start a local dev server — points at the deployed Vercel URL.
+// Playwright config for the deployed E2E lifecycle suite.
+// Targets staging.pi-au.com by default (test-mode Stripe + sandbox DB).
+// Override PROD_BASE_URL for ad-hoc runs against a Vercel preview URL or
+// production. The pnpm scripts in package.json (test:billing:staging /
+// test:billing:prod) wire the right values automatically.
 import { defineConfig, devices } from "@playwright/test";
 
-const PROD_BASE_URL = process.env.PROD_BASE_URL ?? "https://www.pi-au.com";
+// Resolve target URL in priority order:
+//   1. PROD_BASE_URL    — explicit override (CI, ad-hoc)
+//   2. NEXT_PUBLIC_APP_URL — auto-loaded from .env.<env>.local via with-env.sh
+//   3. staging.pi-au.com  — default for the safe-by-default test:billing:staging path
+const PROD_BASE_URL =
+  process.env.PROD_BASE_URL ??
+  process.env.NEXT_PUBLIC_APP_URL ??
+  "https://staging.pi-au.com";
 
 export default defineConfig({
   testDir: "./e2e",
