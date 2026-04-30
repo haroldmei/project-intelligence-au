@@ -24,8 +24,13 @@ cd "$PROJECT_ROOT"
 ENV_FILE="${ENV_FILE:-.env.production.local}"
 ENV_TEMPLATE=".env.production.example"
 
-# Required vars — script refuses to deploy if any of these are missing/empty
-# in $ENV_FILE. DATABASE_URL is fetched from Vercel Postgres (env-up auto-pulls).
+# Preflight validation lists. These document expectations for operators —
+# env-up no longer dispatches off them; it discovers vars directly from
+# $ENV_FILE so adding a new var to env.ts + .env.production.local is
+# enough (no script change required).
+#
+# REQUIRED_VARS — preflight refuses to deploy if any are missing/empty in
+# $ENV_FILE. DATABASE_URL is fetched from Vercel Postgres (env-up auto-pulls).
 REQUIRED_VARS=(
   NEXT_PUBLIC_APP_URL
   ANTHROPIC_API_KEY
@@ -39,7 +44,7 @@ REQUIRED_VARS=(
   CRON_SECRET
 )
 
-# Optional but recommended for Month 1 — script warns but doesn't block.
+# OPTIONAL_VARS — preflight warns when missing, doesn't block.
 OPTIONAL_VARS=(
   TWILIO_ACCOUNT_SID
   TWILIO_AUTH_TOKEN
@@ -167,12 +172,15 @@ cmd_env_up() {
   fi
   rm -f .env.production.vercel
 
-  # Push our vars from $ENV_FILE.
+  # Discover vars to push: every assignment in $ENV_FILE except Vercel-
+  # managed ones (DATABASE_URL, POSTGRES_*, NEON_*, PG*) and reserved
+  # prefixes (VERCEL_*). Schema-driven so any new var added to env.ts +
+  # .env.production.local is picked up automatically — no allowlist
+  # maintenance.
   # shellcheck disable=SC1090
   set -a; source "$ENV_FILE"; set +a
   local pushed=0 skipped=0
-  local all_vars=("${REQUIRED_VARS[@]}" "${OPTIONAL_VARS[@]}")
-  for v in "${all_vars[@]}"; do
+  while IFS= read -r v; do
     local val="${!v:-}"
     if [[ -z "$val" ]]; then ((skipped+=1)); continue; fi
     # Idempotent: remove first (silently), then add.
@@ -180,7 +188,19 @@ cmd_env_up() {
     printf '%s' "$val" | vercel env add "$v" production >/dev/null
     echo "  pushed $v"
     ((pushed+=1))
-  done
+  done < <(awk -F= '
+    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+    /^[A-Za-z_][A-Za-z0-9_]*=/ {
+      name = $1
+      # Skip Vercel-managed and reserved-prefix vars.
+      if (name == "DATABASE_URL" \
+        || name ~ /^POSTGRES_/ \
+        || name ~ /^NEON_/ \
+        || name ~ /^PG[A-Z]/ \
+        || name ~ /^VERCEL_/) next
+      print name
+    }
+  ' "$ENV_FILE" | sort -u)
   ok "env-up done — $pushed pushed, $skipped skipped (empty)"
 }
 
