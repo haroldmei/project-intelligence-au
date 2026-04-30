@@ -107,6 +107,14 @@ describe("parseDaexDetail — Determined approved", () => {
   it("extracts the decision field as 'Approved'", () => {
     expect(detail.decision).toBe("Approved");
   });
+
+  // Freshness gate: stale Determined DAs (>180 days post-decision) are dead
+  // leads. The adapter drops them at ingest based on this field. Without
+  // it the old code stamped lodgement_date=today, which falsely made every
+  // years-old determination look fresh to downstream relevance.
+  it("extracts the determination date in yyyy-mm-dd", () => {
+    expect(detail.determinationDate).toBe("2026-04-21");
+  });
 });
 
 describe("parseDaexDetail — project description", () => {

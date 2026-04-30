@@ -112,6 +112,7 @@ async function ingestCouncil(council: string, sinceDaysBack: number): Promise<In
 }
 
 async function upsertDa(r: RawDaRecord): Promise<void> {
+  const determinationDate = r.determinationDate ? new Date(r.determinationDate) : null;
   await db.developmentApplication.upsert({
     where: { daId_council: { daId: r.daId, council: r.council } },
     create: {
@@ -121,6 +122,7 @@ async function upsertDa(r: RawDaRecord): Promise<void> {
       description: r.description,
       estimatedValue: r.estimatedValue,
       lodgementDate: new Date(r.lodgementDate),
+      determinationDate,
       applicantName: r.applicantName,
       portalUrl: r.portalUrl,
       rawScopeText: r.rawScopeText,
@@ -131,6 +133,7 @@ async function upsertDa(r: RawDaRecord): Promise<void> {
       address: r.address,
       description: r.description,
       estimatedValue: r.estimatedValue,
+      determinationDate,
       applicantName: r.applicantName,
       portalUrl: r.portalUrl,
       rawScopeText: r.rawScopeText,

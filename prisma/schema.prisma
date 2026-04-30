@@ -138,6 +138,11 @@ model DevelopmentApplication {
   description    String
   estimatedValue Decimal? @map("estimated_value")
   lodgementDate  DateTime @map("lodgement_date") @db.Date
+  // Council's decision date — only populated for Determined-status DAs from
+  // the DAEX adapter. The "freshness signal" used by the ingest filter to
+  // drop stale leads (>180 days old determined DAs are noise — the project
+  // has either already built or been abandoned).
+  determinationDate DateTime? @map("determination_date") @db.Date
   applicantName  String?  @map("applicant_name")
   portalUrl      String   @map("portal_url")
   rawScopeText   String?  @map("raw_scope_text")
@@ -155,6 +160,7 @@ model DevelopmentApplication {
 
   @@unique([daId, council])
   @@index([council, lodgementDate(sort: Desc)])
+  @@index([council, determinationDate(sort: Desc)])
   @@map("development_applications")
 }
 
