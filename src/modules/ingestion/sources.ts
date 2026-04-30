@@ -245,7 +245,9 @@ export function parseDaexListing(html: string): DaexListingRow[] {
       title: textOrNull($card.find(".card__title").first()),
       // Council name is a free text node sandwiched after the icon--pin span.
       council: extractCouncilLabel($card),
-      detailHref: $card.find('a[href*="/daex/exhibition/"]').first().attr("href") ?? null,
+      // Detail-page path varies by status: /daex/exhibition/, /daex/under-consideration/,
+      // /daex/determined/, etc. Match any /daex/<path>/ link.
+      detailHref: $card.find('a[href^="/daex/"]').first().attr("href") ?? null,
     };
   }).get();
 }
