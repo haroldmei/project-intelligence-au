@@ -41,7 +41,11 @@ describe("ruleFilter", () => {
   });
 
   it("excludes non-roofing DAs", async () => {
-    await seedDA("blacktown", "Construct new residential swimming pool");
+    // After the keyword expansion to include construction/dwelling/residential
+    // for new builds (where roofing is implicit), use a clearly-out-of-scope
+    // scope. "Office fitout" + "telecommunications" + "change of use" share
+    // no keyword with the roofing rule pass.
+    await seedDA("blacktown", "Office fitout — partition walls and electrical upgrades, change of use to telecommunications equipment room");
     const userId = await seedTestUser();
     const sinceIsoDate = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 

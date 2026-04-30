@@ -8,8 +8,24 @@
 import { db } from "@/lib/db";
 import type { CandidateDA } from "@/lib/ai/relevance-pipeline";
 
-/** Roofing vocabulary — used in the GIN tsvector rule pass (FR-004). */
+/**
+ * Vocabulary used in the GIN tsvector rule pass (FR-004). Two tiers:
+ *
+ * - Explicit roofing terms: re-roof, colorbond, gutters, etc. These match
+ *   DAs that *literally* call out roofing scope.
+ *
+ * - Roofing-implicit construction terms: dwelling, residential, alterations,
+ *   single storey, dual occupancy, additions. These match DAs where roofing
+ *   work is implicit (every new dwelling needs a roof; every alteration to
+ *   an existing roof line probably does too). The Stage-3 LLM rerank scores
+ *   each candidate 0–5 against the user's saved query, so non-relevant
+ *   construction DAs get demoted before the digest fires — Stage 1 just has
+ *   to surface candidates with plausible roofing scope.
+ *
+ * If precision drops below the 0.85 target, narrow this list back down.
+ */
 const ROOFING_KEYWORDS = [
+  // Tier 1 — explicit roofing
   "roof",
   "roofing",
   "re-roof",
@@ -32,6 +48,17 @@ const ROOFING_KEYWORDS = [
   "hip and ridge",
   "sarking",
   "rooflight",
+  // Tier 2 — roofing-implicit construction (new builds, alterations)
+  "dwelling",
+  "residential",
+  "alterations",
+  "additions",
+  "alterations and additions",
+  "construction of",
+  "single storey",
+  "two storey",
+  "dual occupancy",
+  "secondary dwelling",
 ].map((k) => k.toLowerCase());
 
 /**

@@ -290,31 +290,66 @@ export function parseDaexDetail(html: string): DaexDetailFields {
   };
 }
 
+/**
+ * DAEX statuses we ingest. "On Exhibition" alone is too narrow — only
+ * 14–28 day public-comment windows are exhibited, so most LGAs return 0
+ * on any given day. Adding "Under Consideration" and "Made and Finalised"
+ * captures DAs that are lodged + reviewing (still ahead of construction)
+ * and approved-but-not-yet-built (where a builder is being chosen).
+ *
+ * "Determined" + "LEC Determined" + "LEC Consideration" are excluded —
+ * those are post-build or in court, not roofer-actionable.
+ */
+const DAEX_STATUSES = [
+  "On Exhibition",
+  "Under Consideration",
+  "Made and Finalised",
+];
+
 async function fetchDaExhibitionsByLga(
   slug: string,
   _sinceDaysBack: number,
 ): Promise<RawDaRecord[]> {
-  // sinceDaysBack is intentionally ignored for DAEX — the "On Exhibition"
-  // status filter on the Portal already guarantees freshness (these are
-  // DAs currently inviting public comments). Filtering on lodgement
-  // date too would double-filter and drop valid records, especially since
-  // the listing isn't strictly date-desc.
+  // sinceDaysBack is intentionally ignored for DAEX — the status filters
+  // already constrain to actionable DAs. Filtering on lodgement date too
+  // would double-filter and drop valid records, especially since the
+  // listing isn't strictly date-desc.
   const lgaValue = DAEX_LGA_VALUES[slug];
   if (!lgaValue) return [];
 
   const records: RawDaRecord[] = [];
-  const MAX_PAGES = 20;
   // Use today's date as a fallback lodgementDate when the detail page
   // doesn't expose exhibitionStart. The downstream rule filter at
   // src/modules/relevance/filters.ts looks back 7 days, so giving every
   // record a fresh date keeps them in the digest candidate set.
   const today = isoDate(0);
+  const seen = new Set<string>();
 
-  for (let page = 0; page < MAX_PAGES; page++) {
+  for (const status of DAEX_STATUSES) {
+    const statusRecords = await fetchDaExhibitionsByStatus(slug, lgaValue, status, today, seen);
+    records.push(...statusRecords);
+  }
+
+  return records;
+}
+
+async function fetchDaExhibitionsByStatus(
+  slug: string,
+  lgaValue: string,
+  status: string,
+  today: string,
+  seen: Set<string>,
+): Promise<RawDaRecord[]> {
+  const records: RawDaRecord[] = [];
+  // Cap pages per status so a single LGA in a populous status (e.g. Cumberland
+  // had 1300+ Under Consideration) doesn't burn the whole cron's budget.
+  const MAX_PAGES_PER_STATUS = 5;
+
+  for (let page = 0; page < MAX_PAGES_PER_STATUS; page++) {
     const url =
       `${DAEX_BASE}/daexhibitions` +
       `?field_local_government_area_value=${encodeURIComponent(lgaValue)}` +
-      `&field_daex_status_value=${encodeURIComponent("On Exhibition")}` +
+      `&field_daex_status_value=${encodeURIComponent(status)}` +
       `&page=${page}`;
     const html = await fetchTextWithRetry(url, { headers: { "User-Agent": DAEX_USER_AGENT } });
     const rows = parseDaexListing(html);
@@ -324,6 +359,11 @@ async function fetchDaExhibitionsByLga(
       // Use PAN as the canonical id when present; fall back to DA number.
       const daId = row.panNumber ?? row.daNumber;
       if (!daId || !row.detailHref) continue;
+      // Multi-status fetch can return the same DA twice if Stripe pagination
+      // overlaps; dedupe by (council, daId).
+      const dedupeKey = `${slug}:${daId}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
 
       const detailUrl = row.detailHref.startsWith("http")
         ? row.detailHref
