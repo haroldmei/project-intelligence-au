@@ -226,6 +226,8 @@ interface DaexDetailFields {
   exhibitionStart: string | null;
   exhibitionEnd: string | null;
   consentAuthority: string | null;
+  /** Determined-status DAs only. Approved | Refused | Deferred Commencement Consent | … */
+  decision: string | null;
 }
 
 /**
@@ -283,13 +285,45 @@ export function parseDaexDetail(html: string): DaexDetailFields {
 
   const exhibition = rows["Exhibition start - end date"] ?? "";
   const [start, end] = exhibition.split(/\s*-\s*/).map((s) => s?.trim() ?? "");
+
+  // Decision: only present on Determined detail pages. Robust extraction
+  // direct from the field class — the label/value scan above sometimes
+  // misses it because the "Decision" label and value are adjacent <div>s
+  // without a strong/b/dt wrapper.
+  const decisionEl = $(".field-field-decision").first();
+  const decision = decisionEl.length > 0 ? decisionEl.text().trim() || null : (rows["Decision"] ?? null);
+
   return {
     propertyAddress: rows["Property Address"] ?? rows["Property address"] ?? null,
     developmentTypeText: rows["Type of development"] ?? null,
     exhibitionStart: parseAuDate(start),
     exhibitionEnd: parseAuDate(end),
     consentAuthority: rows["Consent authority name"] ?? null,
+    decision,
   };
+}
+
+/**
+ * Decide whether a Determined DA is roofer-actionable. Only "approved"
+ * outcomes lead to construction; "Refused"/"Withdrawn"/etc. are dead leads.
+ *
+ * Known values seen on the Portal:
+ *   - "Approved"                          → keep
+ *   - "Approved with Conditions"          → keep
+ *   - "Deferred Commencement Consent"     → keep (approved subject to pre-conditions)
+ *   - "Refused"                           → drop
+ *   - "Withdrawn"                         → drop
+ *   - "Rejected"                          → drop
+ *
+ * If the field is missing or unrecognised, default to keeping the record —
+ * better to surface a possibly-stale lead than silently drop unfamiliar
+ * data. The LLM rerank scores it by relevance regardless.
+ */
+function isApprovedDecision(decision: string | null | undefined): boolean {
+  if (!decision) return true;
+  const normalised = decision.toLowerCase();
+  if (/refus|withdraw|reject|dismiss/i.test(normalised)) return false;
+  return true;
 }
 
 /**
@@ -387,12 +421,21 @@ async function fetchDaExhibitionsByStatus(
         exhibitionStart: null,
         exhibitionEnd: null,
         consentAuthority: null,
+        decision: null,
       };
       try {
         const detailHtml = await fetchTextWithRetry(detailUrl, { headers: { "User-Agent": DAEX_USER_AGENT } });
         detail = parseDaexDetail(detailHtml);
       } catch {
         // Detail-page fetch failed; carry on with listing-only fields.
+      }
+
+      // Skip Refused/Withdrawn determinations. These are dead leads — the
+      // project isn't going ahead, no roofer will be hired. We deliberately
+      // keep "Approved", "Approved with Conditions", and "Deferred
+      // Commencement Consent" since all three lead to actual construction.
+      if (status === "Determined" && !isApprovedDecision(detail.decision)) {
+        continue;
       }
 
       records.push({

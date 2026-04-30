@@ -85,4 +85,21 @@ describe("parseDaexDetail", () => {
   it("captures the consent authority", () => {
     expect(detail.consentAuthority).toBeTruthy();
   });
+
+  it("returns null decision on an On Exhibition detail page (no Decision field)", () => {
+    // The fixture is an On Exhibition DA — no decision was made yet.
+    expect(detail.decision).toBeNull();
+  });
+});
+
+describe("parseDaexDetail — Determined approved", () => {
+  const html = readFileSync(
+    join(FIXTURES, "daex-detail-cumberland-determined-approved.html"),
+    "utf-8",
+  );
+  const detail = parseDaexDetail(html);
+
+  it("extracts the decision field as 'Approved'", () => {
+    expect(detail.decision).toBe("Approved");
+  });
 });
