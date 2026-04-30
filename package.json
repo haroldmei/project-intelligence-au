@@ -16,6 +16,7 @@
     "import-das:prod": "tsx --env-file-if-exists=.env.production.local scripts/import-das.ts",
     "digest:now": "tsx --env-file-if-exists=.env.local scripts/run-digest-now.ts",
     "digest:now:prod": "tsx --env-file-if-exists=.env.production.local scripts/run-digest-now.ts",
+    "check-daex": "tsx --env-file-if-exists=.env.production.local scripts/check-daex.ts",
     "eval:rerank": "promptfoo eval --config evals/rerank/promptfooconfig.yaml --no-cache"
   },
   "prisma": {
