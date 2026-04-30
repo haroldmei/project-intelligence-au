@@ -257,6 +257,25 @@ The `pnpm import-das:prod` flow above. Use it as gap-fill when an automated sour
 
 The drift detector (FR-003) alerts on any council whose count drops by >50% week-over-week — including transitions like "manual filled last week → DA Exhibitions picked up this week." This is intentional; it surfaces source switchovers.
 
+### Path D — State Significant Development register (Teams-tier; dormant)
+
+The NSW Planning Portal also maintains a separate register at `/major-projects/projects` for **State Significant Development** — the pathway for major schools, hospitals, public infrastructure, and large mixed-use (>$30m). The DAEX register doesn't cover these; they're filed elsewhere because the Minister for Planning is the consent authority instead of the council.
+
+**Why dormant**: a state hospital with a 50,000 sqm roof is a different lead universe from a Western Sydney re-roof. Surfacing both in the same digest would dilute the residential roofer's experience. SSD ingestion is intended for a future **Teams-tier** subscription targeting commercial roofers and tier-2 builders bidding on government work.
+
+The adapter (`fetchSsdProjects()` in `src/modules/ingestion/sources.ts`) is built and parser-tested but **not wired into `fetchCouncilDAs()`**. To enable it for a Teams-tier cron:
+
+1. Set `SSD_INGEST_ENABLED=true` in Vercel env (Production scope).
+2. Build a separate cron handler that calls `fetchSsdProjects(lgaName)` for each LGA in the Teams subscriber's bundle.
+3. Persist with `sourceApi='ssd_register'` so the residential digest's rule filter naturally excludes them (it only joins `lga_bundle_subscriptions`, but you'd add a per-tier filter once Teams ships).
+
+SSD detail pages expose fields the standard DAEX register doesn't:
+- **Contact Planner Name + Phone** — direct ministerial contact, useful for tier-2 builder outreach.
+- **Free-text project description** — typically richer than DAEX scope text.
+- **Attachments & Resources** section — links to plans, EIS, BCA reports (most DAs only host these on the council DA tracker, but SSDs centralise them here).
+
+Volume snapshot 2026-04-30: ~9,627 active SSD projects across NSW. Per-LGA varies — Sydney metro councils typically have 50–200 active SSDs.
+
 ---
 
 ## Files added

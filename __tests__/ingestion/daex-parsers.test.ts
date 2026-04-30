@@ -8,7 +8,12 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseDaexListing, parseDaexDetail } from "@/modules/ingestion/sources";
+import {
+  parseDaexListing,
+  parseDaexDetail,
+  parseSsdListing,
+  parseSsdDetail,
+} from "@/modules/ingestion/sources";
 
 const FIXTURES = join(__dirname, "fixtures");
 
@@ -101,5 +106,90 @@ describe("parseDaexDetail — Determined approved", () => {
 
   it("extracts the decision field as 'Approved'", () => {
     expect(detail.decision).toBe("Approved");
+  });
+});
+
+describe("parseDaexDetail — project description", () => {
+  // West Pymble fixture has both 'Type of development' (categorical) and
+  // 'field-field-project-description' (the actual scope blob). We want the
+  // free-text scope, not just the category.
+  const html = readFileSync(join(FIXTURES, "daex-detail-koo.html"), "utf-8");
+  const detail = parseDaexDetail(html);
+
+  it("extracts the free-text project description", () => {
+    expect(detail.projectDescription).toBeTruthy();
+    expect(detail.projectDescription!.toLowerCase()).toContain("alterations");
+    expect(detail.projectDescription!.toLowerCase()).toContain("dwelling");
+  });
+
+  it("captures the categorical Type of development separately", () => {
+    expect(detail.developmentTypeText).toBeTruthy();
+    expect(detail.developmentTypeText!.toLowerCase()).toContain("residential");
+  });
+
+  it("the two fields are distinct (project description is richer)", () => {
+    expect(detail.projectDescription).not.toBe(detail.developmentTypeText);
+  });
+});
+
+// ─── State Significant Development register ─────────────────────────────────
+
+describe("parseSsdListing", () => {
+  const html = readFileSync(join(FIXTURES, "ssd-listing-page0.html"), "utf-8");
+  const rows = parseSsdListing(html);
+
+  it("finds at least 9 SSD cards on a populated listing page", () => {
+    expect(rows.length).toBeGreaterThanOrEqual(9);
+  });
+
+  it("extracts SSD-NNNNNNNN case ids", () => {
+    for (const r of rows) {
+      expect(r.caseId, JSON.stringify(r)).toMatch(/^SSD-/);
+    }
+  });
+
+  it("extracts case_type as 'State Significant Development'", () => {
+    const ssd = rows.filter((r) => r.caseType === "State Significant Development");
+    expect(ssd.length).toBeGreaterThan(0);
+  });
+
+  it("each row has a /major-projects/projects/<slug> detail link", () => {
+    for (const r of rows) {
+      expect(r.detailHref).toMatch(/^\/major-projects\/projects\//);
+    }
+  });
+
+  it("each row has a project title", () => {
+    for (const r of rows) {
+      expect((r.title ?? "").length).toBeGreaterThan(3);
+    }
+  });
+});
+
+describe("parseSsdDetail", () => {
+  const html = readFileSync(join(FIXTURES, "ssd-detail-castlecrag.html"), "utf-8");
+  const detail = parseSsdDetail(html);
+
+  it("extracts the SSD application number", () => {
+    expect(detail.applicationNumber).toMatch(/^SSD-/);
+  });
+
+  it("extracts assessment type and development type", () => {
+    expect(detail.assessmentType).toContain("Significant");
+    expect(detail.developmentType).toBeTruthy();
+  });
+
+  it("parses Exhibition Start-End Date as ISO dates", () => {
+    expect(detail.exhibitionStart).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(detail.exhibitionEnd).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("captures the contact planner name + phone (SSD-only fields)", () => {
+    expect(detail.contactPlannerName).toBeTruthy();
+    expect(detail.contactPlannerPhone).toBeTruthy();
+  });
+
+  it("captures at least one LGA", () => {
+    expect(detail.lgaList.length).toBeGreaterThan(0);
   });
 });

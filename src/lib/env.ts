@@ -67,6 +67,13 @@ const baseShape = {
     // LGA in DAEX_LGA_VALUES. Default off so existing tests/code paths are
     // unchanged. Flip to "true" in Vercel env to enable in production.
     DAEX_INGEST_ENABLED: z.coerce.boolean().default(false),
+    // State Significant Development register (planningportal.nsw.gov.au/major-projects).
+    // Public infrastructure, schools, hospitals, large mixed-use. Targeted at
+    // a future Teams-tier subscription — commercial roofers / tier-2 builders
+    // bidding government work. Default off; the adapter exists but is NOT
+    // wired into the standard fetchCouncilDAs() dispatcher. Flip on for
+    // Teams-only crons when that tier ships.
+    SSD_INGEST_ENABLED: z.coerce.boolean().default(false),
 
     // ── Observability (optional Month 1) ────────────────────────────────────
     SENTRY_DSN: z.string().url().optional(),

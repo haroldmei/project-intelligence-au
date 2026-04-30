@@ -9,7 +9,12 @@ import * as cheerio from "cheerio";
 import { fetchWithRetry, fetchTextWithRetry, politeDelay } from "./fetch";
 import { env } from "@/lib/env";
 
-export type SourceApi = "nsw_planning" | "da_leads" | "council_da" | "da_exhibitions";
+export type SourceApi =
+  | "nsw_planning"
+  | "da_leads"
+  | "council_da"
+  | "da_exhibitions"
+  | "ssd_register"; // State Significant Development register (Teams-tier — dormant for now)
 
 /** Normalised DA record after adapting from any source. */
 export interface RawDaRecord {
@@ -222,7 +227,10 @@ interface DaexListingRow {
 
 interface DaexDetailFields {
   propertyAddress: string | null;
+  /** Categorical e.g. "Alterations and additions to residential development". Coarse. */
   developmentTypeText: string | null;
+  /** Free-text scope e.g. "Ground floor alterations and first floor addition to existing dwelling". Richer than developmentTypeText. */
+  projectDescription: string | null;
   exhibitionStart: string | null;
   exhibitionEnd: string | null;
   consentAuthority: string | null;
@@ -293,9 +301,18 @@ export function parseDaexDetail(html: string): DaexDetailFields {
   const decisionEl = $(".field-field-decision").first();
   const decision = decisionEl.length > 0 ? decisionEl.text().trim() || null : (rows["Decision"] ?? null);
 
+  // Project description: the free-text scope blob, much richer than the
+  // categorical "Type of development". Lives in a separate field class.
+  // Example value: "Ground floor alterations and first floor addition to
+  // existing dwelling." vs Type of development which would just say
+  // "Alterations and additions to residential development".
+  const descriptionEl = $(".field-field-project-description").first();
+  const projectDescription = descriptionEl.length > 0 ? descriptionEl.text().trim() || null : null;
+
   return {
     propertyAddress: rows["Property Address"] ?? rows["Property address"] ?? null,
     developmentTypeText: rows["Type of development"] ?? null,
+    projectDescription,
     exhibitionStart: parseAuDate(start),
     exhibitionEnd: parseAuDate(end),
     consentAuthority: rows["Consent authority name"] ?? null,
@@ -418,6 +435,7 @@ async function fetchDaExhibitionsByStatus(
       let detail: DaexDetailFields = {
         propertyAddress: null,
         developmentTypeText: null,
+        projectDescription: null,
         exhibitionStart: null,
         exhibitionEnd: null,
         consentAuthority: null,
@@ -438,16 +456,29 @@ async function fetchDaExhibitionsByStatus(
         continue;
       }
 
+      // description: prefer the listing title (most readable), fall back to
+      // the free-text project description if the title was empty (some
+      // councils render only an address — see The Hills Shire).
+      // rawScopeText: fold the richer free-text scope onto the categorical
+      // type-of-development so the LLM rerank sees both. Stage-1 ts_vector
+      // and the LLM both consume this field.
+      const description = row.title?.trim() || detail.projectDescription || "";
+      const scopeParts = [detail.developmentTypeText, detail.projectDescription, row.title]
+        .filter((s): s is string => Boolean(s?.trim()))
+        // Dedupe — sometimes the title equals the project description.
+        .filter((s, i, arr) => arr.indexOf(s) === i);
+      const rawScopeText = scopeParts.join(". ") || null;
+
       records.push({
         daId,
         council: slug,
         address: detail.propertyAddress ?? row.title ?? "",
-        description: row.title ?? "",
+        description,
         estimatedValue: null, // not exposed by DA Exhibitions
         lodgementDate: detail.exhibitionStart ?? today,
         applicantName: null, // not exposed by DA Exhibitions
         portalUrl: detailUrl,
-        rawScopeText: detail.developmentTypeText ?? row.title ?? null,
+        rawScopeText,
         sourceApi: "da_exhibitions",
       });
 
@@ -488,4 +519,192 @@ function isoDate(offsetDays: number): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + offsetDays);
   return d.toISOString().slice(0, 10);
+}
+
+// ─── State Significant Development register (Teams-tier; dormant) ───────────
+//
+// Lives at planningportal.nsw.gov.au/major-projects/projects. Different
+// schema from /daexhibitions:
+//   - Listing card: SSD-NNNNNNNN case_id + status tag + project title + LGA + address
+//     + detail link (/major-projects/projects/<slug>)
+//   - Detail page: Application Number, Assessment Type, Development Type
+//     (e.g. "HDA Housing"), LGAs, Exhibition Start-End Date, Contact Planner
+//     Name + Phone, full project description, attachments section
+//
+// Coverage on snapshot 2026-04-30: 9627 results across all NSW LGAs and
+// statuses. Volume per LGA varies — ~50–200 active projects per metro LGA.
+//
+// NOT wired into fetchCouncilDAs(). Flip SSD_INGEST_ENABLED=true and call
+// fetchSsdProjects() directly from a Teams-tier cron when that tier ships.
+
+const SSD_BASE = `${DAEX_BASE}/major-projects/projects`;
+
+interface SsdListingRow {
+  caseId: string | null;
+  caseType: string | null;
+  status: string | null;
+  title: string | null;
+  lga: string | null;
+  address: string | null;
+  detailHref: string | null;
+}
+
+interface SsdDetailFields {
+  applicationNumber: string | null;
+  assessmentType: string | null;
+  developmentType: string | null;
+  lgaList: string[];
+  exhibitionStart: string | null;
+  exhibitionEnd: string | null;
+  contactPlannerName: string | null;
+  contactPlannerPhone: string | null;
+  projectDescription: string | null;
+}
+
+export function parseSsdListing(html: string): SsdListingRow[] {
+  const $ = cheerio.load(html);
+  return $("div.card")
+    .map((_, card): SsdListingRow => {
+      const $card = $(card);
+      // Status tag: the colored "Exhibition" / "Determined" pill, distinct
+      // from the case-type tag below it.
+      const status = $card.find(".tag--red.tag--fixed, .tag--green.tag--fixed, .tag--blue.tag--fixed")
+        .first().text().trim() || null;
+      // LGA appears in a <span class="card__sub"> just before the title.
+      const lga = $card.find(".card__sub").first().text().trim() || null;
+      // Address sits in the same <div> as .icon--pin, like DAEX cards do.
+      const $pin = $card.find(".icon--pin").first();
+      const address = $pin.length > 0 ? $pin.parent().text().trim() || null : null;
+      return {
+        caseId: textOrNull($card.find(".field-field-case-id").first()),
+        caseType: textOrNull($card.find(".field-field-case-type").first()),
+        status,
+        title: textOrNull($card.find(".card__title").first()),
+        lga,
+        address,
+        detailHref: $card.find('a[href^="/major-projects/projects/"]').first().attr("href") ?? null,
+      };
+    })
+    .get();
+}
+
+export function parseSsdDetail(html: string): SsdDetailFields {
+  const $ = cheerio.load(html);
+
+  // SSD detail page uses <div class="row--small"><b>label</b><div>value</div></div>
+  // for every project-details row. Walk those.
+  const rows: Record<string, string> = {};
+  $("div.row--small").each((_, el) => {
+    const $row = $(el);
+    const label = $row.find("b").first().text().trim();
+    if (!label) return;
+    // Value is the trailing <div> sibling of the <b>. Pick the last <div> in
+    // the row to skip nested label-wrapper divs.
+    const valueDiv = $row.find("> div, > b > div").last();
+    const value = valueDiv.text().trim();
+    if (label && value && !rows[label]) rows[label] = value;
+  });
+
+  // Exhibition window: the value div has two <time> elements separated by " - ".
+  // After .text() they collapse to e.g. "21/04/2026 - 07/05/2026".
+  const exhibition = rows["Exhibition Start-End Date"] ?? "";
+  const [start, end] = exhibition.split(/\s*-\s*/).map((s) => s?.trim() ?? "");
+
+  // Class-keyed fields are more reliable than label/value scan when present.
+  const projectDescriptionEl = $(".field-field-project-description").first();
+  const projectDescription = projectDescriptionEl.length > 0
+    ? projectDescriptionEl.text().trim() || null
+    : null;
+  const applicationNumber =
+    $(".field-field-case-id").first().text().trim() || rows["Application Number"] || null;
+
+  // LGAs may be a comma-separated list for projects spanning council boundaries
+  // (e.g. linear infrastructure). Most SSDs are single-council.
+  const lgaRaw = rows["Local Government Areas"] ?? rows["Local Government Area"] ?? "";
+  const lgaList = lgaRaw.split(",").map((s) => s.trim()).filter(Boolean);
+
+  return {
+    applicationNumber: applicationNumber || null,
+    assessmentType: rows["Assessment Type"] ?? null,
+    developmentType: rows["Development Type"] ?? null,
+    lgaList,
+    exhibitionStart: parseAuDate(start),
+    exhibitionEnd: parseAuDate(end),
+    // Contact Planner section uses bare "Name" and "Phone" labels.
+    contactPlannerName: rows["Name"] ?? null,
+    contactPlannerPhone: rows["Phone"] ?? null,
+    projectDescription,
+  };
+}
+
+/**
+ * Fetch State Significant Development projects for an LGA. Filters at the
+ * listing level by `lga` query param. Each detail page enrichment surfaces
+ * the rich project description plus (notably) the contact planner's name
+ * and phone — fields we don't have in DAEX, useful for tier-2 builder
+ * outreach.
+ *
+ * Off by default (env.SSD_INGEST_ENABLED). Wire this into a future
+ * Teams-tier cron rather than fetchCouncilDAs() so the residential roofer
+ * digest doesn't get polluted with hospital-scale projects.
+ */
+export async function fetchSsdProjects(
+  lgaName: string,
+  opts: { maxPages?: number } = {},
+): Promise<RawDaRecord[]> {
+  if (!env.SSD_INGEST_ENABLED) return [];
+
+  const records: RawDaRecord[] = [];
+  const maxPages = opts.maxPages ?? 5;
+  const today = isoDate(0);
+
+  for (let page = 0; page < maxPages; page++) {
+    const url =
+      `${SSD_BASE}?lga=${encodeURIComponent(lgaName)}&page=${page}`;
+    const html = await fetchTextWithRetry(url, { headers: { "User-Agent": DAEX_USER_AGENT } });
+    const rows = parseSsdListing(html);
+    if (rows.length === 0) break;
+
+    for (const row of rows) {
+      if (!row.caseId || !row.detailHref) continue;
+      const detailUrl = row.detailHref.startsWith("http")
+        ? row.detailHref
+        : `${DAEX_BASE}${row.detailHref}`;
+
+      let detail: SsdDetailFields | null = null;
+      try {
+        const detailHtml = await fetchTextWithRetry(detailUrl, {
+          headers: { "User-Agent": DAEX_USER_AGENT },
+        });
+        detail = parseSsdDetail(detailHtml);
+      } catch {
+        // Carry on with listing-only fields.
+      }
+
+      const description = row.title?.trim() || detail?.projectDescription || "";
+      const scopeParts = [detail?.developmentType, detail?.projectDescription, row.title]
+        .filter((s): s is string => Boolean(s?.trim()))
+        .filter((s, i, arr) => arr.indexOf(s) === i);
+
+      records.push({
+        daId: row.caseId,
+        council: row.lga ?? lgaName,
+        address: row.address ?? "",
+        description,
+        estimatedValue: null, // not exposed by SSD register
+        lodgementDate: detail?.exhibitionStart ?? today,
+        applicantName: detail?.contactPlannerName ?? null,
+        portalUrl: detailUrl,
+        rawScopeText: scopeParts.join(". ") || null,
+        sourceApi: "ssd_register",
+      });
+
+      await politeDelay();
+    }
+
+    if (rows.length < 9) break; // partial page → no more
+    await politeDelay();
+  }
+
+  return records;
 }
