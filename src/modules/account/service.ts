@@ -162,7 +162,9 @@ export async function deleteAccount(userId: string): Promise<void> {
     log.warn({ userId }, "[account] GDPR erasure — user deleted");
   } catch (err) {
     // P2025 = record not found; user already deleted — idempotent (AT-005b).
-    if (err instanceof Error && (err.message.includes("P2025") || err.message.includes("Record to delete does not exist"))) {
+    // Detect by err.code (Prisma's structured error code), not the message —
+    // message text varies across Prisma versions and locales.
+    if (typeof err === "object" && err !== null && (err as { code?: unknown }).code === "P2025") {
       log.info({ userId }, "[account] deleteAccount — user already deleted (idempotent)");
       return;
     }

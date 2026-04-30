@@ -139,6 +139,8 @@ describe("Digest assembly determinism property", () => {
       rawScopeText: null,
       estimatedValue: 50_000 + i,
       lodgementDate: "2026-04-01",
+      applicantName: null,
+      portalUrl: `https://example.com/da-${i}`,
     }));
     // Mock rerank module via vi.mock at the top of file would conflict with
     // other tests; here we provide deterministic deps that bypass rerank

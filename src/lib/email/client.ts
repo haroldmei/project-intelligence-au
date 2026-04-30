@@ -5,8 +5,25 @@
 import { Resend } from "resend";
 import pino from "pino";
 import { env } from "@/lib/env";
+import { VerifyEmailTemplate } from "@/emails/verify-email";
+import { PasswordResetTemplate } from "@/emails/password-reset";
+import { WeeklyDigestTemplate } from "@/emails/weekly-digest";
+import { DigestFallbackNoticeTemplate } from "@/emails/digest-fallback-notice";
+import { WelcomeAfterVerifyTemplate } from "@/emails/welcome-after-verify";
+import { TrialReminderTemplate } from "@/emails/trial-reminder";
 
 const logger = pino({ name: "email" });
+
+type TemplateFn = (props: Record<string, unknown>) => { subject: string; html: string };
+
+const TEMPLATES: Record<string, TemplateFn> = {
+  "verify-email": VerifyEmailTemplate as TemplateFn,
+  "password-reset": PasswordResetTemplate as TemplateFn,
+  "weekly-digest": WeeklyDigestTemplate as TemplateFn,
+  "digest-fallback-notice": DigestFallbackNoticeTemplate as TemplateFn,
+  "welcome-after-verify": WelcomeAfterVerifyTemplate as TemplateFn,
+  "trial-reminder": TrialReminderTemplate as TemplateFn,
+};
 
 const resend = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
 
@@ -18,46 +35,18 @@ export interface EmailProps {
 
 /**
  * Send email via Resend with idempotent retry on 5xx errors.
- * No-op (console.log only) when RESEND_API_KEY is unset (dev mode).
+ * No-op (logged at info level) when RESEND_API_KEY is unset (dev mode).
  */
 export async function sendEmail({ to, template, props }: EmailProps): Promise<void> {
   if (!resend) {
-    logger.debug({ to, template, props }, "[DEV MODE] Email stub (RESEND_API_KEY not set)");
-    console.log(`[DEV] Would send email to ${to} with template "${template}"`);
+    logger.info({ to, template }, "[email] dev-mode stub — RESEND_API_KEY unset, not sending");
     return;
   }
 
-  // Import templates dynamically to avoid circular imports
-  let templateFn: (props: Record<string, unknown>) => { subject: string; html: string };
-  switch (template) {
-    case "verify-email":
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      templateFn = require("@/emails/verify-email").VerifyEmailTemplate;
-      break;
-    case "password-reset":
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      templateFn = require("@/emails/password-reset").PasswordResetTemplate;
-      break;
-    case "weekly-digest":
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      templateFn = require("@/emails/weekly-digest").WeeklyDigestTemplate;
-      break;
-    case "digest-fallback-notice":
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      templateFn = require("@/emails/digest-fallback-notice").DigestFallbackNoticeTemplate;
-      break;
-    case "welcome-after-verify":
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      templateFn = require("@/emails/welcome-after-verify").WelcomeAfterVerifyTemplate;
-      break;
-    case "trial-reminder":
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      templateFn = require("@/emails/trial-reminder").TrialReminderTemplate;
-      break;
-    default:
-      throw new Error(`Unknown email template: ${template}`);
+  const templateFn = TEMPLATES[template];
+  if (!templateFn) {
+    throw new Error(`Unknown email template: ${template}`);
   }
-
   const { subject, html } = templateFn(props);
 
   // Retry logic: one retry on 5xx errors

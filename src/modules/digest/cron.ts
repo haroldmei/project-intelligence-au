@@ -45,13 +45,17 @@ export async function runDigestCron(): Promise<DigestCronResult> {
 
   log.info({ runId: run.id }, "[digest] cron started");
 
-  // Load active subscribers
+  // Load active subscribers. Hard cap matches NFR-008 (≤ 100 active subs at
+  // preview tier). At launch tier with > 100 subscribers, paginate this
+  // query — the in-process digest loop wasn't designed for thousands of
+  // users in a single Vercel function invocation.
   const users = await db.user.findMany({
     where: {
       emailVerified: true,
       subscriptionStatus: { in: ["trial", "active"] },
     },
     select: { id: true, email: true },
+    take: 1000,
   });
 
   let sent = 0;
@@ -61,6 +65,22 @@ export async function runDigestCron(): Promise<DigestCronResult> {
     try {
       const relevance = await runRelevanceForUser(user.id);
       if (!relevance) {
+        // Persist a Digest row anyway so observability queries can answer
+        // "did Sunday work for everyone?" — null relevance means the user
+        // is missing prerequisites (saved query embedding, LGAs, etc.).
+        await db.digest
+          .create({
+            data: {
+              userId: user.id,
+              runId: run.id,
+              daCount: 0,
+              fallbackUsed: false,
+              emailStatus: "skipped",
+            },
+          })
+          .catch(() => {
+            /* best-effort audit row */
+          });
         log.warn({ userId: user.id }, "[digest] no relevance result — skipping user");
         continue;
       }
@@ -76,6 +96,21 @@ export async function runDigestCron(): Promise<DigestCronResult> {
       );
     } catch (err) {
       failed++;
+      // Audit row even on hard failure so the digest_runs/digests join
+      // can show "this user was attempted but errored".
+      await db.digest
+        .create({
+          data: {
+            userId: user.id,
+            runId: run.id,
+            daCount: 0,
+            fallbackUsed: false,
+            emailStatus: "failed",
+          },
+        })
+        .catch(() => {
+          /* best-effort */
+        });
       log.error({ userId: user.id, err }, "[digest] unhandled error for user — continuing");
       Sentry.captureException(err, { tags: { userId: user.id, phase: "digest-user" } });
     }

@@ -61,7 +61,7 @@ export default function SignupPage() {
 
       <div>
         <h1 className="text-2xl font-bold text-[#102A43]">
-          Start your 14-day trial
+          Start your 28-day trial
         </h1>
         <p className="text-sm text-[#627D98] mt-1">No sales call.</p>
       </div>

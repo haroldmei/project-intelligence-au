@@ -56,7 +56,7 @@ export default function PlanPage() {
       <div>
         <h1 className="text-2xl font-bold text-[#102A43]">Choose your plan</h1>
         <p className="text-sm text-[#627D98] mt-1">
-          14-day free trial. Cancel anytime.
+          28-day free trial. Cancel anytime.
         </p>
       </div>
 
@@ -123,11 +123,11 @@ export default function PlanPage() {
         disabled={isSubmitting}
         aria-busy={isSubmitting}
       >
-        {isSubmitting ? "Redirecting to checkout…" : "Start 14-day trial"}
+        {isSubmitting ? "Redirecting to checkout…" : "Start 28-day trial"}
       </Button>
 
       <div className="text-center text-xs text-[#829AB1] space-y-1">
-        <p>Your card is not charged for 14 days.</p>
+        <p>Your card is not charged for 28 days.</p>
         <p>First digest arrives Sunday 6 pm AEST.</p>
       </div>
     </div>

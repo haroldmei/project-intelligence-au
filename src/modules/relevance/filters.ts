@@ -135,6 +135,8 @@ export async function ruleFilter({
     rawScopeText: r.raw_scope_text,
     estimatedValue: r.estimated_value ? Number(r.estimated_value) : null,
     lodgementDate: r.lodgement_date.toISOString().slice(0, 10),
+    applicantName: r.applicant_name,
+    portalUrl: r.portal_url,
   }));
 }
 

@@ -88,9 +88,9 @@ const FEATURES = [
     today:
       "Cordell's signup is a demo booking, a quote, 3–10 business days, and an annual contract you can't cancel online.",
     withUs:
-      "Email, mobile, card. Done. 14-day trial, first digest this Sunday.",
+      "Email, mobile, card. Done. 28-day trial, first digest this Sunday.",
     detail:
-      "Pick your LGA bundles from a pre-built list (Western Sydney, Inner West, Northern, Southern — or all four). Your roofing saved search is pre-seeded. Card on file; not charged for 14 days. Cancel anytime from Account → Subscription — no ticket, no phone call, no hostage situation.",
+      "Pick your LGA bundles from a pre-built list (Western Sydney, Inner West, Northern, Southern — or all four). Your roofing saved search is pre-seeded. Card on file; not charged for 28 days. Cancel anytime from Account → Subscription — no ticket, no phone call, no hostage situation.",
   },
 ] as const;
 
@@ -113,7 +113,7 @@ const PLANS = [
       "Thumbs feedback — your digest gets smarter each week",
       "Cancel anytime from your account — no support call",
     ],
-    finePrint: "AUD 199/mo + GST (AUD 218.90/mo total). Card required. No charge for 14 days. Cancel anytime.",
+    finePrint: "AUD 199/mo + GST (AUD 218.90/mo total). Card required. No charge for 28 days. Cancel anytime.",
   },
   // Team plan is gated off until multi-seat is implemented. Restore the entry
   // here AND re-enable the picker in /plan to bring it back.
@@ -162,7 +162,7 @@ const COMPARISON = [
     leadManager: "No",
   },
   {
-    label: "14-day trial",
+    label: "28-day trial",
     piSolo: "Yes — card on file",
     piTeam: "Yes — card on file",
     cordell: "Demo only",
@@ -191,7 +191,7 @@ const COMPARISON = [
 const FAQS = [
   {
     q: "Why do you require a card for the trial?",
-    a: "To reduce abuse. We reviewed 14 days of real DA data for your LGAs before you even open the first digest — that costs us money and time. The card is how we know you're serious. You won't be charged until day 15, and you can cancel in-app anytime before then.",
+    a: "To reduce abuse. We reviewed 28 days of real DA data for your LGAs before you even open the first digest — that costs us money and time. The card is how we know you're serious. You won't be charged until day 29, and you can cancel in-app anytime before then.",
   },
   {
     q: "Is the AUD 199 price inclusive or exclusive of GST?",
@@ -203,7 +203,7 @@ const FAQS = [
   },
   {
     q: "Can I get a refund?",
-    a: "If you've had zero digest interactions (never clicked a DA, never given feedback) and you're charged on day 15, we'll refund the full amount within 7 days. Just email us. No questions asked.",
+    a: "If you've had zero digest interactions (never clicked a DA, never given feedback) and you're charged on day 29, we'll refund the full amount within 7 days. Just email us. No questions asked.",
   },
 ] as const;
 
@@ -298,7 +298,7 @@ export default function MarketingPage() {
 
                 {/* Trust micro-copy — docs/17-positioning.md §9 */}
                 <p className="text-sm text-[#627D98]">
-                  No sales call. 14-day trial. Cancel anytime.
+                  No sales call. 28-day trial. Cancel anytime.
                 </p>
               </div>
 
@@ -412,7 +412,7 @@ export default function MarketingPage() {
               PRICING SECTION
               LOCKED: Solo AUD 199/mo + GST
               Team plan disabled until multi-seat ships
-              14-day card-on-file trial · cancel in-app
+              28-day card-on-file trial · cancel in-app
           ═══════════════════════════════════════════════════════════════ */}
           <section
             id="pricing"
@@ -422,7 +422,7 @@ export default function MarketingPage() {
             <div className="max-w-7xl mx-auto">
               {/* Trial banner — docs/16-pricing.md §7.2 */}
               <div className="bg-[#FEF3C7] border border-[#FCD34D] rounded-xl p-4 mb-8 text-sm text-[#78350F] max-w-3xl">
-                <strong>Start your 14-day free trial.</strong> Card required — charged on day&nbsp;15 only if you don&apos;t cancel. Full refund within 7&nbsp;days of first charge if you had zero digest interactions.
+                <strong>Start your 28-day free trial.</strong> Card required — charged on day&nbsp;29 only if you don&apos;t cancel. Full refund within 7&nbsp;days of first charge if you had zero digest interactions.
               </div>
 
               {/* Headline — docs/16-pricing.md §7.1 */}
@@ -446,7 +446,7 @@ export default function MarketingPage() {
                   >
                     {plan.highlight && (
                       <span className="self-start text-xs font-semibold uppercase tracking-widest bg-[#D97706] text-white px-3 py-1 rounded-full">
-                        14-day free trial
+                        28-day free trial
                       </span>
                     )}
                     <div>
@@ -489,7 +489,7 @@ export default function MarketingPage() {
                       href={`/signup?plan=${plan.id}`}
                       className="flex items-center justify-center w-full px-4 py-3 text-sm font-semibold bg-[#D97706] text-white rounded-md hover:bg-[#B45309] transition-colors duration-[150ms] min-h-[48px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] focus-visible:ring-offset-2"
                     >
-                      Start 14-day trial
+                      Start 28-day trial
                     </Link>
                     <p className="text-xs text-[#A3A3A3] leading-relaxed">{plan.finePrint}</p>
                   </div>
@@ -577,7 +577,7 @@ export default function MarketingPage() {
                 Ready for your first Sunday digest?
               </h2>
               <p className="text-[#9FB3C8] text-sm leading-relaxed">
-                AUD&nbsp;199/mo + GST. 14-day trial. First digest arrives this Sunday at 6&nbsp;pm. Cancel anytime — no ticket, no phone call.
+                AUD&nbsp;199/mo + GST. 28-day trial. First digest arrives this Sunday at 6&nbsp;pm. Cancel anytime — no ticket, no phone call.
               </p>
               <Link
                 href="/signup"

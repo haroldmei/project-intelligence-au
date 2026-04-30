@@ -2,6 +2,7 @@
 // FR-020 | system-design §4
 import { NextResponse } from "next/server";
 import { validateRequest } from "@/lib/auth/session";
+import { rateLimitMutatingByUser } from "@/lib/auth/rate-limit";
 import { UpdateLgaBundlesInput } from "@/modules/account/schemas";
 import { getAccount, updateLgaBundles } from "@/modules/account/service";
 
@@ -17,6 +18,14 @@ export async function GET(): Promise<NextResponse> {
 export async function PUT(request: Request): Promise<NextResponse> {
   const auth = await validateRequest();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const rl = rateLimitMutatingByUser(auth.user.id, "lga-bundles");
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },
+    );
+  }
 
   let body: unknown;
   try {

@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { validateRequest } from "@/lib/auth/session";
+import { rateLimitMutatingByUser } from "@/lib/auth/rate-limit";
 import { db } from "@/lib/db";
 import {
   getActiveSubscription,
@@ -24,6 +25,14 @@ const CancelInput = z.object({
 export async function DELETE(request: Request): Promise<NextResponse> {
   const auth = await validateRequest();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const rl = rateLimitMutatingByUser(auth.user.id, "billing-cancel");
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },
+    );
+  }
 
   // Parse optional body
   let reason: string | undefined;

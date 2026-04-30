@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { validateRequest } from "@/lib/auth/session";
+import { rateLimitMutatingByUser } from "@/lib/auth/rate-limit";
 import { db } from "@/lib/db";
 import { ensureStripeCustomer, createCheckoutSession } from "@/modules/billing/stripe";
 import { env } from "@/lib/env";
@@ -20,6 +21,16 @@ const CheckoutInput = z.object({
 export async function POST(request: Request): Promise<NextResponse> {
   const auth = await validateRequest();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // 30/hr per user — protects against abuse that creates Stripe customers
+  // or burns checkout-session API quota.
+  const rl = rateLimitMutatingByUser(auth.user.id, "billing-checkout");
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },
+    );
+  }
 
   let body: unknown;
   try {
@@ -40,7 +51,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     await db.user.update({ where: { id: user.id }, data: { stripeCustomerId: customerId } });
   }
 
-  // Re-subscribers (previously cancelled) don't get another 14-day trial —
+  // Re-subscribers (previously cancelled) don't get another 28-day trial —
   // they've already had one. Trial-eligible: anyone who hasn't cancelled.
   const withTrial = user.subscriptionStatus !== "cancelled";
 
