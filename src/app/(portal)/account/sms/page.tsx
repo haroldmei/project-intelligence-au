@@ -1,27 +1,55 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import type { AccountDTO } from "@/modules/account/service";
 
-// TODO: load real sms_opt_in + mobile from GET /api/account once backend-developer publishes the route.
 export default function SMSOptInPage() {
-  const [smsEnabled, setSmsEnabled] = useState(true);
+  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [hasMobile, setHasMobile] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load real state from the API. Without this, the toggle defaulted to
+  // "on" regardless of the actual user state and writes blew up because
+  // /api/account/notifications doesn't exist (real routes:
+  // /api/account/sms-opt-{in,out}).
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/account/me")
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return (await res.json()) as AccountDTO;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setSmsEnabled(Boolean(data.smsOptIn));
+        setHasMobile(Boolean(data.mobile_e164));
+        setLoaded(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setError("Couldn't load your notification settings. Refresh to retry.");
+        setLoaded(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   async function handleToggle() {
     const next = !smsEnabled;
+    // Optimistic update — revert on failure.
     setSmsEnabled(next);
     setIsSaving(true);
+    setError(null);
     try {
-      const res = await fetch("/api/account/notifications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sms_opt_in: next }),
-      });
+      const endpoint = next ? "/api/account/sms-opt-in" : "/api/account/sms-opt-out";
+      const res = await fetch(endpoint, { method: "POST" });
       if (!res.ok) {
         setSmsEnabled(!next); // revert
-        setToast("Failed to update. Please try again.");
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setToast(body.error || "Failed to update. Please try again.");
       } else {
         setToast(next ? "SMS enabled." : "SMS disabled.");
       }
@@ -35,6 +63,8 @@ export default function SMSOptInPage() {
     }
   }
 
+  const toggleDisabled = !loaded || isSaving || (!smsEnabled && !hasMobile);
+
   return (
     <div className="px-4 py-6 space-y-6 max-w-xl">
       <div className="flex items-center gap-2">
@@ -47,6 +77,12 @@ export default function SMSOptInPage() {
         </Link>
         <h1 className="text-xl font-semibold text-[#102A43]">Notifications</h1>
       </div>
+
+      {error && (
+        <div role="alert" aria-live="assertive" className="rounded-md bg-[#FEE2E2] text-[#7F1D1D] text-sm px-4 py-3">
+          {error}
+        </div>
+      )}
 
       <div className="bg-white rounded-md border border-[#E5E5E5] px-4 py-4">
         <div className="flex items-center justify-between min-h-[44px] gap-4">
@@ -65,7 +101,7 @@ export default function SMSOptInPage() {
             role="switch"
             aria-checked={smsEnabled}
             aria-label="Toggle Sunday SMS digest"
-            disabled={isSaving}
+            disabled={toggleDisabled}
             onClick={handleToggle}
             className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-[150ms] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] focus-visible:ring-offset-2 disabled:opacity-50 min-h-[44px] min-w-[44px] justify-center ${
               smsEnabled ? "bg-[#D97706]" : "bg-[#D4D4D4]"
@@ -79,6 +115,12 @@ export default function SMSOptInPage() {
             />
           </button>
         </div>
+
+        {loaded && !hasMobile && !smsEnabled && (
+          <p className="text-xs text-[#7F1D1D] mt-3 border-t border-[#F5F5F5] pt-3">
+            Add a mobile number first — your account doesn&apos;t have one yet.
+          </p>
+        )}
 
         <p className="text-xs text-[#829AB1] mt-3 border-t border-[#F5F5F5] pt-3">
           Reply STOP to any SMS to opt out immediately.
