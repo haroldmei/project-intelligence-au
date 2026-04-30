@@ -292,14 +292,23 @@ export function parseDaexDetail(html: string): DaexDetailFields {
 
 async function fetchDaExhibitionsByLga(
   slug: string,
-  sinceDaysBack: number,
+  _sinceDaysBack: number,
 ): Promise<RawDaRecord[]> {
+  // sinceDaysBack is intentionally ignored for DAEX — the "On Exhibition"
+  // status filter on the Portal already guarantees freshness (these are
+  // DAs currently inviting public comments). Filtering on lodgement
+  // date too would double-filter and drop valid records, especially since
+  // the listing isn't strictly date-desc.
   const lgaValue = DAEX_LGA_VALUES[slug];
   if (!lgaValue) return [];
-  const sinceStr = isoDate(-sinceDaysBack);
 
   const records: RawDaRecord[] = [];
   const MAX_PAGES = 20;
+  // Use today's date as a fallback lodgementDate when the detail page
+  // doesn't expose exhibitionStart. The downstream rule filter at
+  // src/modules/relevance/filters.ts looks back 7 days, so giving every
+  // record a fresh date keeps them in the digest candidate set.
+  const today = isoDate(0);
 
   for (let page = 0; page < MAX_PAGES; page++) {
     const url =
@@ -336,18 +345,13 @@ async function fetchDaExhibitionsByLga(
         // Detail-page fetch failed; carry on with listing-only fields.
       }
 
-      const lodgement = detail.exhibitionStart ?? sinceStr;
-      // Listing is roughly date-desc by exhibition start; once we cross the
-      // window, stop paginating.
-      if (lodgement < sinceStr) return records;
-
       records.push({
         daId,
         council: slug,
         address: detail.propertyAddress ?? row.title ?? "",
         description: row.title ?? "",
         estimatedValue: null, // not exposed by DA Exhibitions
-        lodgementDate: lodgement,
+        lodgementDate: detail.exhibitionStart ?? today,
         applicantName: null, // not exposed by DA Exhibitions
         portalUrl: detailUrl,
         rawScopeText: detail.developmentTypeText ?? row.title ?? null,
