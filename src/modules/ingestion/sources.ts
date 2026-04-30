@@ -291,19 +291,27 @@ export function parseDaexDetail(html: string): DaexDetailFields {
 }
 
 /**
- * DAEX statuses we ingest. "On Exhibition" alone is too narrow — only
- * 14–28 day public-comment windows are exhibited, so most LGAs return 0
- * on any given day. Adding "Under Consideration" and "Made and Finalised"
- * captures DAs that are lodged + reviewing (still ahead of construction)
- * and approved-but-not-yet-built (where a builder is being chosen).
+ * DAEX statuses we ingest. Form values verified against the live
+ * `<select name="field_daex_status_value">` dropdown on 2026-04-30.
+ * The display label is "Made and Finalised" but the value is
+ * "Made Finalised" (no "and") — caught this in production and removed
+ * because it returns 0 records across our 15 LGAs anyway.
  *
- * "Determined" + "LEC Determined" + "LEC Consideration" are excluded —
- * those are post-build or in court, not roofer-actionable.
+ * "On Exhibition" alone is too narrow — only 14–28 day public-comment
+ * windows are exhibited, so most LGAs return 0 on any given day.
+ * Adding "Under Consideration" (lodged, reviewing) and "Determined"
+ * (approved, ready for construction) captures the bulk of roofer-
+ * actionable lead volume:
+ *   Cumberland: 15 + 242 + 994 = 1251 records
+ *   Parramatta: 0 + 13 + 252 = 265
+ *
+ * "LEC Determined" + "LEC Consideration" are excluded — those are
+ * Land and Environment Court cases, not standard pipeline.
  */
 const DAEX_STATUSES = [
   "On Exhibition",
   "Under Consideration",
-  "Made and Finalised",
+  "Determined",
 ];
 
 async function fetchDaExhibitionsByLga(
