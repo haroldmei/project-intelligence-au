@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# PI-AU production deploy automation.
-# Roadmap-Month-1 (docs/18-roadmap-3-month.md, Option A): Ship-and-Sell.
+# PI-AU deploy automation. Two-environment model (Hobby plan):
+#   - staging:    develop branch  → staging.pi-au.com  → Stripe TEST
+#   - production: main branch     → www.pi-au.com      → Stripe LIVE
+#
+# Each environment has its own Vercel project, env file, and (eventually)
+# Postgres database. The script never deploys "production" without a
+# confirmation prompt.
 #
 # What this scripts: env validation, bulk env-var upload, deploy, smoke tests.
 # What it cannot script (must be done in dashboards once): Resend domain DNS,
@@ -8,29 +13,40 @@
 # bootstrap. Those are listed in docs/19-deploy-runbook.md.
 #
 # Usage:
-#   scripts/deploy.sh preflight   # check CLIs, auth, env file
-#   scripts/deploy.sh link        # `vercel link` (one-time per machine)
-#   scripts/deploy.sh env-up      # upload env vars from .env.production.local
-#   scripts/deploy.sh deploy      # vercel deploy --prod (runs vercel-build → migrate + seed)
-#   scripts/deploy.sh smoke       # curl-based smoke tests against the prod URL
-#   scripts/deploy.sh all         # the four above, in order
-#   scripts/deploy.sh init-env    # write a fresh .env.production.local template
+#   scripts/deploy.sh <env> <subcommand>
+#
+#   <env>:        staging | production
+#   <subcommand>: preflight | init-env | link | env-up | deploy | smoke | all | help
+#
+# Examples:
+#   scripts/deploy.sh staging preflight
+#   scripts/deploy.sh staging deploy
+#   scripts/deploy.sh production deploy   # prompts for confirmation
+#   scripts/deploy.sh staging all         # preflight → link → env-up → deploy
 
 set -euo pipefail
 
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-ENV_FILE="${ENV_FILE:-.env.production.local}"
-ENV_TEMPLATE=".env.production.example"
+# ─── Colours ──────────────────────────────────────────────────────────────────
+if [[ -t 1 ]]; then
+  GREEN='\033[0;32m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+else
+  GREEN=''; YELLOW=''; RED=''; CYAN=''; BOLD=''; NC=''
+fi
+ok()    { echo -e "${GREEN}✓${NC} $*"; }
+warn()  { echo -e "${YELLOW}!${NC} $*"; }
+err()   { echo -e "${RED}✗${NC} $*" >&2; }
+info()  { echo -e "${CYAN}→${NC} $*"; }
 
 # Preflight validation lists. These document expectations for operators —
 # env-up no longer dispatches off them; it discovers vars directly from
-# $ENV_FILE so adding a new var to env.ts + .env.production.local is
-# enough (no script change required).
+# $ENV_FILE so adding a new var to env.ts + .env.<env>.local is enough
+# (no script change required).
 #
-# REQUIRED_VARS — preflight refuses to deploy if any are missing/empty in
-# $ENV_FILE. DATABASE_URL is fetched from Vercel Postgres (env-up auto-pulls).
+# REQUIRED_VARS — preflight refuses to deploy if any are missing/empty.
+# DATABASE_URL is fetched from Vercel Postgres (env-up auto-pulls).
 REQUIRED_VARS=(
   NEXT_PUBLIC_APP_URL
   ANTHROPIC_API_KEY
@@ -59,21 +75,65 @@ OPTIONAL_VARS=(
   NEXT_PUBLIC_POSTHOG_HOST
 )
 
-# ─── Colours ──────────────────────────────────────────────────────────────────
-if [[ -t 1 ]]; then
-  GREEN='\033[0;32m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
-else
-  GREEN=''; YELLOW=''; RED=''; CYAN=''; NC=''
-fi
-ok()    { echo -e "${GREEN}✓${NC} $*"; }
-warn()  { echo -e "${YELLOW}!${NC} $*"; }
-err()   { echo -e "${RED}✗${NC} $*" >&2; }
-info()  { echo -e "${CYAN}→${NC} $*"; }
+# ─── Env target dispatch ─────────────────────────────────────────────────────
+
+ENV_TARGET="${1:-}"
+SUBCOMMAND="${2:-help}"
+
+case "$ENV_TARGET" in
+  staging)
+    ENV_FILE=".env.staging.local"
+    ENV_TEMPLATE=".env.staging.example"
+    ENV_LABEL="STAGING"
+    REQUIRES_CONFIRM=0
+    ;;
+  production)
+    ENV_FILE=".env.production.local"
+    ENV_TEMPLATE=".env.production.example"
+    ENV_LABEL="PRODUCTION"
+    REQUIRES_CONFIRM=1
+    ;;
+  ""|help|-h|--help)
+    SUBCOMMAND="help"
+    ENV_TARGET=""
+    ;;
+  *)
+    err "first argument must be 'staging' or 'production' (got: '$ENV_TARGET')"
+    echo
+    cmd_help() { :; }  # forward decl avoids "command not found" before its definition
+    SUBCOMMAND="help"
+    ENV_TARGET=""
+    ;;
+esac
+
+# Set Vercel CLI to target the right project. Each env file should declare
+# its own VERCEL_PROJECT_ID and VERCEL_ORG_ID — that lets one local clone
+# deploy to either project without re-running `vercel link`. Falls back
+# to the .vercel/ directory link if those aren't set.
+load_vercel_target() {
+  if [[ -f "$ENV_FILE" ]]; then
+    local pid orgid
+    pid=$(awk -F= '/^VERCEL_PROJECT_ID=/ {print $2}' "$ENV_FILE" | tr -d '"' | head -1)
+    orgid=$(awk -F= '/^VERCEL_ORG_ID=/ {print $2}' "$ENV_FILE" | tr -d '"' | head -1)
+    if [[ -n "$pid" ]]; then export VERCEL_PROJECT_ID="$pid"; fi
+    if [[ -n "$orgid" ]]; then export VERCEL_ORG_ID="$orgid"; fi
+  fi
+}
+
+confirm_or_abort() {
+  (( REQUIRES_CONFIRM == 1 )) || return 0
+  echo -e "${BOLD}${RED}⚠  ${ENV_LABEL} target.${NC} About to run '${SUBCOMMAND}' against $ENV_FILE."
+  read -r -p "Type 'yes' to continue: " confirmation
+  if [[ "$confirmation" != "yes" ]]; then
+    err "aborted (confirmation required for $ENV_LABEL)"
+    exit 1
+  fi
+}
 
 # ─── Subcommands ──────────────────────────────────────────────────────────────
 
 cmd_preflight() {
-  info "preflight: checking tooling and credentials ..."
+  info "[$ENV_LABEL] preflight: checking tooling and credentials ..."
   local fail=0
 
   if ! command -v vercel >/dev/null 2>&1; then
@@ -97,7 +157,7 @@ cmd_preflight() {
   fi
 
   if [[ ! -f "$ENV_FILE" ]]; then
-    warn "$ENV_FILE not found. Run: scripts/deploy.sh init-env"
+    warn "$ENV_FILE not found. Run: scripts/deploy.sh $ENV_TARGET init-env"
     fail=1
   else
     # shellcheck disable=SC1090
@@ -118,6 +178,15 @@ cmd_preflight() {
     done
     if (( ${#missing_opt[@]} > 0 )); then
       warn "optional vars unset (Month-1 OK to defer): ${missing_opt[*]}"
+    fi
+
+    # Sanity-check Stripe key matches the env's expected mode.
+    if [[ "$ENV_LABEL" == "STAGING" && "${STRIPE_SECRET_KEY:-}" == sk_live_* ]]; then
+      err "STAGING with sk_live_ key — refuse. Use sk_test_ on staging."
+      fail=1
+    fi
+    if [[ "$ENV_LABEL" == "PRODUCTION" && "${STRIPE_SECRET_KEY:-}" == sk_test_* ]]; then
+      warn "PRODUCTION with sk_test_ key — fine pre-launch but flip to sk_live_ before real customers."
     fi
   fi
 
@@ -144,38 +213,46 @@ cmd_preflight() {
 }
 
 cmd_link() {
-  info "linking to a Vercel project ..."
+  info "[$ENV_LABEL] linking to a Vercel project ..."
+  if [[ -n "${VERCEL_PROJECT_ID:-}" ]]; then
+    ok "VERCEL_PROJECT_ID set in $ENV_FILE — no .vercel/ link needed"
+    return 0
+  fi
   if [[ -d .vercel ]]; then
     ok "already linked (.vercel/ exists)"
+    warn "for multi-project (staging+production), set VERCEL_PROJECT_ID + VERCEL_ORG_ID"
+    warn "  in $ENV_FILE so the script can switch projects without re-linking."
     return 0
   fi
   vercel link --yes
   ok "linked"
   warn "next: provision Postgres in the Vercel dashboard (Storage → Create → Postgres)"
-  warn "      then re-run: scripts/deploy.sh env-up"
+  warn "      then re-run: scripts/deploy.sh $ENV_TARGET env-up"
 }
 
 cmd_env_up() {
-  info "syncing env vars to Vercel (production) ..."
-  if [[ ! -d .vercel ]]; then
-    err "not linked. Run: scripts/deploy.sh link"
+  info "[$ENV_LABEL] syncing env vars to Vercel (production scope) ..."
+  if [[ -z "${VERCEL_PROJECT_ID:-}" ]] && [[ ! -d .vercel ]]; then
+    err "not linked. Run: scripts/deploy.sh $ENV_TARGET link"
     exit 1
   fi
+  confirm_or_abort
 
   # Pull Vercel-managed vars first (DATABASE_URL etc. from Vercel Postgres).
   info "pulling Vercel-managed vars (DATABASE_URL, etc.) ..."
-  vercel env pull --environment=production --yes ".env.production.vercel" >/dev/null 2>&1 || true
-  if [[ -f .env.production.vercel ]] && grep -q "^DATABASE_URL=" .env.production.vercel; then
+  local vercel_pulled=".env.${ENV_TARGET}.vercel"
+  vercel env pull --environment=production --yes "$vercel_pulled" >/dev/null 2>&1 || true
+  if [[ -f "$vercel_pulled" ]] && grep -q "^DATABASE_URL=" "$vercel_pulled"; then
     ok "Vercel Postgres detected — DATABASE_URL is managed"
   else
     warn "no Vercel Postgres found — provision one in the dashboard before deploy"
   fi
-  rm -f .env.production.vercel
+  rm -f "$vercel_pulled"
 
   # Discover vars to push: every assignment in $ENV_FILE except Vercel-
   # managed ones (DATABASE_URL, POSTGRES_*, NEON_*, PG*) and reserved
   # prefixes (VERCEL_*). Schema-driven so any new var added to env.ts +
-  # .env.production.local is picked up automatically — no allowlist
+  # .env.<env>.local is picked up automatically — no allowlist
   # maintenance.
   # shellcheck disable=SC1090
   set -a; source "$ENV_FILE"; set +a
@@ -205,18 +282,19 @@ cmd_env_up() {
 }
 
 cmd_deploy() {
-  info "deploying to production ..."
-  if [[ ! -d .vercel ]]; then
-    err "not linked. Run: scripts/deploy.sh link"
+  info "[$ENV_LABEL] deploying ..."
+  if [[ -z "${VERCEL_PROJECT_ID:-}" ]] && [[ ! -d .vercel ]]; then
+    err "not linked. Run: scripts/deploy.sh $ENV_TARGET link"
     exit 1
   fi
+  confirm_or_abort
   # vercel-build script handles: prisma generate + migrate deploy + seed + dev-seed (skipped in prod) + next build
   vercel deploy --prod --yes
   ok "deploy triggered — Vercel will run vercel-build (migrate + seed + next build)"
 }
 
 cmd_smoke() {
-  info "smoke tests ..."
+  info "[$ENV_LABEL] smoke tests ..."
   # shellcheck disable=SC1090
   set -a; source "$ENV_FILE"; set +a
   local url="${NEXT_PUBLIC_APP_URL:-}"
@@ -256,11 +334,17 @@ cmd_init_env() {
     exit 1
   fi
   if [[ ! -f "$ENV_TEMPLATE" ]]; then
-    err "$ENV_TEMPLATE not found at project root"
-    exit 1
+    # Fall back to .env.production.example if the env-specific template doesn't exist yet.
+    if [[ -f ".env.production.example" ]]; then
+      warn "$ENV_TEMPLATE not found, falling back to .env.production.example"
+      ENV_TEMPLATE=".env.production.example"
+    else
+      err "$ENV_TEMPLATE not found at project root"
+      exit 1
+    fi
   fi
   cp "$ENV_TEMPLATE" "$ENV_FILE"
-  ok "created $ENV_FILE — fill in real values, then re-run: scripts/deploy.sh preflight"
+  ok "created $ENV_FILE — fill in real values, then re-run: scripts/deploy.sh $ENV_TARGET preflight"
 }
 
 cmd_all() {
@@ -269,35 +353,61 @@ cmd_all() {
   cmd_env_up
   cmd_deploy
   echo
-  warn "give Vercel ~60s to finish the build, then run: scripts/deploy.sh smoke"
+  warn "give Vercel ~60s to finish the build, then run: scripts/deploy.sh $ENV_TARGET smoke"
 }
 
 cmd_help() {
   cat <<EOF
-PI-AU deploy — Month 1 Ship-and-Sell automation.
+PI-AU deploy — two-environment automation (staging + production).
 
-Usage: scripts/deploy.sh <subcommand>
+Usage: scripts/deploy.sh <env> <subcommand>
 
+  <env>: staging | production
+
+Subcommands:
   preflight   verify CLIs, vercel auth, env file, vercel.json
-  init-env    copy .env.production.example → .env.production.local (template)
-  link        run \`vercel link\` (one-time per machine)
-  env-up      upload env vars from .env.production.local to Vercel
+  init-env    copy template → .env.<env>.local
+  link        run \`vercel link\` (one-time per machine, per project)
+  env-up      upload env vars from .env.<env>.local to Vercel
   deploy      \`vercel deploy --prod\` (runs vercel-build → migrate + seed)
-  smoke       curl tests against \$NEXT_PUBLIC_APP_URL
+  smoke       curl tests against \$NEXT_PUBLIC_APP_URL from .env.<env>.local
   all         preflight → link → env-up → deploy (skips smoke; run manually)
   help        this message
 
+Examples:
+  scripts/deploy.sh staging preflight       # verify staging is ready
+  scripts/deploy.sh staging deploy          # deploy to staging.pi-au.com
+  scripts/deploy.sh production deploy       # deploy to www.pi-au.com (prompts y/N)
+
+Multi-project support:
+  Each .env.<env>.local should declare:
+    VERCEL_PROJECT_ID=prj_...
+    VERCEL_ORG_ID=team_... (or your personal org id)
+  This lets one local clone deploy to either project without re-linking.
+  If unset, the script falls back to the existing .vercel/ link.
+
 Manual prerequisites (one-off, see docs/19-deploy-runbook.md):
-  - Vercel Postgres attached to the project
+  - Vercel project provisioned per environment (Postgres attached)
   - Resend domain verified (DNS records at your registrar)
-  - Stripe live keys + webhook secret + price IDs created
+  - Stripe keys + webhook secret + price IDs created (test for staging, live for prod)
   - Sentry project + DSN
   - PostHog project + API key (optional Month 1)
 EOF
 }
 
 # ─── Dispatch ────────────────────────────────────────────────────────────────
-case "${1:-help}" in
+
+# If env target wasn't valid, only "help" is allowed.
+if [[ -z "$ENV_TARGET" ]]; then
+  cmd_help
+  exit 0
+fi
+
+# Load Vercel project targeting from the env file so all `vercel` calls in
+# the subcommands hit the right project.
+load_vercel_target
+
+case "$SUBCOMMAND" in
   preflight)  cmd_preflight ;;
   link)       cmd_link ;;
   env-up)     cmd_env_up ;;
@@ -306,5 +416,5 @@ case "${1:-help}" in
   init-env)   cmd_init_env ;;
   all)        cmd_all ;;
   help|-h|--help) cmd_help ;;
-  *) err "unknown subcommand: $1"; cmd_help; exit 1 ;;
+  *) err "unknown subcommand: $SUBCOMMAND"; cmd_help; exit 1 ;;
 esac
