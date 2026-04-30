@@ -119,6 +119,16 @@ export default function AccountPage() {
         <h2 className="text-sm font-semibold text-[#627D98] uppercase tracking-wide">Profile</h2>
         <div className="bg-white rounded-md border border-[#E5E5E5] divide-y divide-[#F5F5F5]">
           <Row label="Email" value={account.email} />
+          <RowLink
+            label="Mobile"
+            href="/account/profile"
+            value={account.mobile_e164 ?? "Add a number"}
+          />
+          <RowLink
+            label="Search query"
+            href="/account/saved-query"
+            value={account.savedQueryText ? "Edit" : "Add a description"}
+          />
           <RowLink label="Notifications" href="/account/sms" />
           <RowLink label="My Service Area" href="/account/area" />
         </div>
@@ -236,14 +246,21 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function RowLink({ label, href }: { label: string; href: string }) {
+function RowLink({ label, href, value }: { label: string; href: string; value?: string }) {
   return (
     <Link
       href={href}
       className="px-4 py-3 flex items-center justify-between min-h-[44px] hover:bg-[#FAFAFA] transition-colors duration-[150ms] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#D97706]"
     >
       <span className="text-sm text-[#627D98]">{label}</span>
-      <span className="text-[#829AB1] text-sm" aria-hidden="true">→</span>
+      <span className="flex items-center gap-2 max-w-[60%]">
+        {value && (
+          <span className="text-sm text-[#102A43] truncate" title={value}>
+            {value}
+          </span>
+        )}
+        <span className="text-[#829AB1] text-sm flex-shrink-0" aria-hidden="true">→</span>
+      </span>
     </Link>
   );
 }
