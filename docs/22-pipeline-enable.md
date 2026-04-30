@@ -210,16 +210,44 @@ Once council scrapers are live (`src/modules/ingestion/sources.ts` already has t
 
 ---
 
-## Re-enabling the automated cron path
+## Automated ingestion paths
 
-`/api/cron/ingest` already runs daily 13:00 UTC. It calls `fetchCouncilDAs()` for every council slug. To enable it end-to-end:
+`/api/cron/ingest` runs daily 13:00 UTC and dispatches per-council via `fetchCouncilDAs()` in `src/modules/ingestion/sources.ts`. The dispatcher tries each adapter in priority order; configure whichever path you want enabled and the rest are silent fallbacks.
 
-1. Get an NSW Planning Portal API key — set `NSW_PLANNING_API_KEY` in Vercel env
-2. Set `NSW_PLANNING_API_BASE` to the real endpoint (`api.planningportal.nsw.gov.au/v1` is the placeholder)
-3. (Optional) Set `DA_LEADS_API_KEY` + `DA_LEADS_API_BASE` for the 4 LGAs not on NSW Planning Portal
-4. Verify by curl-ing `/api/cron/ingest` with the bearer token
+### Path A — DA Exhibitions HTML scrape (no signup, ships today)
 
-The drift detector (FR-003) will alert on any council whose count drops by >50% week-over-week — including from "manual filled the gap last week" → "automated picked up this week." This is intentional; it surfaces transition discrepancies.
+The public NSW Planning Portal register at `https://www.planningportal.nsw.gov.au/daexhibitions` covers all 15 of our LGAs with no API key. Filter by LGA + status, paginate, parse with cheerio, eagerly fetch each detail page for the property address and full type-of-development scope text.
+
+To enable in production:
+
+1. Set `DAEX_INGEST_ENABLED=true` in Vercel env (Production scope).
+2. Trigger the ingest cron once to verify:
+   ```bash
+   CRON_SECRET=$(grep '^CRON_SECRET=' .env.production.local | cut -d= -f2- | tr -d '"')
+   curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://www.pi-au.com/api/cron/ingest
+   ```
+   Then check `ingestion_log` for one row per council with `source_api='da_exhibitions'`.
+
+**Coverage caveat (snapshot 2026-04-30):** "On Exhibition" status is a narrow public-comment window (typically 14–28 days). At the moment of writing, only Cumberland (15 records) had any active exhibitions across our 15 LGAs; most showed 0. Coverage fluctuates as councils open and close exhibition windows. Plan for thin weeks early on; combine with the manual `import-das` curation path (above) for gap-fill.
+
+**Brittleness:** the parser keys on Drupal CSS classes (`field-field-panel-reference-number`, `field-field-council-unique-number`, `card__title`, `icon--pin`). The Portal redesigns its markup occasionally; when this happens, run `pnpm exec vitest run -c vitest.backend.config.ts __tests__/ingestion/daex-parsers.test.ts` and update selectors in `src/modules/ingestion/sources.ts` (`parseDaexListing` / `parseDaexDetail`). Fixtures live in `__tests__/ingestion/fixtures/`.
+
+**Politeness:** every list+detail fetch goes through `fetchTextWithRetry` with a `User-Agent: ProjectIntelligence-AU/1.0` header and a 500ms `politeDelay` between requests. ~150 requests per ingest run, ~2.5 minutes of wall-time at the polite cadence. Well within sane scraping bounds.
+
+### Path B — NSW Planning Portal API (best long-term, blocked on email approval)
+
+The official state-level API at `api.planningportal.nsw.gov.au` covers 11 of the 15 LGAs (those submitting through NSW Planning Portal e-services). Approval process is email-based and takes 2–6 weeks.
+
+1. Email `[email protected]` with org details (ABN, registered address, contact, use case). The Open DA Data API at `https://www.planningportal.nsw.gov.au/opendata/dataset/online-da-data-api` is the right product for read-only feed access.
+2. When the key arrives, set `NSW_PLANNING_API_KEY` and `NSW_PLANNING_API_BASE` in Vercel env. The existing `fetchNswPlanningDAs` adapter handles the rest.
+
+The dispatcher prefers Path A (DA Exhibitions) when `DAEX_INGEST_ENABLED=true`. To make Path B primary, flip `DAEX_INGEST_ENABLED=false` and the existing NSW Planning + DA Leads dispatch resumes.
+
+### Path C — Manual import (always available)
+
+The `pnpm import-das:prod` flow above. Use it as gap-fill when an automated source is down for a council, or to inject a high-value DA the aggregators missed.
+
+The drift detector (FR-003) alerts on any council whose count drops by >50% week-over-week — including transitions like "manual filled last week → DA Exhibitions picked up this week." This is intentional; it surfaces source switchovers.
 
 ---
 

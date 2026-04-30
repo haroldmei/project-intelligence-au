@@ -1,14 +1,15 @@
-// Data source adapters for NSW Planning Portal API + DA Leads / Council DA APIs.
+// Data source adapters for the DA ingestion pipeline.
 // WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 // contract: security.public_data_only = true
 //
 // Only public endpoints listed in system-design §2 "ingestion" component.
 // DO NOT add Cordell, LeadManager, or EstimateOne (contract.security.public_data_only).
-import { fetchWithRetry, politeDelay } from "./fetch";
+import * as cheerio from "cheerio";
+import { fetchWithRetry, fetchTextWithRetry, politeDelay } from "./fetch";
 import { env } from "@/lib/env";
 
-export type SourceApi = "nsw_planning" | "da_leads" | "council_da";
+export type SourceApi = "nsw_planning" | "da_leads" | "council_da" | "da_exhibitions";
 
 /** Normalised DA record after adapting from any source. */
 export interface RawDaRecord {
@@ -46,15 +47,29 @@ const NSW_PLANNING_COUNCILS = new Set([
 ]);
 
 /**
- * Fetch DAs lodged in the last `sinceDaysBack` days for a single council.
- * Dispatches to the correct adapter based on whether the council is in the
- * NSW Planning Portal coverage set or the DA Leads set.
+ * Fetch DAs for a single council in the last `sinceDaysBack` days.
+ *
+ * Adapter precedence:
+ *   1. DA Exhibitions HTML scrape (when DAEX_INGEST_ENABLED=true) — covers all
+ *      15 LGAs from the public NSW Planning Portal register. No API key, eager
+ *      enrichment from detail pages. Off by default; opt-in via env.
+ *   2. NSW Planning Portal API — for councils in NSW_PLANNING_COUNCILS.
+ *      Authoritative source when the closed-API key arrives (FR-001).
+ *   3. DA Leads / council DA API — last fallback for any LGA where neither
+ *      of the above covers.
+ *
+ * The pipeline accepts records from any source via the `source_api` column,
+ * so swapping order (e.g. once an NSW Planning key arrives, demote scraping)
+ * needs no DB migration.
  */
 export async function fetchCouncilDAs(
   councilSlug: string,
   sinceDaysBack: number,
 ): Promise<RawDaRecord[]> {
   await politeDelay();
+  if (env.DAEX_INGEST_ENABLED && DAEX_LGA_VALUES[councilSlug]) {
+    return fetchDaExhibitionsByLga(councilSlug, sinceDaysBack);
+  }
   if (NSW_PLANNING_COUNCILS.has(councilSlug)) {
     return fetchNswPlanningDAs(councilSlug, sinceDaysBack);
   }
@@ -143,4 +158,225 @@ async function fetchDaLeadsDAs(
     rawScopeText: da.scopeNotes ?? null,
     sourceApi: "council_da",
   }));
+}
+
+// ─── DA Exhibitions adapter (HTML scrape) ───────────────────────────────────
+// Public NSW Planning Portal register at /daexhibitions. Filterable by LGA
+// via Drupal-form GET param. Listing pages give us PAN/DA number/title/council;
+// detail pages add property address, type-of-development scope text, and the
+// exhibition window. No API key required.
+//
+// Coverage notes (snapshot 2026-04-30): "On Exhibition" status is a narrow
+// window (typically 14–28 days), so any single LGA may have 0 records on a
+// given day. Cumberland was the only one of our 15 with active exhibitions
+// at this moment. This adapter is meant to coexist with the manual-import
+// path; both flow through development_applications.
+
+const DAEX_BASE = "https://www.planningportal.nsw.gov.au";
+const DAEX_USER_AGENT = "ProjectIntelligence-AU/1.0 (+https://www.pi-au.com)";
+
+/**
+ * Council-slug → DAEX dropdown value. Verified by inspecting the
+ * `<select name="field_local_government_area_value">` options on the
+ * /daexhibitions form on 2026-04-30.
+ */
+const DAEX_LGA_VALUES: Record<string, string> = {
+  blacktown: "BLACKTOWN",
+  blue_mountains: "BLUE MOUNTAINS",
+  camden: "CAMDEN",
+  campbelltown_nsw: "CAMPBELLTOWN",
+  fairfield: "FAIRFIELD",
+  hawkesbury: "HAWKESBURY",
+  hills_shire: "THE HILLS SHIRE",
+  liverpool: "LIVERPOOL",
+  parramatta: "CITY OF PARRAMATTA",
+  penrith: "PENRITH",
+  wollondilly: "WOLLONDILLY",
+  bayside_nsw: "BAYSIDE",
+  canada_bay: "CANADA BAY",
+  inner_west: "INNER WEST",
+  strathfield: "STRATHFIELD",
+};
+
+interface DaexListingRow {
+  panNumber: string | null;
+  daNumber: string | null;
+  applicationType: string | null;
+  status: string | null;
+  title: string | null;
+  council: string | null;
+  detailHref: string | null;
+}
+
+interface DaexDetailFields {
+  propertyAddress: string | null;
+  developmentTypeText: string | null;
+  exhibitionStart: string | null;
+  exhibitionEnd: string | null;
+  consentAuthority: string | null;
+}
+
+/**
+ * Parse the listing HTML for one /daexhibitions page. Pure function — takes
+ * a string of HTML and returns rows. Tested against fixtures captured on
+ * 2026-04-30; brittle to NSW Planning Portal redesigns.
+ */
+export function parseDaexListing(html: string): DaexListingRow[] {
+  const $ = cheerio.load(html);
+  return $("div.card").map((_, card): DaexListingRow => {
+    const $card = $(card);
+    return {
+      panNumber: textOrNull($card.find(".field-field-panel-reference-number").first()),
+      daNumber: textOrNull($card.find(".field-field-council-unique-number").first()),
+      applicationType: textOrNull($card.find(".field-field-application-type").first()),
+      status: textOrNull($card.find(".field-field-daex-status").first()) ?? textOrNull($card.find(".tag--fixed").first()),
+      title: textOrNull($card.find(".card__title").first()),
+      // Council name is a free text node sandwiched after the icon--pin span.
+      council: extractCouncilLabel($card),
+      detailHref: $card.find('a[href*="/daex/exhibition/"]').first().attr("href") ?? null,
+    };
+  }).get();
+}
+
+/**
+ * Parse a /daex/exhibition/{slug} detail page. Handles the on-exhibition
+ * shape (Project Details section with Property Address, Type of development,
+ * Exhibition start - end date).
+ */
+export function parseDaexDetail(html: string): DaexDetailFields {
+  const $ = cheerio.load(html);
+  const rows: Record<string, string> = {};
+  // Project-details labels are sibling text nodes; the simplest, structure-
+  // tolerant approach is to grab every label/value pair the page renders.
+  $("strong, b, dt, label").each((_, el) => {
+    const label = $(el).text().trim();
+    const value = $(el).next().text().trim() || $(el).parent().next().text().trim();
+    if (label && value) rows[label] = value;
+  });
+  // Fall back to a broader text-pair scan: the `Project Details` section
+  // renders each "label\nvalue" pair as adjacent <div>s.
+  $(".spacing--bottom-m").each((_, sec) => {
+    const lines = $(sec)
+      .text()
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (let i = 0; i + 1 < lines.length; i++) {
+      const next = lines[i + 1];
+      if (lines[i] && next && !rows[lines[i]!]) rows[lines[i]!] = next;
+    }
+  });
+
+  const exhibition = rows["Exhibition start - end date"] ?? "";
+  const [start, end] = exhibition.split(/\s*-\s*/).map((s) => s?.trim() ?? "");
+  return {
+    propertyAddress: rows["Property Address"] ?? rows["Property address"] ?? null,
+    developmentTypeText: rows["Type of development"] ?? null,
+    exhibitionStart: parseAuDate(start),
+    exhibitionEnd: parseAuDate(end),
+    consentAuthority: rows["Consent authority name"] ?? null,
+  };
+}
+
+async function fetchDaExhibitionsByLga(
+  slug: string,
+  sinceDaysBack: number,
+): Promise<RawDaRecord[]> {
+  const lgaValue = DAEX_LGA_VALUES[slug];
+  if (!lgaValue) return [];
+  const sinceStr = isoDate(-sinceDaysBack);
+
+  const records: RawDaRecord[] = [];
+  const MAX_PAGES = 20;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const url =
+      `${DAEX_BASE}/daexhibitions` +
+      `?field_local_government_area_value=${encodeURIComponent(lgaValue)}` +
+      `&field_daex_status_value=${encodeURIComponent("On Exhibition")}` +
+      `&page=${page}`;
+    const html = await fetchTextWithRetry(url, { headers: { "User-Agent": DAEX_USER_AGENT } });
+    const rows = parseDaexListing(html);
+    if (rows.length === 0) break;
+
+    for (const row of rows) {
+      // Use PAN as the canonical id when present; fall back to DA number.
+      const daId = row.panNumber ?? row.daNumber;
+      if (!daId || !row.detailHref) continue;
+
+      const detailUrl = row.detailHref.startsWith("http")
+        ? row.detailHref
+        : `${DAEX_BASE}${row.detailHref}`;
+
+      // Eager enrichment — fetch the detail page for address + scope text.
+      // ~1 detail fetch per listing row; politeDelay enforces ≥500ms cadence.
+      let detail: DaexDetailFields = {
+        propertyAddress: null,
+        developmentTypeText: null,
+        exhibitionStart: null,
+        exhibitionEnd: null,
+        consentAuthority: null,
+      };
+      try {
+        const detailHtml = await fetchTextWithRetry(detailUrl, { headers: { "User-Agent": DAEX_USER_AGENT } });
+        detail = parseDaexDetail(detailHtml);
+      } catch {
+        // Detail-page fetch failed; carry on with listing-only fields.
+      }
+
+      const lodgement = detail.exhibitionStart ?? sinceStr;
+      // Listing is roughly date-desc by exhibition start; once we cross the
+      // window, stop paginating.
+      if (lodgement < sinceStr) return records;
+
+      records.push({
+        daId,
+        council: slug,
+        address: detail.propertyAddress ?? row.title ?? "",
+        description: row.title ?? "",
+        estimatedValue: null, // not exposed by DA Exhibitions
+        lodgementDate: lodgement,
+        applicantName: null, // not exposed by DA Exhibitions
+        portalUrl: detailUrl,
+        rawScopeText: detail.developmentTypeText ?? row.title ?? null,
+        sourceApi: "da_exhibitions",
+      });
+
+      await politeDelay();
+    }
+
+    if (rows.length < 10) break; // partial page → no more results
+    await politeDelay();
+  }
+
+  return records;
+}
+
+// ─── Helpers (DA Exhibitions parsing) ───────────────────────────────────────
+
+function textOrNull($el: ReturnType<cheerio.CheerioAPI>): string | null {
+  const t = $el.text().trim();
+  return t.length === 0 ? null : t;
+}
+
+function extractCouncilLabel($card: ReturnType<cheerio.CheerioAPI>): string | null {
+  // The council name lives in the same <div> as the .icon--pin span, after
+  // the icon. Pull the parent <div>'s text and trim the icon away.
+  const $pin = $card.find(".icon--pin").first();
+  if ($pin.length === 0) return null;
+  const parentText = $pin.parent().text().trim();
+  return parentText.length === 0 ? null : parentText;
+}
+
+function parseAuDate(au: string | undefined): string | null {
+  // Convert dd/mm/yyyy → yyyy-mm-dd
+  if (!au) return null;
+  const m = au.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
+}
+
+function isoDate(offsetDays: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
 }

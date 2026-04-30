@@ -60,6 +60,48 @@ export async function fetchWithRetry<T>(
   throw lastErr;
 }
 
+/**
+ * Same retry/backoff machinery as fetchWithRetry, but returns the body as
+ * text — used for HTML-scrape adapters (e.g. DA Exhibitions) that parse
+ * with cheerio.
+ */
+export async function fetchTextWithRetry(
+  url: string,
+  opts: FetchOptions = {},
+): Promise<string> {
+  const { headers = {}, timeoutMs = 30_000 } = opts;
+  let lastErr: Error = new Error("unknown");
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const delayMs = BASE_DELAY_MS * 2 ** (attempt - 1);
+      log.info({ attempt, delayMs, url }, "[fetch] retrying after backoff");
+      await sleep(delayMs);
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "ProjectIntelligence-AU/1.0 (+https://www.pi-au.com)",
+          Accept: "text/html,application/xhtml+xml",
+          ...headers,
+        },
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} ${res.statusText} from ${url}`);
+      }
+      return await res.text();
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      log.warn({ attempt, url, err: lastErr.message }, "[fetch] request failed");
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw lastErr;
+}
+
 /** Polite inter-request delay (robots-aware). Call between API requests. */
 export function politeDelay(): Promise<void> {
   return sleep(INTER_REQUEST_DELAY_MS);

@@ -62,6 +62,11 @@ const baseShape = {
     NSW_PLANNING_API_KEY: z.string().optional(),
     DA_LEADS_API_BASE: z.string().url().default("https://api.daleads.com.au/v1"),
     DA_LEADS_API_KEY: z.string().optional(),
+    // DA Exhibitions HTML scrape (planningportal.nsw.gov.au/daexhibitions). When
+    // "true", takes precedence over NSW Planning + DA Leads adapters for any
+    // LGA in DAEX_LGA_VALUES. Default off so existing tests/code paths are
+    // unchanged. Flip to "true" in Vercel env to enable in production.
+    DAEX_INGEST_ENABLED: z.coerce.boolean().default(false),
 
     // ── Observability (optional Month 1) ────────────────────────────────────
     SENTRY_DSN: z.string().url().optional(),
