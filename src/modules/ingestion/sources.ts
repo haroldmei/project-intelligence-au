@@ -24,11 +24,22 @@ export interface RawDaRecord {
   description: string;
   estimatedValue: number | null;
   lodgementDate: string; // yyyy-mm-dd
+  // Determined DAs only — the council's decision date. Used by the freshness
+  // filter to drop years-old approvals that are no longer roofer-actionable.
+  determinationDate: string | null; // yyyy-mm-dd
   applicantName: string | null;
   portalUrl: string;
   rawScopeText: string | null;
   sourceApi: SourceApi;
 }
+
+/**
+ * Maximum age (in days) that an ingested DA can have before it's considered
+ * dead-lead territory. NSW residential DAs lapse after 5 years if not
+ * commenced; by the time we're 6 months past determination the head
+ * contractor has procured trades, and the roofer's window is past.
+ */
+const FRESHNESS_WINDOW_DAYS = 180;
 
 /** NSW Planning Portal API base URL */
 const NSW_PLANNING_BASE = env.NSW_PLANNING_API_BASE;
@@ -124,6 +135,7 @@ async function fetchNswPlanningDAs(
     description: da.proposedDevelopment,
     estimatedValue: da.estimatedCost ?? null,
     lodgementDate: da.lodgedDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+    determinationDate: null,
     applicantName: da.applicant ?? null,
     portalUrl: da.url,
     rawScopeText: da.scopeDescription ?? null,
@@ -164,6 +176,7 @@ async function fetchDaLeadsDAs(
     description: da.description,
     estimatedValue: da.estimatedValue ?? null,
     lodgementDate: da.lodgementDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+    determinationDate: null,
     applicantName: da.applicant ?? null,
     portalUrl: da.daUrl,
     rawScopeText: da.scopeNotes ?? null,
@@ -236,6 +249,8 @@ interface DaexDetailFields {
   consentAuthority: string | null;
   /** Determined-status DAs only. Approved | Refused | Deferred Commencement Consent | … */
   decision: string | null;
+  /** Determined-status DAs only. yyyy-mm-dd. Used for the freshness filter. */
+  determinationDate: string | null;
 }
 
 /**
@@ -301,6 +316,17 @@ export function parseDaexDetail(html: string): DaexDetailFields {
   const decisionEl = $(".field-field-decision").first();
   const decision = decisionEl.length > 0 ? decisionEl.text().trim() || null : (rows["Decision"] ?? null);
 
+  // Determination date: only present on Determined detail pages. The page
+  // renders "Determination date: 15/02/2023" — same dd/mm/yyyy format as
+  // every other date on this site. Try the field-class first; fall back
+  // to the row scan.
+  const determinationEl = $(".field-field-determination-date").first();
+  const determinationRaw =
+    (determinationEl.length > 0 ? determinationEl.text().trim() : "") ||
+    rows["Determination date"] ||
+    "";
+  const determinationDate = parseAuDate(determinationRaw);
+
   // Project description: the free-text scope blob, much richer than the
   // categorical "Type of development". Lives in a separate field class.
   // Example value: "Ground floor alterations and first floor addition to
@@ -317,6 +343,7 @@ export function parseDaexDetail(html: string): DaexDetailFields {
     exhibitionEnd: parseAuDate(end),
     consentAuthority: rows["Consent authority name"] ?? null,
     decision,
+    determinationDate,
   };
 }
 
@@ -440,6 +467,7 @@ async function fetchDaExhibitionsByStatus(
         exhibitionEnd: null,
         consentAuthority: null,
         decision: null,
+        determinationDate: null,
       };
       try {
         const detailHtml = await fetchTextWithRetry(detailUrl, { headers: { "User-Agent": DAEX_USER_AGENT } });
@@ -456,6 +484,25 @@ async function fetchDaExhibitionsByStatus(
         continue;
       }
 
+      // Stale-DA filter. The "freshness signal" depends on status:
+      //   - Determined: determinationDate (council decided years ago = dead).
+      //   - On Exhibition / Under Consideration: exhibitionStart (when public
+      //     consultation opened — close enough to "in progress" for our
+      //     window). exhibitionStart is sometimes null for under-consideration
+      //     records that never went on exhibition; in that case we accept the
+      //     record (status itself is a strong recency signal — the council
+      //     has it open right now).
+      const freshnessSignal =
+        status === "Determined" ? detail.determinationDate : detail.exhibitionStart;
+      if (status === "Determined" && !freshnessSignal) {
+        // Determined but no determination date → can't bound freshness.
+        // Drop it — better to miss a few than pollute with 3-year-old leads.
+        continue;
+      }
+      if (freshnessSignal && isOlderThan(freshnessSignal, FRESHNESS_WINDOW_DAYS)) {
+        continue;
+      }
+
       // description: prefer the listing title (most readable), fall back to
       // the free-text project description if the title was empty (some
       // councils render only an address — see The Hills Shire).
@@ -469,13 +516,24 @@ async function fetchDaExhibitionsByStatus(
         .filter((s, i, arr) => arr.indexOf(s) === i);
       const rawScopeText = scopeParts.join(". ") || null;
 
+      // lodgementDate: prefer the determination date for Determined DAs (it's
+      // the most recent meaningful event we have); otherwise the exhibition
+      // start date. The today-fallback is the floor — only used when neither
+      // signal is available, which after the freshness gate above only
+      // happens for Under Consideration records the listing exposes without
+      // any date at all (rare but valid).
+      const lodgementDate =
+        (status === "Determined" ? detail.determinationDate : detail.exhibitionStart) ??
+        today;
+
       records.push({
         daId,
         council: slug,
         address: detail.propertyAddress ?? row.title ?? "",
         description,
         estimatedValue: null, // not exposed by DA Exhibitions
-        lodgementDate: detail.exhibitionStart ?? today,
+        lodgementDate,
+        determinationDate: detail.determinationDate,
         applicantName: null, // not exposed by DA Exhibitions
         portalUrl: detailUrl,
         rawScopeText,
@@ -519,6 +577,17 @@ function isoDate(offsetDays: number): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + offsetDays);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * True iff `iso` (yyyy-mm-dd) is more than `windowDays` ago. Used by the
+ * ingest freshness gate to drop years-old determined DAs at write time.
+ */
+function isOlderThan(iso: string, windowDays: number): boolean {
+  const d = new Date(`${iso}T00:00:00Z`).getTime();
+  if (Number.isNaN(d)) return false; // unparseable → don't claim it's stale
+  const ageDays = (Date.now() - d) / (1000 * 60 * 60 * 24);
+  return ageDays > windowDays;
 }
 
 // ─── State Significant Development register (Teams-tier; dormant) ───────────
@@ -693,6 +762,7 @@ export async function fetchSsdProjects(
         description,
         estimatedValue: null, // not exposed by SSD register
         lodgementDate: detail?.exhibitionStart ?? today,
+        determinationDate: null, // SSD register doesn't expose a determination date
         applicantName: detail?.contactPlannerName ?? null,
         portalUrl: detailUrl,
         rawScopeText: scopeParts.join(". ") || null,
