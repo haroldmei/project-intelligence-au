@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -30,13 +30,32 @@ const LGA_BUNDLES = [
 ];
 
 export default function MyAreaPage() {
-  // TODO: load initial selection from GET /api/account once backend-developer publishes the route.
-  const [selected, setSelected] = useState<Set<string>>(
-    new Set(["western_sydney"])
-  );
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loaded, setLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Load the user's existing bundle selection so re-saving doesn't wipe it.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/account/lga-bundles")
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return (await res.json()) as { bundle_ids: string[] };
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setSelected(new Set(data.bundle_ids ?? []));
+        setLoaded(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setError("Couldn't load your current area. Refresh to retry.");
+        setLoaded(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -134,10 +153,10 @@ export default function MyAreaPage() {
         size="lg"
         className="w-full md:w-auto"
         onClick={handleSave}
-        disabled={selected.size === 0 || isSaving}
+        disabled={!loaded || selected.size === 0 || isSaving}
         aria-busy={isSaving}
       >
-        {isSaving ? "Saving…" : "Save area"}
+        {isSaving ? "Saving…" : !loaded ? "Loading…" : "Save area"}
       </Button>
 
       {toast && (
