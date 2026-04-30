@@ -72,7 +72,7 @@ Items from the review **not** addressed in either wave:
 - **A2** Periodic cleanup of `stripe_webhook_events` table — small cron at launch tier.
 - **A3** Archival policy on `ai_cost_log`.
 - **M6** Lucia v3 maintenance-mode migration — multi-week effort, defer until library actually breaks.
-- **L1** Stub data in 2 remaining portal pages (digest/history) — calls real APIs but defaults to stub state. Same pattern as the area-page fix from a previous session. (`/account/sms` fixed in commit below: now loads real state from `/api/account/me` and hits the correct opt-in/out endpoints; toggle is disabled until loaded and when the user has no mobile number on file.)
+- **L1** ✅ Closed in the UI gap-fill pass: `/digest`, `/digest/[id]`, and `/history` now query `getCurrentDigest`, `getDigestById`, and `getDigestHistory` directly as server components (no more `fetch()`-from-self that strips cookies). New `/account/profile` (mobile edit) and `/account/saved-query` (search query edit) pages cover the previously DB-only profile fields. `/digest` also surfaces a fallback-used banner (M2 mirror) and a delivery-issue banner.
 - **L2** Real ABN in `src/emails/_components/Footer.tsx` — operator-supplied data, not a code fix.
 - **T2** E2E coverage for SMS pathway — would have caught C1 earlier; worth adding once SMS is verified end-to-end.
 
