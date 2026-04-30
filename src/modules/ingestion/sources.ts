@@ -52,11 +52,14 @@ const NSW_PLANNING_COUNCILS = new Set([
  * Adapter precedence:
  *   1. DA Exhibitions HTML scrape (when DAEX_INGEST_ENABLED=true) — covers all
  *      15 LGAs from the public NSW Planning Portal register. No API key, eager
- *      enrichment from detail pages. Off by default; opt-in via env.
- *   2. NSW Planning Portal API — for councils in NSW_PLANNING_COUNCILS.
- *      Authoritative source when the closed-API key arrives (FR-001).
- *   3. DA Leads / council DA API — last fallback for any LGA where neither
- *      of the above covers.
+ *      enrichment from detail pages.
+ *   2. NSW Planning Portal API — only when NSW_PLANNING_API_KEY is set, for
+ *      councils in NSW_PLANNING_COUNCILS. Authoritative source (FR-001).
+ *   3. DA Leads / council DA API — only when DA_LEADS_API_KEY is set.
+ *   4. No-op (returns []) when no source is configured for this slug. Avoids
+ *      DNS-resolving the placeholder URLs (api.planningportal.nsw.gov.au/v1
+ *      and api.daleads.com.au) which don't exist as real endpoints — each
+ *      4-attempt retry burns ~14s and 15 councils × that = 524 timeout.
  *
  * The pipeline accepts records from any source via the `source_api` column,
  * so swapping order (e.g. once an NSW Planning key arrives, demote scraping)
@@ -70,10 +73,13 @@ export async function fetchCouncilDAs(
   if (env.DAEX_INGEST_ENABLED && DAEX_LGA_VALUES[councilSlug]) {
     return fetchDaExhibitionsByLga(councilSlug, sinceDaysBack);
   }
-  if (NSW_PLANNING_COUNCILS.has(councilSlug)) {
+  if (env.NSW_PLANNING_API_KEY && NSW_PLANNING_COUNCILS.has(councilSlug)) {
     return fetchNswPlanningDAs(councilSlug, sinceDaysBack);
   }
-  return fetchDaLeadsDAs(councilSlug, sinceDaysBack);
+  if (env.DA_LEADS_API_KEY) {
+    return fetchDaLeadsDAs(councilSlug, sinceDaysBack);
+  }
+  return [];
 }
 
 // ─── NSW Planning Portal adapter ────────────────────────────────────────────
@@ -176,26 +182,32 @@ const DAEX_BASE = "https://www.planningportal.nsw.gov.au";
 const DAEX_USER_AGENT = "ProjectIntelligence-AU/1.0 (+https://www.pi-au.com)";
 
 /**
- * Council-slug → DAEX dropdown value. Verified by inspecting the
- * `<select name="field_local_government_area_value">` options on the
+ * Council-slug → DAEX dropdown value. Slug keys MUST match
+ * ALL_COUNCIL_SLUGS in src/modules/ingestion/ingest.ts and the LGAS
+ * seed in prisma/seed.ts. Dropdown values verified by inspecting
+ * `<select name="field_local_government_area_value">` on the
  * /daexhibitions form on 2026-04-30.
  */
 const DAEX_LGA_VALUES: Record<string, string> = {
+  // Western Sydney
   blacktown: "BLACKTOWN",
-  blue_mountains: "BLUE MOUNTAINS",
-  camden: "CAMDEN",
-  campbelltown_nsw: "CAMPBELLTOWN",
-  fairfield: "FAIRFIELD",
-  hawkesbury: "HAWKESBURY",
-  hills_shire: "THE HILLS SHIRE",
-  liverpool: "LIVERPOOL",
+  cumberland: "CUMBERLAND",
   parramatta: "CITY OF PARRAMATTA",
   penrith: "PENRITH",
-  wollondilly: "WOLLONDILLY",
-  bayside_nsw: "BAYSIDE",
+  the_hills: "THE HILLS SHIRE",
+  // Inner West & City
+  burwood: "BURWOOD",
   canada_bay: "CANADA BAY",
+  city_of_sydney: "SYDNEY",
   inner_west: "INNER WEST",
-  strathfield: "STRATHFIELD",
+  // Northern Sydney
+  hornsby: "HORNSBY",
+  ku_ring_gai: "KU-RING-GAI",
+  northern_beaches: "NORTHERN BEACHES",
+  // Southern Sydney
+  bayside: "BAYSIDE",
+  georges_river: "GEORGES RIVER",
+  sutherland: "SUTHERLAND SHIRE",
 };
 
 interface DaexListingRow {

@@ -12,3 +12,8 @@ process.env.STRIPE_SECRET_KEY ??= "sk_test_lifecycle";
 process.env.STRIPE_PRICE_ID_SOLO ??= "price_test_solo";
 process.env.STRIPE_PRICE_ID_TEAM ??= "price_test_team";
 process.env.RESEND_API_KEY ??= "";
+// Ingestion adapters: tests mock the network layer, so we need a non-empty
+// API key to make the dispatcher route to fetchNswPlanningDAs (otherwise
+// it short-circuits to return [] when DAEX_INGEST_ENABLED is false).
+process.env.NSW_PLANNING_API_KEY ??= "test-nsw-key";
+process.env.DA_LEADS_API_KEY ??= "test-leads-key";
