@@ -10,7 +10,7 @@
 // Contract: deploy.cron_target = vercel-cron (system-design §5.1)
 // Auth: Vercel Cron secret header (contract.security.secrets_manager: gcp-secret-manager)
 import { NextResponse } from "next/server";
-import { withRetry, verifyCronSecret } from "@/lib/cron/retry";
+import { verifyCronSecret } from "@/lib/cron/retry";
 import { runIngest } from "@/modules/ingestion/ingest";
 
 export const runtime = "nodejs";
@@ -21,11 +21,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (authError) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const result = await withRetry(() => runIngest(1), {
-      // 15-min retry window per NFR-022; for nightly cron, retry after 2 min
-      delayMs: 2 * 60 * 1000,
-      label: "ingest",
-    });
+    // In-process retry was removed — Vercel function timeout (300s) is
+    // shorter than the previous 2-min sleep + retry, so it was a no-op.
+    // A failed ingest surfaces as 500 + Sentry; the next daily tick retries.
+    const result = await runIngest(1);
     return NextResponse.json({
       ingested: result.totalIngested,
       failed: result.totalFailed,

@@ -28,16 +28,19 @@ export async function POST(request: Request): Promise<NextResponse> {
   const authError = verifyCronSecret(request);
   if (authError) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // Users whose trial day is exactly REMINDER_DAY today.
-  const targetCutoffStart = new Date();
-  targetCutoffStart.setDate(targetCutoffStart.getDate() - (REMINDER_DAY + 1));
-  const targetCutoffEnd = new Date();
-  targetCutoffEnd.setDate(targetCutoffEnd.getDate() - REMINDER_DAY);
+  // Eligibility window: account is at least REMINDER_DAY days old (so the
+  // user is genuinely on day 26+) but reminder hasn't been sent yet.
+  // Wider window than `[day26, day27]` so a missed cron run still sends
+  // late rather than dropping the reminder entirely. trialReminderSentAt
+  // dedupes regardless of the window — at most one send per user.
+  const eligibleCreatedBefore = new Date();
+  eligibleCreatedBefore.setDate(eligibleCreatedBefore.getDate() - REMINDER_DAY);
 
   const users = await db.user.findMany({
     where: {
       subscriptionStatus: "trial",
-      createdAt: { gte: targetCutoffStart, lte: targetCutoffEnd },
+      createdAt: { lte: eligibleCreatedBefore },
+      trialReminderSentAt: null,
     },
     select: { id: true, email: true },
     take: 1000, // bounded daily cohort; matches NFR-008 ceiling
@@ -51,6 +54,12 @@ export async function POST(request: Request): Promise<NextResponse> {
         to: user.email,
         template: "trial-reminder",
         props: { daysLeft: 2, manageBillingUrl },
+      });
+      // Mark sent BEFORE the next user so a function-timeout mid-loop
+      // can't re-deliver to the same user on retry.
+      await db.user.update({
+        where: { id: user.id },
+        data: { trialReminderSentAt: new Date() },
       });
       reminded++;
       log.info({ userId: user.id }, "[trial-reminder] sent");

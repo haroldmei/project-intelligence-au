@@ -2,6 +2,7 @@
 // Re-embeds the saved query on PUT (AI features §A.7 step 6).
 import { NextResponse, after } from "next/server";
 import { validateRequest } from "@/lib/auth/session";
+import { rateLimitMutatingByUser } from "@/lib/auth/rate-limit";
 import { UpdateSavedQueryInput } from "@/modules/account/schemas";
 import { getAccount, updateSavedQuery } from "@/modules/account/service";
 import { sendPreviewDigest } from "@/modules/digest/preview";
@@ -17,6 +18,17 @@ export async function GET(): Promise<NextResponse> {
 export async function PUT(request: Request): Promise<NextResponse> {
   const auth = await validateRequest();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Tightest limit on the whole API: each PUT triggers an OpenAI
+  // embedding + a preview-digest run (LLM rerank). 30/hr is plenty
+  // for legitimate edits; defends against burning the cost ceiling.
+  const rl = rateLimitMutatingByUser(auth.user.id, "saved-query");
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },
+    );
+  }
 
   let body: unknown;
   try {

@@ -13,7 +13,7 @@
 //
 // FR-009 | system-design §5.1 cron schedule | contract.queue.weekly_cron | contract.deploy.cron_target
 import { NextResponse } from "next/server";
-import { withRetry, verifyCronSecret } from "@/lib/cron/retry";
+import { verifyCronSecret } from "@/lib/cron/retry";
 import { runDigestCron } from "@/modules/digest/cron";
 
 export const runtime = "nodejs";
@@ -24,10 +24,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (authError) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const result = await withRetry(() => runDigestCron(), {
-      delayMs: 15 * 60 * 1000, // 15-min retry (NFR-022)
-      label: "digest",
-    });
+    // No in-process retry — the previous 15-min sleep would always be killed
+    // by Vercel's 5-min function timeout. Failed runs surface as 500 to
+    // Vercel logs + Sentry. Retry on the next scheduled tick.
+    const result = await runDigestCron();
     return NextResponse.json({
       users_processed: result.usersProcessed,
       sent: result.sent,

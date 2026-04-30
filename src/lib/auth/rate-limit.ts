@@ -94,3 +94,18 @@ export function rateLimitOtpVerifyByUser(
 ): ReturnType<typeof checkRateLimit> {
   return checkRateLimit(`user:${userId}:otp-verify`, 10, 3_600_000);
 }
+
+/**
+ * Per-user limit for cost-amplifying mutating endpoints. Each call may
+ * trigger Stripe API requests (customer create, checkout session) or
+ * OpenAI calls (saved-query embedding). 30/hr is generous for legitimate
+ * use — a user clicking "checkout" once or twice is fine, but hammering
+ * the route to spawn Stripe customers gets stopped. Use for billing,
+ * portal, saved-query, lga-bundles, sms-opt-in/out routes.
+ */
+export function rateLimitMutatingByUser(
+  userId: string,
+  route: string,
+): ReturnType<typeof checkRateLimit> {
+  return checkRateLimit(`user:${userId}:${route}`, 30, 3_600_000);
+}
