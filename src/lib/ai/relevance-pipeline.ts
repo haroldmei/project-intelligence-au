@@ -83,12 +83,12 @@ export interface PipelineInput {
   /**
    * Min score (0–5) from rerank to surface in digest.
    *
-   * Default 1 — the LLM's score is non-deterministic at default temperature,
-   * so a borderline DA can flicker score=2 vs score=3 between runs. Filtering
-   * by absolute floor turns that variance into "card disappears next week" —
-   * worse UX than always showing the top-N regardless. We rank-cut at
-   * `maxDigestSize` instead. Floor of 1 only blocks "completely off-topic"
-   * (score 0) so an empty week doesn't surface noise.
+   * Default 0 — accept everything the LLM scored. The pipeline already has
+   * three earlier filters (rule keyword match, council scope, vector cosine
+   * top-K) so anything reaching the rerank is at least loosely relevant.
+   * The LLM's score is non-deterministic at default temperature, so applying
+   * a hard floor here turns variance into "the digest sometimes has 4 cards
+   * instead of 5." Top-N cap at `maxDigestSize` is the only meaningful bound.
    */
   minScoreForDigest?: number;
   /**
@@ -138,7 +138,7 @@ export async function runRelevancePipeline(
 ): Promise<PipelineOutput> {
   const sinceIsoDate = input.sinceIsoDate ?? defaultSinceIso();
   const topKForRerank = input.topKForRerank ?? 30;
-  const minScoreForDigest = input.minScoreForDigest ?? 1;
+  const minScoreForDigest = input.minScoreForDigest ?? 0;
   const maxDigestSize = input.maxDigestSize ?? 5;
 
   // Stage 1 — rule pass
