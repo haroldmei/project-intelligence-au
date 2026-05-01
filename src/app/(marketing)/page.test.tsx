@@ -39,10 +39,12 @@ describe("MarketingPage (landing page)", () => {
     expect(ctas[0].getAttribute("href")).toBe("/signup");
   });
 
-  it("renders Solo and Team pricing plans", () => {
+  it("renders the Solo plan price", () => {
     render(<MarketingPage />);
-    expect(screen.getByText(/AUD 199\/mo/)).toBeTruthy();
-    expect(screen.getByText(/AUD 499\/mo/)).toBeTruthy();
+    // Team plan is currently gated off (multi-seat ships later); only Solo
+    // appears on the landing page. Solo is AUD 99/mo, GST included.
+    expect(screen.getByText(/AUD 99/)).toBeTruthy();
+    expect(screen.getByText(/GST included/)).toBeTruthy();
   });
 
   it("renders main navigation landmark", () => {

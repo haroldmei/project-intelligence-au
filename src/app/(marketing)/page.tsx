@@ -1,4 +1,4 @@
-// <!-- WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds. -->
+// <!-- WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, top-3 leads, AUD 99/mo (GST included), signup in 60 seconds. -->
 
 import Link from "next/link";
 
@@ -17,14 +17,15 @@ const jsonLd = {
     {
       "@type": "Offer",
       name: "Solo",
-      price: "199",
+      price: "99",
       priceCurrency: "AUD",
       priceSpecification: {
         "@type": "UnitPriceSpecification",
-        price: "199",
+        price: "99",
         priceCurrency: "AUD",
         billingDuration: "P1M",
         unitCode: "MON",
+        valueAddedTaxIncluded: true,
       },
       eligibleQuantity: {
         "@type": "QuantitativeValue",
@@ -100,20 +101,19 @@ const PLANS = [
     id: "solo",
     name: "Solo",
     tagline: "For owner-operators who quote their own work.",
-    price: 199,
-    gstTotal: 218.9,
+    price: 99,
     seats: "1 seat",
     highlight: true,
     includes: [
       "1 seat — your Sunday digest, your phone",
       "All 15 Greater Sydney LGAs (Western Sydney, Inner West, Northern, Southern)",
-      "Weekly email digest: 5–15 roofing DAs, ranked by relevance",
-      "Sunday SMS: top-3 leads to your +61 mobile",
+      "Weekly email digest: top-3 roofing DAs, ranked by relevance",
+      "Sunday SMS: same top-3 leads to your +61 mobile",
       "Trained on roofing vocabulary (not keyword soup)",
       "Thumbs feedback — your digest gets smarter each week",
       "Cancel anytime from your account — no support call",
     ],
-    finePrint: "AUD 199/mo + GST (AUD 218.90/mo total). Card required. No charge for 28 days. Cancel anytime.",
+    finePrint: "AUD 99/mo, GST included. Card required. No charge for 28 days. Cancel anytime.",
   },
   // Team plan is gated off until multi-seat is implemented. Restore the entry
   // here AND re-enable the picker in /plan to bring it back.
@@ -123,7 +123,7 @@ const PLANS = [
 const COMPARISON = [
   {
     label: "Price",
-    piSolo: "AUD 199/mo + GST",
+    piSolo: "AUD 99/mo inc GST",
     piTeam: "AUD 499/mo + GST",
     cordell: "AUD 577.50/mo inc GST",
     estimateOne: "AUD 250/mo",
@@ -194,8 +194,8 @@ const FAQS = [
     a: "To reduce abuse. We reviewed 28 days of real DA data for your LGAs before you even open the first digest — that costs us money and time. The card is how we know you're serious. You won't be charged until day 29, and you can cancel in-app anytime before then.",
   },
   {
-    q: "Is the AUD 199 price inclusive or exclusive of GST?",
-    a: "Exclusive. The all-in price is AUD 218.90/mo (AUD 199 + 10% GST). Your invoice will show both as separate line items, making it easy to claim as a business expense.",
+    q: "Is the AUD 99 price inclusive or exclusive of GST?",
+    a: "Inclusive. AUD 99/mo is the all-in price you pay — GST is built in. Your invoice still itemises the GST component (~AUD 9) separately so you can claim it as a business expense.",
   },
   {
     q: "What happens if I cancel?",
@@ -276,8 +276,8 @@ export default function MarketingPage() {
 
                 {/* Sub-headline — docs/17-positioning.md §5 + §9 */}
                 <p className="text-base md:text-lg text-[#334E68] leading-relaxed max-w-prose">
-                  5–15 curated re-roof DAs, 15 Sydney LGAs, every Sunday at 6&nbsp;pm.
-                  AUD&nbsp;199/mo. No sales call.
+                  Top 3 curated re-roof DAs, 15 Sydney LGAs, every Sunday at 6&nbsp;pm.
+                  AUD&nbsp;99/mo (GST included). No sales call.
                 </p>
 
                 {/* Primary CTA */}
@@ -410,7 +410,7 @@ export default function MarketingPage() {
 
           {/* ═══════════════════════════════════════════════════════════════
               PRICING SECTION
-              LOCKED: Solo AUD 199/mo + GST
+              LOCKED: Solo AUD 99/mo (GST included)
               Team plan disabled until multi-seat ships
               28-day card-on-file trial · cancel in-app
           ═══════════════════════════════════════════════════════════════ */}
@@ -459,7 +459,7 @@ export default function MarketingPage() {
                         <span className="text-lg font-semibold">/mo</span>
                       </p>
                       <p className="text-xs text-[#627D98] mt-0.5">
-                        + GST (AUD {plan.gstTotal.toFixed(2)}/mo total) · {plan.seats}
+                        GST included · {plan.seats}
                       </p>
                     </div>
                     <ul className="space-y-2" aria-label={`${plan.name} plan features`}>
@@ -577,7 +577,7 @@ export default function MarketingPage() {
                 Ready for your first Sunday digest?
               </h2>
               <p className="text-[#9FB3C8] text-sm leading-relaxed">
-                AUD&nbsp;199/mo + GST. 28-day trial. First digest arrives this Sunday at 6&nbsp;pm. Cancel anytime — no ticket, no phone call.
+                AUD&nbsp;99/mo, GST included. 28-day trial. First digest arrives this Sunday at 6&nbsp;pm. Cancel anytime — no ticket, no phone call.
               </p>
               <Link
                 href="/signup"

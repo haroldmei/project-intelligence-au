@@ -139,10 +139,10 @@ export default function TermsPage() {
               7. Payment, Billing, and Subscription Terms
             </h2>
             <p>
-              <strong>Pricing:</strong> Solo plan: AUD 199/month + GST. Team plan: AUD 499/month + GST (3 seats). Prices are inclusive of GST as displayed at checkout.
+              <strong>Pricing:</strong> Solo plan: AUD 99/month, GST included. Team plan (when available): AUD 499/month + GST (3 seats). Prices displayed at checkout match what is charged.
             </p>
             <p className="mt-4">
-              <strong>Trial:</strong> New accounts start with a 28-day full-access trial at no charge. No payment is required during the trial. On day 29, if you have not cancelled, your saved card is charged AUD 199/499 + GST for the first month.
+              <strong>Trial:</strong> New accounts start with a 28-day full-access trial at no charge. No payment is required during the trial. On day 29, if you have not cancelled, your saved card is charged AUD 99 (Solo, GST included) for the first month.
             </p>
             <p className="mt-4">
               <strong>No free tier:</strong> After the trial, the Service is not available at zero cost. Trial is the entry point; there is no perpetual free tier.
