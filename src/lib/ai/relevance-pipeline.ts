@@ -43,6 +43,8 @@ export interface PipelineDeps {
     userId: string;
     councilSlugs: string[];
     sinceIsoDate: string;
+    /** DA internal ids already shown to this user in any past digest. */
+    excludeDaIds?: string[];
   }) => Promise<CandidateDA[]>;
 
   /**
@@ -74,26 +76,34 @@ export interface PipelineInput {
   savedQueryText: string;
   savedQueryEmbedding: number[];
   userLgaCouncilSlugs: string[];
-  /** Defaults to "now() - 7 days" formatted yyyy-mm-dd */
+  /** Defaults to "now() - 14 days" formatted yyyy-mm-dd */
   sinceIsoDate?: string;
   /** How many to send to the LLM rerank stage. Default 30 per contract. */
   topKForRerank?: number;
   /**
    * Min score (0–5) from rerank to surface in digest.
    *
-   * Default 3 — captures "moderately relevant" leads alongside high-precision
-   * matches. Was 4 originally, but at 4 a roofer-implicit new-build like
-   * "construction of a two storey dwelling" gets dropped because the LLM
-   * scores it as 3 against a re-roof-focused saved query — even though every
-   * new dwelling actually needs a roof. Threshold of 3 means the digest may
-   * include new builds + alterations + additions; LLM still ranks them below
-   * explicit re-roofs when both are present.
-   *
-   * Tighten back to 4 once we have abundant explicit re-roof data.
+   * Default 0 — accept everything the LLM scored. The pipeline already has
+   * three earlier filters (rule keyword match, council scope, vector cosine
+   * top-K) so anything reaching the rerank is at least loosely relevant.
+   * The LLM's score is non-deterministic at default temperature, so applying
+   * a hard floor here turns variance into "the digest sometimes has 4 cards
+   * instead of 5." Top-N cap at `maxDigestSize` is the only meaningful bound.
    */
   minScoreForDigest?: number;
-  /** Hard ceiling on digest size (wedge: 5–15 leads). Default 15. */
+  /**
+   * Hard ceiling on digest size. Default 3 — entry-tier framing favours
+   * a tight "top 3" rather than the wedge doc's 5–15 range. Over-large
+   * digests dilute the "best of the week" feel, especially when the LLM
+   * is non-deterministic on borderline scores.
+   */
   maxDigestSize?: number;
+  /**
+   * DA internal ids already shown to this user in any past digest. The
+   * widened lookback window (14 days) overlaps consecutive Sunday digests,
+   * so without this filter the same DA would re-appear next week.
+   */
+  excludeDaIds?: string[];
 }
 
 export interface PipelineOutput {
@@ -109,12 +119,14 @@ export interface PipelineOutput {
 }
 
 /**
- * Default 7 days back from today (UTC). Pipeline-internal default; caller
- * can override for backfills or testing.
+ * Default 14 days back from today (UTC) — matches the DAEX "On Exhibition"
+ * window length so a DA exhibited at the start of a council's window is
+ * still surfaceable when next Sunday's digest fires. Past-digest dedupe in
+ * the rule filter prevents the wider window from causing duplicate sends.
  */
 function defaultSinceIso(): string {
   const d = new Date();
-  d.setUTCDate(d.getUTCDate() - 7);
+  d.setUTCDate(d.getUTCDate() - 14);
   return d.toISOString().slice(0, 10);
 }
 
@@ -128,14 +140,15 @@ export async function runRelevancePipeline(
 ): Promise<PipelineOutput> {
   const sinceIsoDate = input.sinceIsoDate ?? defaultSinceIso();
   const topKForRerank = input.topKForRerank ?? 30;
-  const minScoreForDigest = input.minScoreForDigest ?? 3;
-  const maxDigestSize = input.maxDigestSize ?? 15;
+  const minScoreForDigest = input.minScoreForDigest ?? 0;
+  const maxDigestSize = input.maxDigestSize ?? 3;
 
   // Stage 1 — rule pass
   const ruleFiltered = await deps.ruleFilter({
     userId: input.userId,
     councilSlugs: input.userLgaCouncilSlugs,
     sinceIsoDate,
+    excludeDaIds: input.excludeDaIds,
   });
 
   if (ruleFiltered.length === 0) {

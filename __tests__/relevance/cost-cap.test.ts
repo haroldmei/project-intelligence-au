@@ -15,6 +15,10 @@ vi.mock("@/lib/db", () => ({
     user: {
       findUnique: vi.fn(),
     },
+    digestDa: {
+      // Past-digest dedupe: empty array means no exclusions for these tests.
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     $queryRaw: vi.fn().mockResolvedValue([
       { saved_query_embedding: `[${Array(1536).fill(0).join(",")}]` },
     ]),

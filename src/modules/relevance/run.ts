@@ -71,6 +71,13 @@ export async function runRelevanceForUser(userId: string): Promise<RelevanceRunR
     return null;
   }
 
+  // Past-digest dedupe — DAs already shown in any prior digest for this
+  // user are excluded from this run's candidate pool. Pairs with the
+  // 14-day rule-filter lookback (defaultSinceIso in relevance-pipeline.ts):
+  // without dedupe, two consecutive Sunday digests would overlap by 7
+  // days and re-send the same lead.
+  const excludeDaIds = await loadPastDigestDaIds(userId);
+
   // Cost-cap kill switch check (dev-plan §A.5)
   const weekStart = weekStartAEST();
   const weeklyCost = await weeklyCostAud(userId, weekStart);
@@ -82,18 +89,17 @@ export async function runRelevanceForUser(userId: string): Promise<RelevanceRunR
       level: "warning",
       tags: { userId, phase: "relevance-cost-cap" },
     });
-    return runEmbeddingOnlyPath(userId, savedQueryEmbedding, councilSlugs);
+    return runEmbeddingOnlyPath(userId, savedQueryEmbedding, councilSlugs, excludeDaIds);
   }
 
   // Full 3-stage pipeline
-  const sinceIsoDate = sevenDaysAgo();
   const result = await runRelevancePipeline(
     {
       userId,
       savedQueryText: user.savedQueryText,
       savedQueryEmbedding,
       userLgaCouncilSlugs: councilSlugs,
-      sinceIsoDate,
+      excludeDaIds,
     },
     {
       ruleFilter,
@@ -123,9 +129,10 @@ async function runEmbeddingOnlyPath(
   userId: string,
   userEmbedding: number[],
   councilSlugs: string[],
+  excludeDaIds: string[],
 ): Promise<RelevanceRunResult> {
-  const sinceIsoDate = sevenDaysAgo();
-  const ruleFiltered = await ruleFilter({ userId, councilSlugs, sinceIsoDate });
+  const sinceIsoDate = lookbackIsoDate(14);
+  const ruleFiltered = await ruleFilter({ userId, councilSlugs, sinceIsoDate, excludeDaIds });
   const vectorRanked = await vectorRank({
     userId,
     candidates: ruleFiltered,
@@ -152,8 +159,22 @@ async function runEmbeddingOnlyPath(
   };
 }
 
-function sevenDaysAgo(): string {
+function lookbackIsoDate(daysBack: number): string {
   const d = new Date();
-  d.setUTCDate(d.getUTCDate() - 7);
+  d.setUTCDate(d.getUTCDate() - daysBack);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Internal DA ids the user has been shown in any previous digest. Used to
+ * dedupe across the 14-day rule-filter window so a DA seen last Sunday
+ * doesn't reappear this Sunday.
+ */
+async function loadPastDigestDaIds(userId: string): Promise<string[]> {
+  const rows = await db.digestDa.findMany({
+    where: { digest: { userId } },
+    select: { daId: true },
+    distinct: ["daId"],
+  });
+  return rows.map((r) => r.daId);
 }

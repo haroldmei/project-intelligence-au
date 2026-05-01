@@ -1,19 +1,19 @@
 import type { Metadata } from "next";
 
-// <!-- WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds. -->
+// <!-- WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, top-3 leads, AUD 99/mo (GST included), signup in 60 seconds. -->
 
 export const metadata: Metadata = {
   // SEO — verbatim from docs/17-positioning.md §9 snippet bank
   title:
     "ProjectIntelligence AU — Sunday roofing DA digest for Sydney subbies",
   description:
-    "Get 5–15 curated re-roof DA leads across 15 Greater Sydney LGAs every Sunday at 6 pm. AUD 199/mo + GST. 28-day trial. No annual lock-in.",
+    "Get the top 3 curated re-roof DA leads across 15 Greater Sydney LGAs every Sunday at 6 pm. AUD 99/mo (GST included). 28-day trial. No annual lock-in.",
 
   // Open Graph
   openGraph: {
     title: "ProjectIntelligence AU — Sydney Roofing DA Digest",
     description:
-      "Weekly email + SMS digest of 5–15 re-roof DAs across 15 Sydney LGAs. AUD 199/mo. 28-day trial. No sales call. Signup in 60 seconds.",
+      "Weekly email + SMS digest of the top 3 re-roof DAs across 15 Sydney LGAs. AUD 99/mo, GST included. 28-day trial. No sales call. Signup in 60 seconds.",
     url: "https://projectintelligence.com.au",
     siteName: "ProjectIntelligence AU",
     locale: "en_AU",
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "ProjectIntelligence AU — Sydney Roofing DA Digest",
     description:
-      "Weekly email + SMS digest of 5–15 re-roof DAs across 15 Sydney LGAs. AUD 199/mo. 28-day trial. No sales call. Signup in 60 seconds.",
+      "Weekly email + SMS digest of the top 3 re-roof DAs across 15 Sydney LGAs. AUD 99/mo, GST included. 28-day trial. No sales call. Signup in 60 seconds.",
   },
 
   // Robots
