@@ -35,26 +35,6 @@ const jsonLd = {
       description: "1 seat. All 15 Sydney LGAs. Email + SMS digest.",
       url: "https://projectintelligence.com.au/signup?plan=solo",
     },
-    {
-      "@type": "Offer",
-      name: "Team",
-      price: "499",
-      priceCurrency: "AUD",
-      priceSpecification: {
-        "@type": "UnitPriceSpecification",
-        price: "499",
-        priceCurrency: "AUD",
-        billingDuration: "P1M",
-        unitCode: "MON",
-      },
-      eligibleQuantity: {
-        "@type": "QuantitativeValue",
-        value: 3,
-        unitText: "seats",
-      },
-      description: "3 seats. All 15 Sydney LGAs. Email + SMS digest.",
-      url: "https://projectintelligence.com.au/signup?plan=team",
-    },
   ],
 };
 
@@ -115,8 +95,9 @@ const PLANS = [
     ],
     finePrint: "AUD 99/mo, GST included. Card required. No charge for 28 days. Cancel anytime.",
   },
-  // Team plan is gated off until multi-seat is implemented. Restore the entry
-  // here AND re-enable the picker in /plan to bring it back.
+  // Multi-seat (formerly "Team") not in scope yet. When it ships, add a new
+  // PLANS entry here AND re-enable the picker in /plan, plus put the Schema.org
+  // Offer back into the JSON-LD block above.
 ] as const;
 
 // ── Competitor comparison data — docs/16-pricing.md §7.5 ─────────────────
@@ -124,7 +105,6 @@ const COMPARISON = [
   {
     label: "Price",
     piSolo: "AUD 99/mo inc GST",
-    piTeam: "AUD 499/mo + GST",
     cordell: "AUD 577.50/mo inc GST",
     estimateOne: "AUD 250/mo",
     leadManager: "~AUD 333/mo¹",
@@ -132,7 +112,6 @@ const COMPARISON = [
   {
     label: "Self-serve signup",
     piSolo: "Yes — 60 seconds",
-    piTeam: "Yes — 60 seconds",
     cordell: "No — sales call",
     estimateOne: "Limited",
     leadManager: "No — demo only",
@@ -140,7 +119,6 @@ const COMPARISON = [
   {
     label: "Sunday digest cadence",
     piSolo: "Yes",
-    piTeam: "Yes",
     cordell: "No",
     estimateOne: "No",
     leadManager: "No",
@@ -148,7 +126,6 @@ const COMPARISON = [
   {
     label: "Trade scope",
     piSolo: "Roofing only",
-    piTeam: "Roofing only",
     cordell: "All trades",
     estimateOne: "All trades (tender)",
     leadManager: "All trades",
@@ -156,7 +133,6 @@ const COMPARISON = [
   {
     label: "AI relevance",
     piSolo: "Yes — roofing vocab",
-    piTeam: "Yes — roofing vocab",
     cordell: "No",
     estimateOne: "No",
     leadManager: "No",
@@ -164,7 +140,6 @@ const COMPARISON = [
   {
     label: "28-day trial",
     piSolo: "Yes — card on file",
-    piTeam: "Yes — card on file",
     cordell: "Demo only",
     estimateOne: "Limited trial",
     leadManager: "Demo only",
@@ -172,7 +147,6 @@ const COMPARISON = [
   {
     label: "Cancel anytime",
     piSolo: "Yes — in-app",
-    piTeam: "Yes — in-app",
     cordell: "No",
     estimateOne: "Yes",
     leadManager: "Unknown",
@@ -180,7 +154,6 @@ const COMPARISON = [
   {
     label: "SMS alerts",
     piSolo: "Yes",
-    piTeam: "Yes",
     cordell: "No",
     estimateOne: "No",
     leadManager: "No",
@@ -411,7 +384,6 @@ export default function MarketingPage() {
           {/* ═══════════════════════════════════════════════════════════════
               PRICING SECTION
               LOCKED: Solo AUD 99/mo (GST included)
-              Team plan disabled until multi-seat ships
               28-day card-on-file trial · cancel in-app
           ═══════════════════════════════════════════════════════════════ */}
           <section

@@ -41,8 +41,7 @@ describe("MarketingPage (landing page)", () => {
 
   it("renders the Solo plan price", () => {
     render(<MarketingPage />);
-    // Team plan is currently gated off (multi-seat ships later); only Solo
-    // appears on the landing page. Solo is AUD 99/mo, GST included.
+    // Solo is the only plan shown — multi-seat isn't built yet.
     expect(screen.getByText(/AUD 99/)).toBeTruthy();
     expect(screen.getByText(/GST included/)).toBeTruthy();
   });
