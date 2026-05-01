@@ -92,8 +92,10 @@ export interface PipelineInput {
    */
   minScoreForDigest?: number;
   /**
-   * Hard ceiling on digest size. Default 5 — top-5 by rank is the wedge
-   * promise; over-large digests dilute the "best of the week" framing.
+   * Hard ceiling on digest size. Default 3 — entry-tier framing favours
+   * a tight "top 3" rather than the wedge doc's 5–15 range. Over-large
+   * digests dilute the "best of the week" feel, especially when the LLM
+   * is non-deterministic on borderline scores.
    */
   maxDigestSize?: number;
   /**
@@ -139,7 +141,7 @@ export async function runRelevancePipeline(
   const sinceIsoDate = input.sinceIsoDate ?? defaultSinceIso();
   const topKForRerank = input.topKForRerank ?? 30;
   const minScoreForDigest = input.minScoreForDigest ?? 0;
-  const maxDigestSize = input.maxDigestSize ?? 5;
+  const maxDigestSize = input.maxDigestSize ?? 3;
 
   // Stage 1 — rule pass
   const ruleFiltered = await deps.ruleFilter({
