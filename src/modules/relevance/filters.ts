@@ -80,14 +80,21 @@ function buildTsQuery(): string {
 export async function ruleFilter({
   councilSlugs,
   sinceIsoDate,
+  excludeDaIds,
 }: {
   userId: string;
   councilSlugs: string[];
   sinceIsoDate: string;
+  excludeDaIds?: string[];
 }): Promise<CandidateDA[]> {
   if (councilSlugs.length === 0) return [];
 
   const tsQuery = buildTsQuery();
+  // Pass [""] when there's nothing to exclude so the parameter is non-empty
+  // for ANY() — Postgres rejects ANY(empty array) with a type error. The
+  // sentinel "" never matches a real DA id (cuids are length-25), so the
+  // NOT (id = ANY(...)) clause is a no-op when excludeDaIds is empty.
+  const exclude = excludeDaIds && excludeDaIds.length > 0 ? excludeDaIds : [""];
 
   // Prisma raw query — necessary for tsvector @@ operator.
   // Parameterised to prevent injection.
@@ -121,6 +128,7 @@ export async function ruleFilter({
       council = ANY(${councilSlugs})
       AND lodgement_date >= ${new Date(sinceIsoDate)}::date
       AND rule_filtered_out = false
+      AND NOT (id = ANY(${exclude}))
       AND to_tsvector('english', coalesce(description,'') || ' ' || coalesce(raw_scope_text,''))
             @@ to_tsquery('english', ${tsQuery})
     ORDER BY lodgement_date DESC
