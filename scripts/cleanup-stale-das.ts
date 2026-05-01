@@ -1,14 +1,18 @@
-// One-shot eviction of stale DAs that the old DAEX adapter falsely stamped
-// with lodgement_date = today. Before the determinationDate fix, every
-// Determined DA whose detail page lacked exhibitionStart got lodgement_date
-// set to the day it was scraped, regardless of when it was actually
-// determined years prior. After the fix, freshly-ingested rows carry the
-// real determination_date and the >180-day filter drops them at ingest —
-// but the existing rows still need a one-time cleanup.
+// Eviction of stale DAs that pre-date the determinationDate freshness fix.
+// Two failure modes are both handled by the same heuristic:
 //
-// Heuristic: lodgement_date == ingested_at::date AND ingested_at < today
-//   → row was stamped on a past ingest run (not a same-day fresh ingest).
-//   → almost certainly a stale Determined DA from the old adapter.
+// 1. Today-stamped fallback rows. Before the fix, every Determined DA whose
+//    detail page lacked exhibitionStart got lodgement_date = scrape day.
+//    These look "fresh" (lodgement_date == ingested_at::date) but the
+//    underlying determination is years old.
+// 2. True-but-stale rows. When the detail page DID expose exhibitionStart
+//    from years ago, lodgement_date carried the real-but-stale date. The
+//    new ingest filter drops these at write time going forward; this
+//    script evicts the ones that landed before the filter shipped.
+//
+// Heuristic: source_api='da_exhibitions' AND
+//   COALESCE(determination_date, lodgement_date) < today - 180 days
+//   (matches the ingest-time freshness filter exactly)
 //
 // Usage:
 //   pnpm cleanup-stale-das         (against .env.local)
@@ -19,6 +23,8 @@
 
 import { db } from "@/lib/db";
 
+const FRESHNESS_WINDOW_DAYS = 180;
+
 async function main(): Promise<void> {
   const dryRun = process.argv.includes("--dry-run");
 
@@ -26,9 +32,9 @@ async function main(): Promise<void> {
   const stale = await db.$queryRaw<Array<{ count: bigint }>>`
     SELECT COUNT(*)::bigint AS count
       FROM development_applications
-     WHERE lodgement_date = ingested_at::date
-       AND ingested_at < CURRENT_DATE
-       AND source_api = 'da_exhibitions'
+     WHERE source_api = 'da_exhibitions'
+       AND COALESCE(determination_date, lodgement_date)
+           < CURRENT_DATE - (${FRESHNESS_WINDOW_DAYS} || ' days')::interval
   `;
   const count = Number(stale[0]?.count ?? 0);
   console.log(`[cleanup] stale candidate rows: ${count}`);
@@ -45,14 +51,40 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Stage 2: delete. Cascade handles digest_das + da_embeddings via FK.
-  const result = await db.$executeRaw`
-    DELETE FROM development_applications
-     WHERE lodgement_date = ingested_at::date
-       AND ingested_at < CURRENT_DATE
-       AND source_api = 'da_exhibitions'
-  `;
-  console.log(`[cleanup] deleted ${result} rows`);
+  // Stage 2: delete. da_embeddings cascades via FK, but digest_das and
+  // da_feedback do not (no ON DELETE rule). Past digests reference these
+  // stale DAs; we drop the references first inside a transaction so the
+  // operation is all-or-nothing. Past digest history for affected DAs is
+  // lost, which is fine — those past digests carried stale data anyway.
+  const [deletedDigestDas, deletedFeedback, deletedDas] = await db.$transaction([
+    db.$executeRaw`
+      DELETE FROM digest_das
+       WHERE da_id IN (
+         SELECT id FROM development_applications
+          WHERE source_api = 'da_exhibitions'
+            AND COALESCE(determination_date, lodgement_date)
+                < CURRENT_DATE - (${FRESHNESS_WINDOW_DAYS} || ' days')::interval
+       )
+    `,
+    db.$executeRaw`
+      DELETE FROM da_feedback
+       WHERE da_id IN (
+         SELECT id FROM development_applications
+          WHERE source_api = 'da_exhibitions'
+            AND COALESCE(determination_date, lodgement_date)
+                < CURRENT_DATE - (${FRESHNESS_WINDOW_DAYS} || ' days')::interval
+       )
+    `,
+    db.$executeRaw`
+      DELETE FROM development_applications
+       WHERE source_api = 'da_exhibitions'
+         AND COALESCE(determination_date, lodgement_date)
+             < CURRENT_DATE - (${FRESHNESS_WINDOW_DAYS} || ' days')::interval
+    `,
+  ]);
+  console.log(
+    `[cleanup] deleted ${deletedDas} DAs (${deletedDigestDas} digest_das refs, ${deletedFeedback} feedback refs)`,
+  );
 
   await db.$disconnect();
 }

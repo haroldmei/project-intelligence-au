@@ -27,6 +27,13 @@ const baseShape = {
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     /** Set by Vercel; unset locally. */
     VERCEL_ENV: z.enum(["development", "preview", "production"]).optional(),
+    /**
+     * Logical environment label, independent of NODE_ENV/VERCEL_ENV. Set
+     * explicitly per Vercel project — staging project gets `staging`, prod
+     * gets `production`. Used to mark transactional emails so a tester
+     * receiving mail for both envs at the same address can tell them apart.
+     */
+    STAGE: z.enum(["development", "staging", "production"]).default("production"),
 
     // ── Database ─────────────────────────────────────────────────────────────
     DATABASE_URL: z.string().url(),

@@ -27,6 +27,21 @@ const TEMPLATES: Record<string, TemplateFn> = {
 
 const resend = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
 
+// Per-environment marking — lets a tester receiving mail for both staging and
+// prod at the same address tell which is which from the inbox row alone.
+// Production mail is unmarked.
+const SUBJECT_PREFIX: Record<string, string> = {
+  staging: "[STAGING] ",
+  development: "[DEV] ",
+};
+const FROM_NAME: Record<string, string> = {
+  staging: "ProjectIntelligence (STAGING)",
+  development: "ProjectIntelligence (DEV)",
+};
+const subjectPrefix = SUBJECT_PREFIX[env.STAGE] ?? "";
+const fromName = FROM_NAME[env.STAGE] ?? "ProjectIntelligence";
+const fromAddress = `${fromName} <noreply@resend.dev>`;
+
 export interface EmailProps {
   to: string;
   template: "verify-email" | "password-reset" | "weekly-digest" | "digest-fallback-notice" | "welcome-after-verify" | "trial-reminder";
@@ -54,9 +69,9 @@ export async function sendEmail({ to, template, props }: EmailProps): Promise<vo
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       await resend.emails.send({
-        from: "ProjectIntelligence <noreply@resend.dev>",
+        from: fromAddress,
         to,
-        subject,
+        subject: subjectPrefix + subject,
         html,
       });
 
