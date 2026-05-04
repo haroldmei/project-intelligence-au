@@ -24,7 +24,7 @@ export const maxDuration = 60;
 
 const REMINDER_DAY = 26; // 2 days before 28-day trial ends
 
-export async function POST(request: Request): Promise<NextResponse> {
+export async function GET(request: Request): Promise<NextResponse> {
   const authError = verifyCronSecret(request);
   if (authError) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
