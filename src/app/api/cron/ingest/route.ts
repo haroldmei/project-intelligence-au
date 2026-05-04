@@ -16,7 +16,7 @@ import { runIngest } from "@/modules/ingestion/ingest";
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5-minute limit for nightly fetch of 15 LGAs
 
-export async function POST(request: Request): Promise<NextResponse> {
+export async function GET(request: Request): Promise<NextResponse> {
   const authError = verifyCronSecret(request);
   if (authError) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

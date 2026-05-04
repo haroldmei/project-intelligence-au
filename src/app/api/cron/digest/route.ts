@@ -19,7 +19,7 @@ import { runDigestCron } from "@/modules/digest/cron";
 export const runtime = "nodejs";
 export const maxDuration = 300; // Vercel max for serverless (5 min); digest for 100 users should be < 55 min
 
-export async function POST(request: Request): Promise<NextResponse> {
+export async function GET(request: Request): Promise<NextResponse> {
   const authError = verifyCronSecret(request);
   if (authError) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
