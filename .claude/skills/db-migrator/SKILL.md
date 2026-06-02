@@ -192,10 +192,82 @@ If not already in the dev plan, add migration-related notes to `docs/04-dev-plan
 - Test fixtures available for other test suites
 - Any manual migration steps required for production
 
+## Phase 9 — Emit Manifest (REQUIRED)
+
+Write `state/artifacts/db-migrator.json` listing **every artifact this skill claims to have shipped** plus minimum row counts the seed must produce. The orchestrator's `seed-integrity` quality gate verifies the filesystem against this contract. **Phantom claims (file listed but missing on disk) fail the gate.**
+
+This manifest replaces narrative "seed shipped" claims in decision records. Do not skip it.
+
+```bash
+mkdir -p state/artifacts
+```
+
+Schema:
+
+```json
+{
+  "skill": "db-migrator",
+  "produced_at": "<ISO-8601 UTC>",
+  "files": [
+    { "path": "prisma/schema.prisma",      "required": true,  "kind": "file" },
+    { "path": "prisma/seed.ts",            "required": true,  "kind": "file" },
+    { "path": "prisma/migrations",         "required": true,  "kind": "dir",  "min_entries": 1 },
+    { "path": "prisma/seed-minimal.ts",    "required": false, "kind": "file" },
+    { "path": "prisma/fixtures.ts",        "required": false, "kind": "file" },
+    { "path": "docker-compose.yml",        "required": true,  "kind": "file" },
+    { "path": ".env.example",              "required": true,  "kind": "file" }
+  ],
+  "package_scripts": ["db:up", "db:migrate", "db:seed"],
+  "prisma_seed_command": "tsx prisma/seed.ts",
+  "boot_command": "pnpm db:up && pnpm db:migrate && pnpm db:seed",
+  "seed_command": "pnpm db:seed",
+  "seed_expectations": {
+    "idempotent": true,
+    "tables": [
+      { "name": "user",       "min_rows": 1,  "count_query": "SELECT COUNT(*) FROM \"User\"" },
+      { "name": "da_bundle",  "min_rows": 4,  "count_query": "SELECT COUNT(*) FROM \"DaBundle\"" },
+      { "name": "lga",        "min_rows": 15, "count_query": "SELECT COUNT(*) FROM \"Lga\"" }
+    ],
+    "wedge_critical_tables": ["da_bundle", "lga"]
+  }
+}
+```
+
+### Rules for manifest content
+
+1. **Every file you actually wrote must appear in `files` with the exact path on disk.** If you wrote `docker-compose.yml`, list it. If you didn't, do not list it. Do not list aspirational files.
+2. **`package_scripts`** — every script name you added to `package.json`. The gate verifies each entry has a key under `package.json#scripts`.
+3. **`seed_expectations.tables`** — one entry per primary entity, with the *minimum* row count the seed produces (use the actual value, not the requirement). Provide `count_query` so the gate can verify with raw SQL via `$DATABASE_URL` without depending on the ORM.
+4. **`wedge_critical_tables`** — the subset of tables the wedge workflow depends on having pre-populated. The dogfood phase reads this to distinguish "user-driven empty state" from "seed never ran." Tables here MUST have `min_rows >= 1`.
+5. **`boot_command`** — the single command a fresh checkout runs to get from clone to seeded DB. The `seed-integrity` gate runs this when `SEED_INTEGRITY_RUNTIME=1`.
+6. **`seed_command`** — the command that runs seed only (no schema changes). The gate runs this twice to verify idempotency.
+
+If you cannot fulfill any of the above, **do not write a partial manifest** — fail the phase loudly so the orchestrator can route back. A missing manifest is preferable to a lying one.
+
+### Manifest verification (self-check before phase exit)
+
+Before returning `PHASE_RESULT`, run:
+
+```bash
+# 1. Every required file exists
+jq -r '.files[] | select(.required != false) | .path' state/artifacts/db-migrator.json \
+  | while read -r p; do [[ -e "$p" ]] || { echo "MANIFEST LIES: $p missing"; exit 1; }; done
+
+# 2. Every package_scripts entry exists
+jq -r '.package_scripts[]' state/artifacts/db-migrator.json \
+  | while read -r s; do
+      jq -e ".scripts.\"$s\"" package.json >/dev/null || { echo "MANIFEST LIES: package.json missing script $s"; exit 1; }
+    done
+```
+
+If either fails, the phase is `failed`, not `done`. Do not commit.
+
 ## Git Commit & Push
 
 ```
-git add prisma/ package.json
-git commit -m "feat: add database migrations and seed data"
+git add prisma/ package.json docker-compose.yml .env.example state/artifacts/db-migrator.json
+git commit -m "feat: add database migrations, seed data, and manifest"
 git push origin HEAD 2>/dev/null || git push --set-upstream origin HEAD 2>/dev/null || true
 ```
+
+The manifest is checked in alongside the artifacts so downstream phases (and humans) can see what was promised vs. shipped.
