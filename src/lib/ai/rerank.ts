@@ -61,6 +61,34 @@ export function sanitizeDaField(raw: string | null | undefined): string {
   return s;
 }
 
+/**
+ * Neutralise `da_id` before it is interpolated into the prompt. Unlike the
+ * other untrusted fields, da_id is inserted RAW and OUTSIDE any delimiter tag
+ * (see `renderUserPrompt`) — it must stay legible so the model can echo it
+ * back verbatim for output matching, so HTML-escaping (which changes the
+ * text, like {@link sanitizeDaField} does) is the wrong tool here. Instead
+ * this strips everything a scraped council reference could use to break out
+ * of the `<candidate>` block: control chars (including newline — da_id is a
+ * single-line, undelimited field) and the `<`/`>` tag-delimiter characters.
+ * `rerankCandidates` builds `validIds` from this same sanitised value, so the
+ * "did we actually send this id" check still lines up byte-for-byte with
+ * what the model saw.
+ *
+ * Exported for the adversarial injection tests.
+ */
+export function sanitizeDaId(raw: string | null | undefined): string {
+  if (raw == null) return "";
+  let s = String(raw);
+  if (s.length > MAX_FIELD_CHARS) {
+    s = s.slice(0, MAX_FIELD_CHARS);
+  }
+  // Unlike sanitizeDaField, tab/newline are NOT preserved here — da_id is a
+  // single-line, undelimited field, so a bare newline is itself a
+  // block-break-out vector.
+  s = s.replace(/[\u0000-\u001F\u007F-\u009F<>]/g, "");
+  return s;
+}
+
 export interface RerankCandidate {
   daId: string;
   council: string;
@@ -139,9 +167,14 @@ function buildSystemPrompt(): string {
  * Every untrusted field (portal-scraped DA text and the user's own free-text
  * query) is passed through {@link sanitizeDaField} and wrapped in XML-style
  * delimiter tags. The system prompt declares that anything inside those tags is
- * data, never instructions (G-005). `da_id`, `lodgement_date` and
+ * data, never instructions (G-005). `da_id` is also untrusted (portal-scraped,
+ * no ingest-time charset validation) but is interpolated OUTSIDE any delimiter
+ * tag so the model can echo it back for output matching, so it goes through
+ * {@link sanitizeDaId} instead — stripping rather than escaping, so it stays
+ * byte-exact for real (control-char-free) DA references while a payload can no
+ * longer break out of the `<candidate>` block. `lodgement_date` and
  * `estimated_value` are structured values we produce, so they are inserted
- * verbatim — `da_id` must stay byte-exact for output matching.
+ * verbatim.
  *
  * Exported for the adversarial injection tests.
  */
@@ -153,7 +186,7 @@ export function renderUserPrompt(input: RerankInput): string {
   const candidatesBlock = input.candidates
     .map(
       (c) => `<candidate>
-da_id: ${c.daId}
+da_id: ${sanitizeDaId(c.daId)}
 council: <council>${sanitizeDaField(c.council)}</council>
 address: <address>${sanitizeDaField(c.address)}</address>
 lodgement_date: ${c.lodgementDate}
@@ -287,8 +320,10 @@ export async function rerankCandidates(
 
   // Only ids we actually sent are acceptable in the reply. A row for any other
   // id (a model hallucination, or an id echoed out of injected DA text) is
-  // dropped — the model MUST NOT return DAs not in the input list.
-  const validIds = new Set(input.candidates.map((c) => c.daId));
+  // dropped — the model MUST NOT return DAs not in the input list. Built from
+  // sanitizeDaId (same as the prompt interpolation above) so this lines up
+  // byte-for-byte with what the model actually saw and can echo back.
+  const validIds = new Set(input.candidates.map((c) => sanitizeDaId(c.daId)));
 
   // Primary call
   const primary = await callModel(client, PRIMARY_MODEL, systemPrompt, userPrompt);
