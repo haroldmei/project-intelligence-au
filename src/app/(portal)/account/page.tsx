@@ -130,6 +130,7 @@ export default function AccountPage() {
             value={account.savedQueryText ? "Edit" : "Add a description"}
           />
           <RowLink label="Notifications" href="/account/sms" />
+          <RowLink label="Storm briefs" href="/account/storm-brief" />
           <RowLink label="My Service Area" href="/account/area" />
         </div>
       </section>

@@ -20,3 +20,9 @@ export const UpdateSavedQueryInput = z.object({
   saved_query_text: z.string().min(5).max(500),
 });
 export type UpdateSavedQueryInput = z.infer<typeof UpdateSavedQueryInput>;
+
+// Per-user storm-brief opt-out toggle (#20).
+export const StormBriefOptInInput = z.object({
+  optIn: z.boolean(),
+});
+export type StormBriefOptInInput = z.infer<typeof StormBriefOptInInput>;

@@ -19,6 +19,7 @@ export interface AccountDTO {
   mobile_e164: string | null;
   emailVerified: boolean;
   smsOptIn: boolean;
+  stormBriefOptIn: boolean;
   trade: string;
   subscriptionStatus: string;
   accessUntil: string | null;
@@ -120,6 +121,21 @@ export async function smsOptOut(userId: string): Promise<AccountDTO> {
 }
 
 /**
+ * Set the per-user storm-brief opt-in (#20). Default is opted-in while the
+ * feature stays globally gated behind STORM_BRIEF_ENABLED; this lets a user opt
+ * out ahead of the global launch. Independent of the Spam Act email opt-out —
+ * the cron ANDs both.
+ */
+export async function setStormBriefOptIn(userId: string, optIn: boolean): Promise<AccountDTO> {
+  const updated = await db.user.update({
+    where: { id: userId },
+    data: { stormBriefOptIn: optIn },
+    include: { lgaBundles: true },
+  });
+  return toDTO(updated);
+}
+
+/**
  * GDPR/Privacy Act erasure — cancels any active Stripe subscription, then
  * deletes the user and all cascade-deleted rows.
  * Idempotent: if the user is already deleted (P2025), returns cleanly.
@@ -197,6 +213,7 @@ type UserWithBundles = {
   mobile_e164: string | null;
   emailVerified: boolean;
   smsOptIn: boolean;
+  stormBriefOptIn: boolean;
   trade: string;
   subscriptionStatus: string;
   accessUntil: Date | null;
@@ -214,6 +231,7 @@ function toDTO(user: UserWithBundles): AccountDTO {
     mobile_e164: user.mobile_e164,
     emailVerified: user.emailVerified,
     smsOptIn: user.smsOptIn,
+    stormBriefOptIn: user.stormBriefOptIn,
     trade: user.trade,
     subscriptionStatus: user.subscriptionStatus,
     accessUntil: user.accessUntil?.toISOString() ?? null,

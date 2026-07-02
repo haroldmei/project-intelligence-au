@@ -100,6 +100,15 @@ const baseShape = {
     // CALL TIME (not this frozen snapshot) so a single process/test can toggle.
     VERTICAL_DEMOLITION_ENABLED: z.coerce.boolean().default(false),
 
+    // ── Storm brief (mid-week BOM severe-weather brief, #20) ────────────────
+    // Master switch for the storm-brief feature. Default off until dogfooded
+    // (docs/24 §4 August item 5). Declared here for prod-config validation +
+    // .env.example, but the cron reads the RAW env at CALL TIME via
+    // `isStormBriefEnabled()` (src/modules/weather/feed.ts), not this frozen
+    // snapshot, so a single process/test can toggle it. When off, the cron is a
+    // no-op (no feed fetch, no send).
+    STORM_BRIEF_ENABLED: z.coerce.boolean().default(false),
+
     // ── Observability (optional Month 1) ────────────────────────────────────
     SENTRY_DSN: z.string().url().optional(),
     NEXT_PUBLIC_SENTRY_DSN: z.string().url().optional(),

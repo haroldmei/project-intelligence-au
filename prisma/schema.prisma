@@ -27,6 +27,11 @@ model User {
   // /api/unsubscribe/[token] link flips it false, gated in the digest +
   // trial-reminder send paths.
   emailOptIn    Boolean  @default(true) @map("email_opt_in")
+  // Per-user opt-out for the mid-week BOM storm brief (#20). Defaults true
+  // (opted-in) while the feature stays globally gated behind STORM_BRIEF_ENABLED;
+  // the /account toggle lets a user opt out ahead of the global launch. The
+  // storm-brief cron ANDs this with emailOptIn (Spam Act functional unsubscribe).
+  stormBriefOptIn Boolean @default(true) @map("storm_brief_opt_in")
   trade         String   @default("roofing")
 
   // Billing
@@ -59,6 +64,7 @@ model User {
   teamMemberships   TeamMembership[]
   ownedTeam         TeamAccount?
   digestCandidates  DigestCandidate[]
+  stormBriefs       StormBrief[]
 
   @@map("users")
 }
@@ -357,6 +363,26 @@ model ShortUrl {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("short_urls")
+}
+
+// ─── Storm briefs (mid-week BOM severe-weather brief, #20) ────────────────────
+
+// One row per (BOM warning, user) actually emailed. The @@unique guarantees a
+// storm brief is sent at most once per user per warning id: the cron runs every
+// 3 hours and a severe-weather warning stays live across several ticks, so
+// without this the same user would be re-emailed on every tick. Rows are cheap
+// (one per delivered brief); prune old ones out of band if ever needed.
+model StormBrief {
+  id        String   @id @default(cuid())
+  warningId String   @map("warning_id") // BOM warning identifier (stable per warning)
+  userId    String   @map("user_id")
+  sentAt    DateTime @default(now()) @map("sent_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([warningId, userId])
+  @@index([userId])
+  @@map("storm_briefs")
 }
 
 // ─── Ingestion (Raw Data) ────────────────────────────────────────────────────

@@ -13,9 +13,17 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./vitest.fe.setup.ts"],
     include: [
+      // NOTE: Next route-group dirs contain literal parens, which fast-glob
+      // treats as an extglob group — so an UNescaped "src/app/(portal)/**"
+      // silently matches nothing. The (marketing)/(auth) globs below are left
+      // unescaped to preserve main's behaviour (their pre-existing page tests
+      // have bit-rotted against current copy and are out of scope for #20); the
+      // (portal) glob is escaped so this feature's account/storm-brief page test
+      // actually runs. Repairing + re-enabling the marketing/auth tests is
+      // tracked separately.
       "src/app/(marketing)/**/*.test.{ts,tsx}",
       "src/app/(auth)/**/*.test.{ts,tsx}",
-      "src/app/(portal)/**/*.test.{ts,tsx}",
+      "src/app/\\(portal\\)/**/*.test.{ts,tsx}",
       "src/components/**/*.test.{ts,tsx}",
       // Vertical packs — pure logic + fully-mocked pipeline (no DB), so they run
       // in the always-on fe suite rather than the DB-gated backend suite.
@@ -25,6 +33,11 @@ export default defineConfig({
       // the always-on suite. They avoid `@/lib/env` (server-only, throws in
       // jsdom) by reading flags from process.env at call time.
       "src/modules/ingestion/jurisdictions/**/*.test.{ts,tsx}",
+      // Storm-brief pure logic (#20) — feed parsing, LGA keyword matching, and
+      // the send-selection/dedupe decision. No DB, no network, no @/lib/env, so
+      // they run in the always-on suite. The DB-backed cron send is covered in
+      // the backend suite (__tests__/weather/cron.test.ts).
+      "src/modules/weather/**/*.test.{ts,tsx}",
     ],
   },
   resolve: {
