@@ -46,6 +46,10 @@ export default defineConfig({
       // Pure lib modules with no DB / no @/lib/env (e.g. pricing, the single
       // source of truth for price + trial length). jsdom-safe, always-on.
       "src/lib/pricing.test.ts",
+      // Client-side analytics init (#17) — consent gating for posthog-js. Reads
+      // process.env.NEXT_PUBLIC_* directly (no @/lib/env), posthog-js mocked, so
+      // jsdom-safe. The server helper is tested in the backend suite.
+      "src/lib/analytics/browser.test.ts",
     ],
   },
   resolve: {

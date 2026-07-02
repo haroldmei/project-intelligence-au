@@ -6,6 +6,8 @@ import { rateLimitMutatingByUser } from "@/lib/auth/rate-limit";
 import { UpdateSavedQueryInput } from "@/modules/account/schemas";
 import { getAccount, updateSavedQuery } from "@/modules/account/service";
 import { sendPreviewDigest } from "@/modules/digest/preview";
+import { db } from "@/lib/db";
+import { captureServer } from "@/lib/analytics/server";
 
 export async function GET(): Promise<NextResponse> {
   const auth = await validateRequest();
@@ -42,7 +44,18 @@ export async function PUT(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 });
   }
 
+  // Onboarding completes at the FIRST saved-query save (the final onboarding
+  // step). Detect null→set here so later edits don't re-fire the event.
+  const prior = await db.user.findUnique({
+    where: { id: auth.user.id },
+    select: { savedQueryText: true },
+  });
+
   const account = await updateSavedQuery(auth.user.id, parsed.data.saved_query_text);
+
+  if (!prior?.savedQueryText) {
+    captureServer(auth.user.id, "onboarding_completed", {});
+  }
 
   // Fire the preview digest in the background AFTER the HTTP response is sent.
   // Vercel's `after()` keeps the serverless function alive past the response

@@ -8,6 +8,7 @@ import { validateRequest } from "@/lib/auth/session";
 import { verifyAndConsumeOtp } from "@/lib/auth/otp";
 import { rateLimitOtpVerifyByUser } from "@/lib/auth/rate-limit";
 import { OtpVerifySchema } from "@/lib/auth/schemas";
+import { captureServer } from "@/lib/analytics/server";
 
 export async function POST(req: NextRequest): Promise<Response> {
   // ── Auth guard ────────────────────────────────────────────────────────────
@@ -58,6 +59,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     where: { id: auth.user.id },
     data: { emailVerified: true },
   });
+
+  captureServer(auth.user.id, "email_verified", {});
 
   return Response.json({ verified: true });
 }
