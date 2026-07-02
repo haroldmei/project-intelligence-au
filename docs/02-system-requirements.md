@@ -750,6 +750,22 @@ The system SHALL report unhandled exceptions and defined alert conditions to Sen
 
 ---
 
+**FR-033** `[wedge-supporting]` `[Iteration 10]`
+**In-product cancel Undo / reactivate**
+
+The system SHALL let a subscriber reverse a scheduled cancellation from inside the product, without visiting the Stripe billing portal (ux-design §7.10b; product-spec SF-3.1 — avoid Cordell-style exit friction).
+
+*Acceptance criteria:*
+- `POST /api/billing/subscription` clears `cancel_at_period_end` on the active/trialing Stripe subscription and returns `{ ok, accessUntil }` (auth-gated, rate-limited, 404 when no customer/subscription).
+- The post-cancel confirmation toast includes an `[Undo]` action (within its 8s window) that calls the reactivate route and confirms "Subscription resumed."
+- The `/account` pending-cancellation state ("Cancellation scheduled…") shows a "Resume subscription" button that calls the reactivate route and returns the account to the active (cancel CTA) state.
+- After reactivating via either path, `cancel_at_period_end` is false end-to-end (verified by the `customer.subscription.updated` webhook persisting `cancelAtPeriodEnd=false`).
+
+*Priority:* Should-have
+*Effort:* S
+
+---
+
 ### 3.10 Out-of-Wedge Requirements (V2)
 
 The following functional areas are explicitly deferred. They MUST NOT be built in V1.

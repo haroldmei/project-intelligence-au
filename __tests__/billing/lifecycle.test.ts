@@ -31,6 +31,7 @@ vi.mock("@/modules/billing/stripe", async (importOriginal) => {
     createBillingPortalSession: vi.fn(async () => ({ url: "https://billing.stripe.com/test/stub" })),
     getActiveSubscription: vi.fn(),
     cancelSubscriptionAtPeriodEnd: vi.fn(),
+    reactivateSubscription: vi.fn(),
   };
 });
 
@@ -43,7 +44,7 @@ vi.mock("@/lib/auth/session", () => ({
 // ─── Imports under test (must come AFTER vi.mock) ────────────────────────────
 import { POST as webhookPOST } from "@/app/api/webhooks/stripe/route";
 import { POST as checkoutPOST } from "@/app/api/billing/checkout/route";
-import { DELETE as cancelDELETE } from "@/app/api/billing/subscription/route";
+import { DELETE as cancelDELETE, POST as reactivatePOST } from "@/app/api/billing/subscription/route";
 import { POST as portalPOST } from "@/app/api/billing/portal/route";
 import { GET as accountMeGET } from "@/app/api/account/me/route";
 import { validateRequest } from "@/lib/auth/session";
@@ -51,6 +52,7 @@ import {
   createCheckoutSession,
   getActiveSubscription,
   cancelSubscriptionAtPeriodEnd,
+  reactivateSubscription,
 } from "@/modules/billing/stripe";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -173,6 +175,11 @@ async function callCheckout(plan: "solo" | "team" = "solo"): Promise<{ status: n
 async function callCancel(): Promise<{ status: number; body: { ok?: boolean; accessUntil?: string; error?: string } }> {
   const req = new Request("http://localhost/api/billing/subscription", { method: "DELETE" });
   const res = await cancelDELETE(req);
+  return { status: res.status, body: await res.json() };
+}
+
+async function callReactivate(): Promise<{ status: number; body: { ok?: boolean; accessUntil?: string; error?: string } }> {
+  const res = await reactivatePOST();
   return { status: res.status, body: await res.json() };
 }
 
@@ -405,6 +412,77 @@ describe("Subscription lifecycle", () => {
       const u = await testDb.user.findUniqueOrThrow({ where: { id: userId } });
       expect(u.subscriptionStatus).toBe("trial");
       expect(u.cancelAtPeriodEnd).toBe(true);
+    });
+  });
+
+  // ── 4b. Reactivate a pending cancellation (in-product Undo) ────────────────
+  describe("Stage 4b — reactivate pending cancellation", () => {
+    it("POST returns ok + accessUntil; subsequent webhook clears cancel_at_period_end", async () => {
+      const userId = await seedUser({
+        stripeCustomerId: "cus_reactivate",
+        status: "active",
+        accessUntil: new Date(Date.now() + ONE_MONTH * 1000),
+        plan: "solo",
+        cancelAtPeriodEnd: true,
+      });
+      setAuthedUser(userId);
+
+      // Pending-cancellation subs are still active, so getActiveSubscription
+      // returns it (with cancel_at_period_end still true).
+      vi.mocked(getActiveSubscription).mockResolvedValue({
+        id: "sub_reactivate",
+        status: "active",
+        current_period_end: NOW_S() + ONE_MONTH,
+        cancel_at_period_end: true,
+      });
+      vi.mocked(reactivateSubscription).mockResolvedValue({
+        id: "sub_reactivate",
+        status: "active",
+        current_period_end: NOW_S() + ONE_MONTH,
+        cancel_at_period_end: false,
+      });
+
+      const { status, body } = await callReactivate();
+      expect(status).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.accessUntil).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(reactivateSubscription).toHaveBeenCalledWith("sub_reactivate");
+
+      // Stripe then sends customer.subscription.updated with cancel_at_period_end=false
+      await deliverWebhook({
+        type: "customer.subscription.updated",
+        customer: "cus_reactivate",
+        status: "active",
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: NOW_S() + ONE_MONTH,
+        priceId: "price_test_solo",
+      });
+
+      const u = await testDb.user.findUniqueOrThrow({ where: { id: userId } });
+      expect(u.subscriptionStatus).toBe("active");
+      expect(u.cancelAtPeriodEnd).toBe(false);
+    });
+
+    it("POST with no customer → 404", async () => {
+      const userId = await seedUser();
+      setAuthedUser(userId);
+      const { status } = await callReactivate();
+      expect(status).toBe(404);
+    });
+
+    it("POST with no active subscription → 404", async () => {
+      const userId = await seedUser({ stripeCustomerId: "cus_none", status: "active", plan: "solo" });
+      setAuthedUser(userId);
+      vi.mocked(getActiveSubscription).mockResolvedValue(null);
+      const { status } = await callReactivate();
+      expect(status).toBe(404);
+      expect(reactivateSubscription).not.toHaveBeenCalled();
+    });
+
+    it("POST unauthenticated → 401", async () => {
+      clearAuth();
+      const { status } = await callReactivate();
+      expect(status).toBe(401);
     });
   });
 

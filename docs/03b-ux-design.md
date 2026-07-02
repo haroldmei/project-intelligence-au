@@ -747,7 +747,12 @@ INTERACTION:
 - Confirm fires `DELETE /api/billing/subscription` → Stripe
   `cancel_at_period_end=true` → toast "Cancelled. You're good until
   Sun 24 May." → redirect to /account.
-- Toast persists 8s, includes [Undo] action that POSTs reactivate.
+- Toast persists 8s, includes [Undo] action that POSTs reactivate
+  (`POST /api/billing/subscription` → `cancel_at_period_end=false`).
+- Persistent recovery beyond the toast window: while the account is in the
+  pending-cancellation state ("Cancellation scheduled…"), /account shows a
+  "Resume subscription" button that hits the same reactivate route — so an
+  accidental cancel is always reversible in-product, never portal-only.
 - No "are you sure?" double-confirm (single AlertDialog is the confirm).
 - No surprise downsell, no exit-intent popover, no "tell us why" form
   (per P5 Quiet Confidence — exit telemetry only).
