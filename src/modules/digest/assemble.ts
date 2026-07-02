@@ -11,12 +11,12 @@ import { captureServer } from "@/lib/analytics/server";
 import { env } from "@/lib/env";
 import type { RelevanceRunResult } from "@/modules/relevance/run";
 import { classifyLeadClass, type LeadClass } from "@/modules/relevance/lead-class";
+import { DIGEST_EMAIL_MAX_CARDS, DIGEST_SMS_MAX_CARDS } from "./constants";
 import pino from "pino";
 
 const log = pino({ name: "digest-assemble" });
 
 const APP_BASE_URL = env.NEXT_PUBLIC_APP_URL;
-const SMS_MAX_CARDS = 3;
 
 export interface DigestSendResult {
   digestId: string;
@@ -42,7 +42,7 @@ export async function assembleAndSendDigest(
     },
   });
 
-  const results = relevance.results.slice(0, 15);
+  const results = relevance.results.slice(0, DIGEST_EMAIL_MAX_CARDS);
   const daCount = results.length;
 
   // Honest lead class per lead (issue #14). Deterministic + pure over the DA's
@@ -178,7 +178,7 @@ export async function assembleAndSendDigest(
   if (smsAlreadyDelivered) {
     log.info({ userId, digestId: digest.id }, "[digest] sms already delivered — not re-sending");
   } else if (smsOptIn && mobile && cards.length > 0) {
-    const top3 = cards.slice(0, SMS_MAX_CARDS);
+    const top3 = cards.slice(0, DIGEST_SMS_MAX_CARDS);
     // Persist a ShortUrl row per card BEFORE building the SMS body so
     // the /s/<slug> redirect handler can resolve clicks. Without these
     // upserts the redirect endpoint returns 404 for every SMS link

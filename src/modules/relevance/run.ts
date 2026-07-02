@@ -15,6 +15,7 @@ import { parseVector } from "@/lib/ai/embeddings";
 import { ruleFilter } from "./filters";
 import { vectorRank } from "./vector";
 import { loadThumbsExamples } from "./thumbs";
+import { DIGEST_EMAIL_MAX_CARDS } from "@/modules/digest/constants";
 import pino from "pino";
 
 const log = pino({ name: "relevance-run" });
@@ -100,6 +101,9 @@ export async function runRelevanceForUser(userId: string): Promise<RelevanceRunR
       savedQueryEmbedding,
       userLgaCouncilSlugs: councilSlugs,
       excludeDaIds,
+      // Restore the wedge's 5–15 email range (issue #11). SMS is re-trimmed to
+      // top-3 downstream in assembleAndSendDigest.
+      maxDigestSize: DIGEST_EMAIL_MAX_CARDS,
     },
     {
       ruleFilter,

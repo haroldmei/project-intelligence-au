@@ -1,4 +1,4 @@
-// <!-- WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, top-3 leads, AUD 99/mo (GST included), signup in 60 seconds. -->
+// <!-- WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo (GST included), signup in 60 seconds. -->
 
 import Link from "next/link";
 import { WaitlistForm } from "./waitlist-form";
@@ -98,8 +98,8 @@ const PLANS = [
     includes: [
       "1 seat — your Sunday digest, your phone",
       "All 15 Greater Sydney LGAs (Western Sydney, Inner West, Northern, Southern)",
-      "Weekly email digest: top-3 roofing DAs, ranked by relevance",
-      "Sunday SMS: same top-3 leads to your +61 mobile",
+      "Weekly email digest: 5–15 roofing DAs, ranked by relevance",
+      "Sunday SMS: top-3 leads to your +61 mobile",
       "Trained on roofing vocabulary (not keyword soup)",
       "Thumbs feedback — your digest gets smarter each week",
       "Cancel anytime from your account — no support call",
