@@ -6,7 +6,7 @@
 // Preview tier: no-op when TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN unset.
 // FR-011: top-3 DA cards delivered via Twilio; tap-to-open-portal links included.
 // NFR-027: every SMS includes "Reply STOP to opt out"
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import pino from "pino";
 import { env } from "@/lib/env";
 
@@ -145,5 +145,14 @@ export function validateTwilioSignature(
     .join("");
   const data = url + sortedParams;
   const expected = createHmac("sha1", authToken).update(data).digest("base64");
-  return expected === signature;
+
+  // Timing-safe comparison (G-006). `===` short-circuits on the first differing
+  // byte, leaking the shared prefix length. Mirror the Stripe webhook path
+  // (billing/stripe.ts) and the HMAC token path (hmac/token.ts): guard the
+  // length first (timingSafeEqual throws on unequal-length buffers), then
+  // compare in constant time.
+  const expectedBuf = Buffer.from(expected);
+  const sigBuf = Buffer.from(signature);
+  if (expectedBuf.length !== sigBuf.length) return false;
+  return timingSafeEqual(expectedBuf, sigBuf);
 }
