@@ -18,7 +18,36 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      ".codex/**",
+      ".gemini/**",
+      ".claude/**",
     ],
+  },
+  {
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
+  {
+    // Playwright fixtures receive a `use` callback — not a React hook.
+    files: ["e2e/**", "tests/**", "playwright*.config.ts"],
+    rules: {
+      "react-hooks/rules-of-hooks": "off",
+    },
+  },
+  {
+    // react-email templates render a full HTML document, <head> included.
+    files: ["src/emails/**"],
+    rules: {
+      "@next/next/no-head-element": "off",
+    },
   },
 ];
 

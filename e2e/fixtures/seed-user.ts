@@ -24,7 +24,7 @@
  *   Set TEST_OTP_OVERRIDE=123456 in your .env.test or pass via env.
  */
 
-import { test as base, type Page, type BrowserContext } from "@playwright/test";
+import { test as base, type Page } from "@playwright/test";
 
 export type TestUser = {
   email: string;
@@ -272,19 +272,7 @@ export type SeedUserFixtures = {
   authedPage: Page;
 };
 
-/** Create a unique test user. In STUB_DB mode, user creation is skipped. */
-async function createUser(request: Parameters<typeof base.extend>[0] extends object ? never : never): Promise<TestUser> {
-  const uid = Math.random().toString(36).slice(2, 10);
-  return {
-    email: `test+${uid}@example.com`,
-    password: DEFAULT_PASSWORD,
-    mobile_e164: "+61400000000",
-    trade: "roofing",
-  };
-}
-
 export const test = base.extend<SeedUserFixtures>({
-  // eslint-disable-next-line no-empty-pattern
   user: async ({}, use) => {
     const uid = Math.random().toString(36).slice(2, 10);
     const user: TestUser = {

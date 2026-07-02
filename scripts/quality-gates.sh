@@ -95,7 +95,9 @@ gate_typecheck() {
 
 gate_lint() {
   if [[ -f .eslintrc.js || -f .eslintrc.json || -f eslint.config.js || -f eslint.config.mjs ]]; then
-    npx --yes eslint . --max-warnings=0
+    # pnpm exec, not npx: npx resolves a standalone eslint that can't see
+    # pnpm's non-hoisted plugins (eslint-plugin-react-hooks etc.).
+    pnpm exec eslint . --max-warnings=0
   elif command -v ruff >/dev/null; then
     ruff check .
   else
@@ -104,15 +106,32 @@ gate_lint() {
 }
 
 gate_unit() {
-  if [[ -f vitest.config.ts || -f vitest.config.js ]]; then
-    npx --yes vitest run --reporter=verbose
-  elif [[ -f jest.config.js || -f jest.config.ts ]]; then
-    npx --yes jest --ci
-  elif [[ -f pyproject.toml ]] && grep -q pytest pyproject.toml; then
-    pytest -q
-  else
-    npm test --silent || return 1
+  # This repo splits vitest into fe (jsdom, no DB) and backend (real Postgres).
+  local rc=0
+  if [[ -f vitest.fe.config.ts ]]; then
+    pnpm exec vitest run -c vitest.fe.config.ts || rc=1
   fi
+  if [[ -f vitest.backend.config.ts ]]; then
+    # SAFETY: setup-test-db.ts falls back to DATABASE_URL and TRUNCATEs it. The backend
+    # suite only ever runs against an explicit TEST_DATABASE_URL; ensure-test-db.sh
+    # provisions a dedicated docker Postgres (pi-test-pg) when one isn't already set.
+    if [[ -z "${TEST_DATABASE_URL:-}" && -f scripts/ensure-test-db.sh ]]; then
+      source scripts/ensure-test-db.sh
+    fi
+    if [[ -n "${TEST_DATABASE_URL:-}" ]]; then
+      DATABASE_URL="$TEST_DATABASE_URL" pnpm exec vitest run -c vitest.backend.config.ts || rc=1
+    else
+      echo "backend suite SKIPPED: no TEST_DATABASE_URL and no docker test DB (never uses DATABASE_URL — tests truncate it)"
+    fi
+  fi
+  if [[ ! -f vitest.fe.config.ts && ! -f vitest.backend.config.ts ]]; then
+    if [[ -f vitest.config.ts || -f vitest.config.js ]]; then
+      npx --yes vitest run --reporter=verbose || rc=1
+    else
+      echo "no unit test runner configured"
+    fi
+  fi
+  return "$rc"
 }
 
 gate_mutation() {

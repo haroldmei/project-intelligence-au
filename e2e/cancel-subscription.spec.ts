@@ -20,7 +20,7 @@ import { test, expect } from "@playwright/test";
 
 const DB_AVAILABLE = process.env.PLAYWRIGHT_DB === "1";
 
-const STUB_PERIOD_END = "2026-05-24T00:00:00Z";
+const _STUB_PERIOD_END = "2026-05-24T00:00:00Z";
 const FORMATTED_DATE = /24 May 2026/;
 
 test.describe("Cancel Subscription Flow", () => {
