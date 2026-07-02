@@ -23,6 +23,10 @@ export interface DigestCard {
   whyMatched: string;
   address: string;
   council: string;
+  // NSW approval pathway (Local/CDC/State-significant). Not yet modelled on the
+  // DevelopmentApplication schema, so undefined for now — the CSV export emits
+  // it "(if present)" and picks it up automatically once ingestion populates it.
+  approvalPathway?: string | null;
   estimatedValue: number | null;
   portalUrl: string;
   applicantName: string | null;
