@@ -62,6 +62,36 @@ describe("runIngest", () => {
     expect(da?.description).toContain("Colorbond");
   });
 
+  it("stamps jurisdiction='nsw' on upserted NSW records (#28)", async () => {
+    const mockDA = {
+      applications: [
+        {
+          applicationNumber: "DA-JUR-1",
+          councilCode: "blacktown",
+          address: "9 Ridge Ave Blacktown",
+          proposedDevelopment: "New dwelling with metal roof",
+          estimatedCost: 20000,
+          lodgedDate: new Date().toISOString(),
+          applicant: null,
+          url: "https://planningportal.nsw.gov.au/DA-JUR-1",
+          scopeDescription: "Colorbond roof to new single-storey dwelling",
+        },
+      ],
+    };
+    (fetchWithRetry as ReturnType<typeof vi.fn>).mockResolvedValue(mockDA);
+
+    await runIngest(1);
+
+    const da = await testDb.developmentApplication.findFirst({
+      where: { council: "blacktown", daId: "DA-JUR-1" },
+    });
+    expect(da).not.toBeNull();
+    // The multi-jurisdiction seam: every NSW record carries the default
+    // jurisdiction, so downstream jurisdiction-scoped queries work while NSW
+    // output stays byte-identical.
+    expect(da?.jurisdiction).toBe("nsw");
+  });
+
   it("records ingestion_log on success", async () => {
     (fetchWithRetry as ReturnType<typeof vi.fn>).mockResolvedValue({ applications: [] });
     await runIngest(1);

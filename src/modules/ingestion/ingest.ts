@@ -11,37 +11,21 @@
 import { db } from "@/lib/db";
 import pino from "pino";
 import * as Sentry from "@sentry/nextjs";
-import { fetchCouncilDAs } from "./sources";
-import type { RawDaRecord } from "./sources";
-import { getEnabledJurisdictionAdapters } from "./jurisdictions/registry";
-import type { JurisdictionAdapter } from "./jurisdictions/types";
+import { getEnabledJurisdictions } from "./jurisdictions/registry";
+import { NSW_REGIONS, MS_PER_DAY } from "./jurisdictions/config";
+import type { JurisdictionAdapter, NormalisedApplication } from "./jurisdictions/types";
 
 const log = pino({ name: "ingestion" });
 
-/** All 15 supported LGA council slugs. Keep in sync with prisma/seed.ts LGAS. */
-export const ALL_COUNCIL_SLUGS = [
-  // Western Sydney
-  "blacktown",
-  "cumberland",
-  "parramatta",
-  "penrith",
-  "the_hills",
-  // Inner West & City
-  "burwood",
-  "canada_bay",
-  "city_of_sydney",
-  "inner_west",
-  // Northern Sydney
-  "hornsby",
-  "ku_ring_gai",
-  "northern_beaches",
-  // Southern Sydney
-  "bayside",
-  "georges_river",
-  "sutherland",
-] as const;
+/**
+ * All 15 supported NSW LGA council slugs. Canonical list lives in
+ * `jurisdictions/config.ts` (NSW_REGIONS) and is re-exported here for the
+ * downstream code + seed that reference `ALL_COUNCIL_SLUGS`. Keep in sync with
+ * prisma/seed.ts LGAS.
+ */
+export const ALL_COUNCIL_SLUGS = NSW_REGIONS;
 
-export type CouncilSlug = (typeof ALL_COUNCIL_SLUGS)[number];
+export type CouncilSlug = (typeof NSW_REGIONS)[number];
 
 export interface IngestResult {
   council: string;
@@ -57,27 +41,30 @@ export interface RunIngestResult {
 }
 
 /**
- * Ingest DAs for all 15 councils. Each council is fetched and upserted
- * independently so one failure does not block others (FR-001, FR-002).
- * Drift detection alerts via Sentry when a council drops > 50% (FR-003).
+ * Ingest DAs for every enabled jurisdiction (issue #28). NSW is the incumbent
+ * (always enabled) and fans out over its 15 councils; additional statewide
+ * jurisdictions (e.g. PlanSA) are gated behind their own flag and fetched as a
+ * single region. Each region is fetched and upserted independently so one
+ * failure does not block others (FR-001, FR-002). Drift detection alerts via
+ * Sentry when a council drops > 50% (FR-003).
+ *
+ * With every optional jurisdiction flag off, this iterates exactly the 15 NSW
+ * councils in their original order — byte-identical to the pre-#28 pipeline.
  */
 export async function runIngest(sinceDaysBack = 1): Promise<RunIngestResult> {
   const results: IngestResult[] = [];
+  const since = new Date(Date.now() - sinceDaysBack * MS_PER_DAY);
 
-  // Per system-design §3.3 nightly flow: fetch per-LGA in sequence (polite delay inside adapter)
-  for (const council of ALL_COUNCIL_SLUGS) {
-    const result = await ingestCouncil(council, sinceDaysBack);
-    results.push(result);
-    if (!result.failed) {
-      await checkDrift(council, result.ingested);
+  // Per system-design §3.3 nightly flow: fetch per-region in sequence (polite
+  // delay inside the adapter).
+  for (const jurisdiction of getEnabledJurisdictions()) {
+    for (const region of jurisdiction.regions) {
+      const result = await ingestRegion(jurisdiction.adapter, region, since);
+      results.push(result);
+      if (!result.failed && jurisdiction.driftDetection) {
+        await checkDrift(region, result.ingested);
+      }
     }
-  }
-
-  // Additional statewide jurisdictions (docs/25 §2/§4), each gated behind its
-  // own env flag. With every flag off `getEnabledJurisdictionAdapters()` is
-  // empty, so this loop never runs and NSW ingestion is byte-identical.
-  for (const adapter of getEnabledJurisdictionAdapters()) {
-    results.push(await ingestJurisdiction(adapter, sinceDaysBack));
   }
 
   const totalIngested = results.reduce((s, r) => s + r.ingested, 0);
@@ -88,83 +75,58 @@ export async function runIngest(sinceDaysBack = 1): Promise<RunIngestResult> {
 }
 
 /**
- * Ingest one statewide jurisdiction adapter (e.g. PlanSA). Mirrors
- * `ingestCouncil`: one failure is isolated and logged, never blocking the run.
- * `council` on the log/result carries the jurisdiction slug.
+ * Ingest one region of one jurisdiction through its adapter. One failure is
+ * isolated and logged, never blocking the run. `council` on the log/result
+ * carries the region slug (a NSW council, or the jurisdiction id for statewide
+ * feeds).
  */
-async function ingestJurisdiction(
+async function ingestRegion(
   adapter: JurisdictionAdapter,
-  sinceDaysBack: number,
+  region: string,
+  since: Date,
 ): Promise<IngestResult> {
-  const jurisdiction = adapter.jurisdiction;
   try {
-    const records = await adapter.fetchApplications({ sinceDaysBack });
+    const records = await adapter.fetchApplications({ since, regions: [region] });
     let ingested = 0;
     for (const r of records) {
       await upsertDa(r);
       ingested++;
     }
+    // sourceApi reflects what the adapter actually returned. When records is
+    // empty we don't know which underlying source ran (or whether it returned
+    // [] because none was configured), so use "none" rather than lying.
     await db.ingestionLog.create({
       data: {
-        council: jurisdiction,
+        council: region,
         sourceApi: records[0]?.sourceApi ?? "none",
         daCount: ingested,
         success: true,
       },
     });
-    log.info({ jurisdiction, ingested }, "[ingest] jurisdiction done");
-    return { council: jurisdiction, ingested, failed: false };
+    log.info(
+      { council: region, ingested, sourceApi: records[0]?.sourceApi ?? "none" },
+      "[ingest] region done",
+    );
+    return { council: region, ingested, failed: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ jurisdiction, err: msg }, "[ingest] jurisdiction failed");
-    Sentry.captureException(err, { tags: { jurisdiction, phase: "ingestion" } });
+    log.error({ council: region, err: msg }, "[ingest] region failed");
+    Sentry.captureException(err, { tags: { council: region, phase: "ingestion" } });
     await db.ingestionLog.create({
-      data: { council: jurisdiction, sourceApi: "error", daCount: 0, success: false, errorMessage: msg },
+      data: { council: region, sourceApi: "error", daCount: 0, success: false, errorMessage: msg },
     });
-    return { council: jurisdiction, ingested: 0, failed: true, errorMessage: msg };
+    return { council: region, ingested: 0, failed: true, errorMessage: msg };
   }
 }
 
-async function ingestCouncil(council: string, sinceDaysBack: number): Promise<IngestResult> {
-  try {
-    const records = await fetchCouncilDAs(council, sinceDaysBack);
-    let ingested = 0;
-    for (const r of records) {
-      await upsertDa(r);
-      ingested++;
-    }
-    // sourceApi reflects what the dispatcher actually returned. When records
-    // is empty we don't know which adapter ran (or whether the dispatcher
-    // returned [] because no source was configured), so use "none" rather
-    // than lying that nsw_planning was tried.
-    await db.ingestionLog.create({
-      data: {
-        council,
-        sourceApi: records[0]?.sourceApi ?? "none",
-        daCount: ingested,
-        success: true,
-      },
-    });
-    log.info({ council, ingested, sourceApi: records[0]?.sourceApi ?? "none" }, "[ingest] council done");
-    return { council, ingested, failed: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ council, err: msg }, "[ingest] council failed");
-    Sentry.captureException(err, { tags: { council, phase: "ingestion" } });
-    await db.ingestionLog.create({
-      data: { council, sourceApi: "error", daCount: 0, success: false, errorMessage: msg },
-    });
-    return { council, ingested: 0, failed: true, errorMessage: msg };
-  }
-}
-
-async function upsertDa(r: RawDaRecord): Promise<void> {
+async function upsertDa(r: NormalisedApplication): Promise<void> {
   const determinationDate = r.determinationDate ? new Date(r.determinationDate) : null;
   await db.developmentApplication.upsert({
     where: { daId_council: { daId: r.daId, council: r.council } },
     create: {
       daId: r.daId,
       council: r.council,
+      jurisdiction: r.jurisdiction,
       address: r.address,
       description: r.description,
       estimatedValue: r.estimatedValue,
@@ -177,6 +139,7 @@ async function upsertDa(r: RawDaRecord): Promise<void> {
       ruleFilteredOut: false,
     },
     update: {
+      jurisdiction: r.jurisdiction,
       address: r.address,
       description: r.description,
       estimatedValue: r.estimatedValue,

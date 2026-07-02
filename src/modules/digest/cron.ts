@@ -13,6 +13,7 @@ import * as Sentry from "@sentry/nextjs";
 import { db } from "@/lib/db";
 import { runRelevanceForUser } from "@/modules/relevance/run";
 import { assembleAndSendDigest } from "./assemble";
+import { digestWeekWindow, getJurisdictionConfig } from "@/modules/ingestion/jurisdictions/config";
 import pino from "pino";
 
 const log = pino({ name: "digest-cron" });
@@ -43,7 +44,20 @@ export async function runDigestCron(): Promise<DigestCronResult> {
     },
   });
 
-  log.info({ runId: run.id }, "[digest] cron started");
+  // The digest week window is anchored to "Sunday 18:00 local" for the NSW
+  // jurisdiction (Australia/Sydney), read from the registry config rather than
+  // a hardcoded offset — DST-correct across AEST/AEDT (#28 timezone groundwork).
+  const nswConfig = getJurisdictionConfig("nsw");
+  const weekWindow = digestWeekWindow(nswConfig);
+  log.info(
+    {
+      runId: run.id,
+      timezone: nswConfig.timezone,
+      weekStart: weekWindow.start.toISOString(),
+      weekEnd: weekWindow.end.toISOString(),
+    },
+    "[digest] cron started",
+  );
 
   // Load active subscribers. Hard cap matches NFR-008 (≤ 100 active subs at
   // preview tier). At launch tier with > 100 subscribers, paginate this
