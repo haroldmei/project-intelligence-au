@@ -1,5 +1,5 @@
 // Ingestion service — upserts raw DA records, writes ingestion_log, drift detection.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 // FR-001, FR-002, FR-003 | system-design §2 ingestion component + §3.3 nightly flow
 //

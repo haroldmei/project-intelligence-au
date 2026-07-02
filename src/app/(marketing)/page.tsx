@@ -2,6 +2,16 @@
 
 import Link from "next/link";
 import { WaitlistForm } from "./waitlist-form";
+import {
+  PRICING,
+  priceDollars,
+  gstComponentDollars,
+  PRICE_AMOUNT,
+  PRICE_MONTHLY,
+  PRICE_MONTHLY_WITH_GST,
+  PRICE_MONTHLY_INC_GST,
+  GST_SUFFIX,
+} from "@/lib/pricing";
 
 // ── JSON-LD Product schema for pricing tiers ──────────────────────────────
 const jsonLd = {
@@ -17,16 +27,16 @@ const jsonLd = {
   offers: [
     {
       "@type": "Offer",
-      name: "Solo",
-      price: "99",
-      priceCurrency: "AUD",
+      name: PRICING.planName,
+      price: String(priceDollars),
+      priceCurrency: PRICING.currency,
       priceSpecification: {
         "@type": "UnitPriceSpecification",
-        price: "99",
-        priceCurrency: "AUD",
+        price: String(priceDollars),
+        priceCurrency: PRICING.currency,
         billingDuration: "P1M",
         unitCode: "MON",
-        valueAddedTaxIncluded: true,
+        valueAddedTaxIncluded: PRICING.gstInclusive,
       },
       eligibleQuantity: {
         "@type": "QuantitativeValue",
@@ -80,9 +90,9 @@ const FEATURES = [
 const PLANS = [
   {
     id: "solo",
-    name: "Solo",
+    name: PRICING.planName,
     tagline: "For owner-operators who quote their own work.",
-    price: 99,
+    price: priceDollars,
     seats: "1 seat",
     highlight: true,
     includes: [
@@ -94,7 +104,7 @@ const PLANS = [
       "Thumbs feedback — your digest gets smarter each week",
       "Cancel anytime from your account — no support call",
     ],
-    finePrint: "AUD 99/mo, GST included. Card required. No charge for 28 days. Cancel anytime.",
+    finePrint: `${PRICE_MONTHLY_WITH_GST}. Card required. No charge for ${PRICING.trialDays} days. Cancel anytime.`,
   },
   // Multi-seat (formerly "Team") not in scope yet. When it ships, add a new
   // PLANS entry here AND re-enable the picker in /plan, plus put the Schema.org
@@ -105,7 +115,7 @@ const PLANS = [
 const COMPARISON = [
   {
     label: "Price",
-    piSolo: "AUD 99/mo inc GST",
+    piSolo: PRICE_MONTHLY_INC_GST,
     cordell: "AUD 577.50/mo inc GST",
     estimateOne: "AUD 250/mo",
     leadManager: "~AUD 333/mo¹",
@@ -168,8 +178,8 @@ const FAQS = [
     a: "To reduce abuse. We reviewed 28 days of real DA data for your LGAs before you even open the first digest — that costs us money and time. The card is how we know you're serious. You won't be charged until day 29, and you can cancel in-app anytime before then.",
   },
   {
-    q: "Is the AUD 99 price inclusive or exclusive of GST?",
-    a: "Inclusive. AUD 99/mo is the all-in price you pay — GST is built in. Your invoice still itemises the GST component (~AUD 9) separately so you can claim it as a business expense.",
+    q: `Is the ${PRICE_AMOUNT} price inclusive or exclusive of GST?`,
+    a: `Inclusive. ${PRICE_MONTHLY} is the all-in price you pay — GST is built in. Your invoice still itemises the GST component (~${PRICING.currency} ${gstComponentDollars}) separately so you can claim it as a business expense.`,
   },
   {
     q: "What happens if I cancel?",
@@ -251,7 +261,7 @@ export default function MarketingPage() {
                 {/* Sub-headline — docs/17-positioning.md §5 + §9 */}
                 <p className="text-base md:text-lg text-[#334E68] leading-relaxed max-w-prose">
                   Top 3 curated re-roof DAs, 15 Sydney LGAs, every Sunday at 6&nbsp;pm.
-                  AUD&nbsp;99/mo (GST included). No sales call.
+                  {" "}{PRICE_MONTHLY} ({GST_SUFFIX}). No sales call.
                 </p>
 
                 {/* Primary CTA */}
@@ -384,8 +394,8 @@ export default function MarketingPage() {
 
           {/* ═══════════════════════════════════════════════════════════════
               PRICING SECTION
-              LOCKED: Solo AUD 99/mo (GST included)
-              28-day card-on-file trial · cancel in-app
+              Single Solo price + trial length come from src/lib/pricing.ts
+              (source of truth) — card-on-file trial · cancel in-app
           ═══════════════════════════════════════════════════════════════ */}
           <section
             id="pricing"
@@ -419,7 +429,7 @@ export default function MarketingPage() {
                   >
                     {plan.highlight && (
                       <span className="self-start text-xs font-semibold uppercase tracking-widest bg-[#D97706] text-white px-3 py-1 rounded-full">
-                        28-day free trial
+                        {PRICING.trialDays}-day free trial
                       </span>
                     )}
                     <div>
@@ -428,11 +438,11 @@ export default function MarketingPage() {
                     </div>
                     <div>
                       <p className="text-3xl font-extrabold text-[#1E3A5F]">
-                        AUD {plan.price}
+                        {PRICE_AMOUNT}
                         <span className="text-lg font-semibold">/mo</span>
                       </p>
                       <p className="text-xs text-[#627D98] mt-0.5">
-                        GST included · {plan.seats}
+                        {GST_SUFFIX} · {plan.seats}
                       </p>
                     </div>
                     <ul className="space-y-2" aria-label={`${plan.name} plan features`}>
@@ -462,7 +472,7 @@ export default function MarketingPage() {
                       href={`/signup?plan=${plan.id}`}
                       className="flex items-center justify-center w-full px-4 py-3 text-sm font-semibold bg-[#D97706] text-white rounded-md hover:bg-[#B45309] transition-colors duration-[150ms] min-h-[48px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] focus-visible:ring-offset-2"
                     >
-                      Start 28-day trial
+                      Start {PRICING.trialDays}-day trial
                     </Link>
                     <p className="text-xs text-[#A3A3A3] leading-relaxed">{plan.finePrint}</p>
                   </div>
@@ -550,7 +560,7 @@ export default function MarketingPage() {
                 Ready for your first Sunday digest?
               </h2>
               <p className="text-[#9FB3C8] text-sm leading-relaxed">
-                AUD&nbsp;99/mo, GST included. 28-day trial. First digest arrives this Sunday at 6&nbsp;pm. Cancel anytime — no ticket, no phone call.
+                {PRICE_MONTHLY_WITH_GST}. {PRICING.trialDays}-day trial. First digest arrives this Sunday at 6&nbsp;pm. Cancel anytime — no ticket, no phone call.
               </p>
               <Link
                 href="/signup"

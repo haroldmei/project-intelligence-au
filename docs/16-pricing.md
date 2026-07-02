@@ -1,9 +1,36 @@
 # Pricing Strategy — ProjectIntelligence AU (PI-AU)
 
-<!-- WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds. -->
+<!-- WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo (GST included), signup in 60 seconds. -->
 
-## Date: 2026-04-28
+## Date: 2026-04-28 (repriced 2026-07)
 ## Status: LOCKED
+
+---
+
+## Changelog
+
+- **2026-07: repriced $199→$99 based on competitive banding — see docs/24.**
+  Solo is now **AUD 99/mo, GST *inclusive*** (was AUD 199/mo + GST). The
+  competitive banding in `docs/24` §2.2 (DA Leads at AUD 49/mo, SiteLens at
+  £29/mo) put the prior AUD 199 + GST price above the market a self-serve
+  Sydney subbie will accept; AUD 99 inc GST holds the single price with a
+  clean, all-in number. GST is now *built into* the headline price rather than
+  added at checkout.
+- **2026-07: Team tier deferred.** The AUD 499 three-seat "Team" tier is
+  removed from the live product until the multi-seat flow (team creation,
+  invites, per-seat digest fan-out) actually ships. Solo is the only plan sold.
+  The Team design below is retained for when multi-seat is built.
+- **2026-07: trial length 14 → 28 days.** Four Sunday digests during trial
+  instead of two — the wedge cycle (Sunday digest → chase → quote → win) takes
+  4–6 weeks, so 14 days didn't let the user validate ROI before the pay
+  decision. The day-15 charge references below are now **day 29**.
+
+> **Single source of truth:** the live price, currency, GST-inclusive flag,
+> plan name, and trial length are defined once in `src/lib/pricing.ts`. Every
+> user-facing surface (landing page, /plan, account, email, checkout metadata)
+> imports from it. This document is the *rationale*; the module is the *value*.
+> Where the 2026-04 body below still reads "AUD 199", "+ GST", "14-day", or
+> "Team", the changelog above supersedes it.
 
 ---
 
@@ -26,8 +53,8 @@
 | Product | Model | Price | Relevance to WTP |
 |---|---|---|---|
 | **Xero (accounting, SMB AU)** | Seat subscription | AUD 29–85/mo | The ICP already pays for SaaS at this band monthly. Proves month-to-month SaaS is acceptable. |
-| **Buildxact (estimation / job management)** | Seat subscription | AUD 149–289/mo | Directly adjacent to roofing/trade subs; AUD 149–289/mo band is the established "SaaS for a tradie" ceiling. Proves AUD 199/mo is attainable. |
-| **Cordell Connect Lite** | Seat subscription | AUD 577.50/mo | Proves the ICP already pays >AUD 199/mo for an inferior version of this product. Strongest WTP anchor. |
+| **Buildxact (estimation / job management)** | Seat subscription | AUD 149–289/mo | Directly adjacent to roofing/trade subs; AUD 149–289/mo band is the established "SaaS for a tradie" ceiling. Proves AUD 99/mo inc GST is comfortably attainable. |
+| **Cordell Connect Lite** | Seat subscription | AUD 577.50/mo | Proves the ICP already pays many times AUD 99/mo for an inferior version of this product. Strongest WTP anchor. |
 
 ### 1.3 Mechanic Patterns Observed (Category Leaders)
 
@@ -39,7 +66,7 @@
 | **Stripe** | Usage-based, no trial | Payment processor — not applicable |
 | **Cursor** | 14-day Pro trial, card not required | AI completions limit is the upgrade trigger; low-friction |
 
-**Key observation:** For B2B SaaS with clear ROI proof and risk-averse buyers (trades), **card-on-file 14-day trials** (not no-card) are more appropriate than freemium. Freemium works when the product has daily natural use; a weekly digest is inherently high-value-low-frequency, so a free tier would see zero engagement that proves the wedge.
+**Key observation:** For B2B SaaS with clear ROI proof and risk-averse buyers (trades), **card-on-file trials** (not no-card) are more appropriate than freemium. (PI-AU's trial is 28 days — see §4.) Freemium works when the product has daily natural use; a weekly digest is inherently high-value-low-frequency, so a free tier would see zero engagement that proves the wedge.
 
 ---
 
@@ -49,13 +76,13 @@
 
 The wedge axis is **Niche** (see `01c-wedge.md`, LOCKED). The Niche pricing default is "per-seat or flat-rate-per-business." PI-AU fits flat-rate-per-business at the Solo tier (one seat for the owner-operator) and scales to a flat-team-rate at the Team tier (three seats for the estimating team).
 
-**Why not freemium:** The anti-axis explicitly forbids a free tier. Free trains the ICP that the Sunday digest is worth zero, and the Niche axis depends on trust — a roofer who has never paid for project intelligence will not trust that a free digest is curated to their standards. The 14-day trial is the trust-builder; freemium destroys pricing power and race-to-zero dynamics are structurally excluded.
+**Why not freemium:** The anti-axis explicitly forbids a free tier. Free trains the ICP that the Sunday digest is worth zero, and the Niche axis depends on trust — a roofer who has never paid for project intelligence will not trust that a free digest is curated to their standards. The 28-day trial is the trust-builder; freemium destroys pricing power and race-to-zero dynamics are structurally excluded.
 
 **Why not usage-based:** The product delivers a fixed weekly digest. There is no usage dimension that maps to value — "per DA seen" would penalise relevance (more DAs = higher bill = perverse incentive). Flat-rate aligns with the "set and forget" mental model of an owner-operator.
 
 **Why not annual-only:** The wedge promises "cancel anytime" as a direct trust contrast to Cordell's "renewal hostage situation." Annual locks contradict this. Annual prepay is deferred to V2 (see `01b-product-spec.md` §V2 item 14: after month-3 retention data exists). **Annual option: NO for MVP.** Commits dollars without proving value; conflicts with "cancel anytime" trust messaging. When 90-day retention ≥ 65% is confirmed, introduce as an optional 2-months-free incentive.
 
-**Competitor delta check:** PI-AU Solo at AUD 199/mo sits at **0.34× Cordell Lite** (AUD 577.50/mo) — well within the 0.5×–2× guidance range. EstimateOne entry is AUD 250/mo; PI-AU Solo at AUD 199/mo is 0.8× — very close, which is appropriate because the ICP already pays EstimateOne at that band and both products are solving adjacent pains. Not a commodity trap: PI-AU's delivery channel (weekly digest, roofing-only) is structurally different from EstimateOne's head-contractor tender platform.
+**Competitor delta check (repriced):** PI-AU Solo at AUD 99/mo inc GST sits at **0.17× Cordell Lite** (AUD 577.50/mo inc GST) and **0.40× EstimateOne** (AUD 250/mo). This is below the 0.5×–2× guidance floor against both incumbents — deliberately so: the repricing (see Changelog) trades headroom for a clean, single, self-serve-friendly all-in number that undercuts the closest self-serve comparables (DA Leads AUD 49/mo, SiteLens ≈ AUD 55/mo — docs/24 §2.2). Not a commodity trap: PI-AU's delivery channel (weekly digest, roofing-only) is structurally different from EstimateOne's head-contractor tender platform, so the low ratio is positioning, not a race to the bottom.
 
 ---
 
@@ -63,16 +90,16 @@ The wedge axis is **Niche** (see `01c-wedge.md`, LOCKED). The Niche pricing defa
 
 ### 3.1 Tier Table
 
-| Tier | Price (+ GST) | Seats | Scope | Who it's for |
+| Tier | Price (inc GST) | Seats | Scope | Who it's for |
 |---|---|---|---|---|
-| **Solo** | AUD 199/mo | 1 seat | All 15 Sydney LGAs, roofing vertical | Owner-operator of a 4–15-person Sydney roofing business who personally quotes or supervises one estimator. "Estimator Eli." |
-| **Team** | AUD 499/mo | 3 seats | All 15 Sydney LGAs, roofing vertical | Operations manager running a 10–30-person firm with 2 estimators. "Growth-Stage Gabby." |
+| **Solo** | AUD 99/mo | 1 seat | All 15 Sydney LGAs, roofing vertical | Owner-operator of a 4–15-person Sydney roofing business who personally quotes or supervises one estimator. "Estimator Eli." |
+| **Team** *(deferred)* | — | 3 seats | All 15 Sydney LGAs, roofing vertical | Operations manager running a 10–30-person firm with 2 estimators. "Growth-Stage Gabby." **Not sold until multi-seat ships** — design retained below. |
 
 **Note on scope:** Both tiers include all 15 Sydney LGAs and the roofing vertical only. There is no tier that unlocks Melbourne, Brisbane, HVAC, civil, or multi-trade. That is V2, not a paid add-on in V1. This is deliberately anti-upsell — selling a multi-vertical add-on contradicts the Niche wedge.
 
 ### 3.2 Limit & Feature Gates Per Tier
 
-#### Solo — AUD 199/mo + GST
+#### Solo — AUD 99/mo (GST included)
 
 **What's included:**
 - 1 seat (single account login, single Sunday digest recipient)
@@ -83,7 +110,7 @@ The wedge axis is **Niche** (see `01c-wedge.md`, LOCKED). The Niche pricing defa
 - Per-DA thumbs feedback (improves ranking from week 4–6)
 - Weekly precision recap stat ("you saw N of M real re-roofs")
 - In-app cancel at any time (no support ticket)
-- 14-day free trial, card on file
+- 28-day free trial, card on file
 
 **What's NOT included (locked behind Team or explicitly out-of-scope):**
 - Additional seats (Solo is 1 seat, hard cap)
@@ -96,7 +123,7 @@ The wedge axis is **Niche** (see `01c-wedge.md`, LOCKED). The Niche pricing defa
 - Contact-data enrichment (never — anti-axis)
 - Head-contractor tender flow (never — anti-axis)
 
-#### Team — AUD 499/mo + GST
+#### Team — AUD 499/mo + GST *(deferred — not sold until multi-seat ships)*
 
 **What's included (everything in Solo, plus):**
 - 3 seats (account owner + 2 invited email addresses)
@@ -117,22 +144,24 @@ The wedge axis is **Niche** (see `01c-wedge.md`, LOCKED). The Niche pricing defa
 
 | Trigger event | Action |
 |---|---|
-| **Solo user clicks "Invite team member"** | In-app paywall: "Inviting a team member requires the Team plan (AUD 499/mo). Upgrade now?" Stripe billing portal opens for prorated plan change. |
-| **Trial day 15 (no cancel)** | Stripe charges AUD 199 + GST (Solo) or AUD 499 + GST (Team) automatically. `trial_ending_3d` email fires on day 12. |
-| **Solo user sees Team-tier copy at checkout** | Pricing screen at signup shows both tiers; "most roofers start on Solo" label on Solo. |
+| **Solo user clicks "Invite team member"** | *(deferred with Team)* When multi-seat ships: in-app paywall to the Team plan; Stripe billing portal opens for prorated plan change. In the current Solo-only product this UI is not shown. |
+| **Trial day 29 (no cancel)** | Stripe charges AUD 99 (GST included) automatically. `trial_ending_3d` email fires on day 26. |
+| **Checkout** | Solo-only signup — a single plan, no tier picker. |
 
 **Anti-pattern checklist (self-audit):**
-- Price ladder: Solo AUD 199 → Team AUD 499 is **2.51×** — within the 4× maximum. Pass.
-- Open-ended / uncapped language: avoided everywhere. All 15 LGAs is a defined, finite list. 3 seats is a hard cap. Pass.
-- Top tier bullet bloat: Team adds exactly 2 differentiating features (extra seats + seat invitation). Pass.
+- Price ladder: Solo-only today (Team deferred), so no ladder to breach. When Team ships, re-check Solo → Team ratio against the 4× maximum. Pass.
+- Open-ended / uncapped language: avoided everywhere. All 15 LGAs is a defined, finite list. 1 seat is a hard cap. Pass.
+- Top tier bullet bloat: N/A while Solo-only. Pass.
 - Free tier too generous: No free tier. Pass.
-- Commodity trap: AUD 199 is 0.34× Cordell and 0.8× EstimateOne — differentiated positioning. Pass.
+- Commodity trap: AUD 99 inc GST is 0.17× Cordell and 0.40× EstimateOne — a deliberate self-serve price floor, not undifferentiated commodity pricing (see Competitor delta check). Pass with note.
 
 ---
 
 ## 4. Trial Mechanics
 
-**Chosen mechanic: 14-day free trial, card on file.**
+**Chosen mechanic: 28-day free trial, card on file.** (Repriced from 14 days —
+see Changelog. 28 days delivers four Sunday digests during trial so the user
+can validate ROI across a full month before the day-29 charge.)
 
 **Justification:** PI-AU is B2B with a weekly delivery cadence. The ICP (Sydney roofing owner-operators) has been burned by Cordell's sales-led, quote-only, no-cancel dynamic — they are price-sensitive but not immune to paying. Card-on-file reduces abuse risk (prevents serial trial re-signups) and increases commitment signal. No-card trials in this segment see 2–3× lower paid conversion (B2B SaaS benchmark, Benchmarkit 2025). Reverse trial is not applicable — there is no free tier to fall back to.
 
@@ -152,24 +181,25 @@ This is not signup. Not card entry. Not LGA selection. The activation is the mom
 |---|---|---|
 | Day 0 | Trial starts | `trial_started` email: "Your first digest arrives [next Sunday date]." Card confirmed but not charged. |
 | Day 7 | First digest fires | Activation event window opens. PostHog tracks `digest_card_interacted`. |
-| Day 12 | 2-day warning | `trial_ending_3d` email: "Your trial ends in 2 days. You'll be charged AUD 199 + GST on [date] unless you cancel." NPS survey (1 question) embedded. Cancel link prominent — no dark pattern. |
-| Day 14 | Second digest fires | User has now seen 2 digests. |
-| Day 15 | Trial end | If no cancel: Stripe charges AUD 199 (or AUD 499 for Team) + GST. `subscription_renewed` email. If cancelled: access continues to end of trial period; `subscription_canceled` email. |
+| Days 14 / 21 | Digests 2 & 3 fire | User has now seen up to three Sunday digests before the pay decision. |
+| Day 26 | 2-day warning | `trial_ending_3d` email: "Your trial ends in 2 days. You'll be charged AUD 99 (GST included) on [date] unless you cancel." NPS survey (1 question) embedded. Cancel link prominent — no dark pattern. |
+| Day 28 | Fourth digest fires | User has now seen four digests — a full month of value. |
+| Day 29 | Trial end | If no cancel: Stripe charges AUD 99 (GST included). `subscription_renewed` email. If cancelled: access continues to end of trial period; `subscription_canceled` email. |
 
-**Hard lockout on day 15 (no soft degrade):** If trial ends without conversion, account moves to read-only (digest history viewable, no new digests). No partial free access — this reinforces that the digest has value and prevents "I'll just stay on trial mode" behaviour.
+**Hard lockout on day 29 (no soft degrade):** If trial ends without conversion, account moves to read-only (digest history viewable, no new digests). No partial free access — this reinforces that the digest has value and prevents "I'll just stay on trial mode" behaviour.
 
 ### 4.3 Reactivation
 
-Trial expirations who did not convert receive a 3-email reactivation sequence:
-- **Day 16:** "Did we miss something?" — 1-question survey + link to reactivate.
-- **Day 23:** "This week's roofing DA digest was [N] items across your LGAs — here's a sample headline." One anonymised lead teaser to re-demonstrate value.
-- **Day 37:** "Last chance — your trial data will be archived in 7 days." Data retention hook.
+Trial expirations who did not convert receive a 3-email reactivation sequence, timed from the day-29 trial end:
+- **Trial end + 1 day (day 30):** "Did we miss something?" — 1-question survey + link to reactivate.
+- **Trial end + 8 days (day 37):** "This week's roofing DA digest was [N] items across your LGAs — here's a sample headline." One anonymised lead teaser to re-demonstrate value.
+- **Trial end + 22 days (day 51):** "Last chance — your trial data will be archived in 7 days." Data retention hook.
 
-After day 44, account data is retained but inactive. No further emails (SPAM Act 2003 compliance).
+After trial end + 29 days (day 58), account data is retained but inactive. No further emails (SPAM Act 2003 compliance).
 
 ### 4.4 Full Refund Policy
 
-Users who are charged on day 15 and have **zero digest interactions** (zero `da_card_clicked` and zero `da_feedback_given` events in their account history) may request a full refund within 7 days of the charge. Refund is processed in Stripe with no questions asked. This is the "bad week" safety valve — if the ingestion pipeline failed to deliver a useful digest, the refund removes the retention risk. Users with any digest interaction in the trial period are not eligible — there is no second discretionary refund path.
+Users who are charged on day 29 and have **zero digest interactions** (zero `da_card_clicked` and zero `da_feedback_given` events in their account history) may request a full refund within 7 days of the charge. Refund is processed in Stripe with no questions asked. This is the "bad week" safety valve — if the ingestion pipeline failed to deliver a useful digest, the refund removes the retention risk. Users with any digest interaction in the trial period are not eligible — there is no second discretionary refund path.
 
 ---
 
@@ -181,22 +211,22 @@ Users who are charged on day 15 and have **zero digest interactions** (zero `da_
 
 ### 5.2 GST Handling
 
-All displayed prices are **exclusive of GST** — shown as "AUD 199/mo + GST" at all touchpoints (pricing page, checkout, receipts). GST (10%) is added at Stripe checkout and appears as a line item on the invoice. Stripe Tax (Stripe's built-in tax product) handles AU GST registration, calculation, and invoice formatting. Configuration:
+All displayed prices are **inclusive of GST** — shown as "AUD 99/mo (GST included)" at all touchpoints (pricing page, checkout, receipts). The headline AUD 99 already contains the 10% GST; nothing is added at checkout. Stripe Tax (Stripe's built-in tax product) still itemises the GST component (~AUD 9) on the invoice so B2B customers can claim it. Configuration:
 
 - Stripe account: AU entity (ABN registered)
 - Stripe Tax: enabled for AU, GST 10%
 - Product tax code: `txcd_10103001` (SaaS / software subscription, digital services)
 - Invoices: Stripe automatically generates GST-compliant AU tax invoices for B2B customers
 
-**Note:** At AUD 199/mo + GST, the all-inclusive amount is AUD 218.90/mo. Checkout copy shows both: "AUD 199/mo + GST (AUD 218.90/mo total)" to avoid sticker shock at checkout.
+**Note:** The headline is GST-inclusive, so the all-in amount a customer pays is exactly **AUD 99/mo** — there is no separate "+ GST" line to cause sticker shock. The invoice still breaks out the GST component (~AUD 9 of the AUD 99) for the customer's records.
 
 ### 5.3 Annual Option
 
-**NO annual option in MVP.** Rationale: annual locks conflict with "cancel anytime" trust messaging (the anti-Cordell positioning). Annual prepay would save the customer ~AUD 398/yr (2 months) but undermines the trial mechanic and trust story. Revisit after 90-day retention data (target ≥ 65%) is confirmed — at that point, introduce as an optional 2-months-free incentive, not a default.
+**NO annual option in MVP.** Rationale: annual locks conflict with "cancel anytime" trust messaging (the anti-Cordell positioning). Annual prepay would save the customer ~AUD 198/yr (2 months) but undermines the trial mechanic and trust story. Revisit after 90-day retention data (target ≥ 65%) is confirmed — at that point, introduce as an optional 2-months-free incentive, not a default.
 
 ### 5.4 Refund Policy
 
-Full refund: within 7 days of day-15 charge if account has **zero usage** (zero digest card interactions). Issued within 5 business days via Stripe. No partial refunds for mid-period cancellations — access continues to end of the paid period. After cancellation, no further charges.
+Full refund: within 7 days of day-29 charge if account has **zero usage** (zero digest card interactions). Issued within 5 business days via Stripe. No partial refunds for mid-period cancellations — access continues to end of the paid period. After cancellation, no further charges.
 
 ### 5.5 Cancel Policy
 
@@ -208,7 +238,7 @@ Any price increase affects new subscribers only. Existing subscribers keep their
 
 ### 5.7 GST Registration Note
 
-PI-AU must register for GST when annual turnover exceeds AUD 75,000 (ATO threshold). At 50 Solo customers = AUD 119,400/yr excl. GST — already above threshold. Register for GST before first paying customer. Stripe Tax handles the calculation once the AU ABN is configured.
+PI-AU must register for GST when annual turnover exceeds AUD 75,000 (ATO threshold). At AUD 99/mo inc GST, each Solo customer is ≈ AUD 1,080/yr excl. GST (AUD 99 ÷ 1.1 × 12), so the threshold is crossed at ≈ 70 Solo customers. Register for GST before the first paying customer regardless — Stripe Tax handles the calculation once the AU ABN is configured, and the headline price already includes the GST it collects.
 
 ---
 
@@ -221,15 +251,19 @@ Stripe Products:
   - product_solo:   "PI-AU Solo" (description: "Weekly Sydney roofing DA digest — 1 seat")
   - product_team:   "PI-AU Team" (description: "Weekly Sydney roofing DA digest — 3 seats")
 
-Stripe Prices (monthly, AUD, exclusive of tax):
-  - price_solo_monthly:   AUD 199.00/mo, billing_period: month, product: product_solo
-  - price_team_monthly:   AUD 499.00/mo, billing_period: month, product: product_team
+Stripe Prices (monthly, AUD, tax-inclusive — Stripe Tax `tax_behavior: inclusive`):
+  - price_solo_monthly:   AUD 99.00/mo, billing_period: month, product: product_solo
+  - price_team_monthly:   DEFERRED — not created until multi-seat ships
 
   (Annual prices: NOT created for MVP — deferred to V2)
 
+  The AUD 99.00 figure is echoed from src/lib/pricing.ts (priceCents: 9900);
+  the live checkout also stamps advertised_price_cents into subscription
+  metadata for reconciliation against this Stripe Price.
+
 Trial configuration (per price):
-  - trial_period_days: 14
-  - payment_behavior: "default_incomplete" (card required at trial start, not charged until day 15)
+  - trial_period_days: 28
+  - payment_behavior: "default_incomplete" (card required at trial start, not charged until day 29)
 
 Stripe Tax:
   - automatic_tax: enabled
@@ -259,7 +293,7 @@ Stripe Tax:
 | `subscription_status` | enum: `trial / active / past_due / canceled` | Gates access to digest delivery |
 | `plan` | enum: `solo / team` | Gates seat provisioning |
 | `seat_count` | int (1 or 3) | Enforced maximum seats; Solo=1, Team=3 |
-| `trial_ends_at` | timestamp | Day 15 charge date |
+| `trial_ends_at` | timestamp | Day 29 charge date |
 | `stripe_customer_id` | varchar | Stripe customer reference |
 | `stripe_subscription_id` | varchar | Stripe subscription reference |
 
@@ -323,10 +357,10 @@ The `email-templates` phase must produce these 8 templates (reference IDs for Re
 
 | Template ID | Trigger | Key content |
 |---|---|---|
-| `trial_started` | Subscription created (day 0) | "Your 14-day trial has started. First digest: [next Sunday date]." Card confirmed, not charged. Cancel link. |
-| `trial_ending_3d` | `customer.subscription.trial_will_end` (day 12) | "Your trial ends [date]. You'll be charged AUD [price] + GST. Cancel anytime before then." NPS 1-question survey. |
-| `trial_ended_no_convert` | Day 15, subscription cancelled | "Your trial has ended. Re-activate anytime at AUD 199/mo." One anonymised digest teaser. |
-| `subscription_renewed` | `invoice.payment_succeeded` | "You've been charged AUD [amount] + GST. Next digest: [Sunday date]." Invoice link. |
+| `trial_started` | Subscription created (day 0) | "Your 28-day trial has started. First digest: [next Sunday date]." Card confirmed, not charged. Cancel link. |
+| `trial_ending_3d` | `customer.subscription.trial_will_end` (day 26) | "Your trial ends [date]. You'll be charged AUD 99 (GST included). Cancel anytime before then." NPS 1-question survey. |
+| `trial_ended_no_convert` | Day 29, subscription cancelled | "Your trial has ended. Re-activate anytime at AUD 99/mo (GST included)." One anonymised digest teaser. |
+| `subscription_renewed` | `invoice.payment_succeeded` | "You've been charged AUD 99 (GST included). Next digest: [Sunday date]." Invoice link. |
 | `payment_failed` | `invoice.payment_failed` | "We couldn't charge your card. Update payment details to continue receiving your digest." Stripe portal link. |
 | `subscription_canceled` | `customer.subscription.deleted` | "Subscription cancelled. Access continues until [date]. Your digest history is preserved." |
 | `upgrade_confirmed` | Plan change Solo → Team | "You've upgraded to Team (3 seats). Invite your estimators: [link]." |
@@ -348,13 +382,13 @@ The `email-templates` phase must produce these 8 templates (reference IDs for Re
 
 ### 7.2 Trial Banner
 
-> **Start your 14-day free trial.** Card required — charged on day 15 only if you don't cancel. Full refund within 7 days of first charge if you had zero digest interactions (no card clicks, no thumbs).
+> **Start your 28-day free trial.** Card required — charged on day 29 only if you don't cancel. Full refund within 7 days of first charge if you had zero digest interactions (no card clicks, no thumbs).
 
 ### 7.3 Solo Tier Card
 
 **Plan name:** Solo
 
-**Price line:** AUD 199 /mo + GST
+**Price line:** AUD 99 /mo (GST included)
 
 **Tag line:** For owner-operators who quote their own work.
 
@@ -367,11 +401,11 @@ The `email-templates` phase must produce these 8 templates (reference IDs for Re
 - Thumbs feedback → your digest gets smarter each week
 - Cancel anytime from your account — no support call
 
-**CTA button:** Start 14-day trial
+**CTA button:** Start 28-day trial
 
-**Fine print:** AUD 199/mo + GST (AUD 218.90/mo total). Card required. No charge for 14 days. Cancel anytime.
+**Fine print:** AUD 99/mo, GST included. Card required. No charge for 28 days. Cancel anytime.
 
-### 7.4 Team Tier Card
+### 7.4 Team Tier Card *(deferred — not sold until multi-seat ships)*
 
 **Plan name:** Team
 
@@ -384,15 +418,15 @@ The `email-templates` phase must produce these 8 templates (reference IDs for Re
 - Independent thumbs feedback per seat (each estimator's digest personalises separately)
 - Shared billing, one subscription
 
-**CTA button:** Start 14-day trial
+**CTA button:** Start 28-day trial
 
-**Fine print:** AUD 499/mo + GST (AUD 548.90/mo total). Up to 3 seats. Card required. No charge for 14 days. Cancel anytime.
+**Fine print:** *(Deferred.)* Team pricing (AUD 499/mo + GST) is retained design only — the tier is not sold until the multi-seat flow ships. Up to 3 seats. 28-day trial, card required. Cancel anytime.
 
 ### 7.5 Comparison Table vs. Incumbents
 
 | | **PI-AU Solo** | **PI-AU Team** | **Cordell Connect Lite** | **EstimateOne** | **LeadManager** |
 |---|---|---|---|---|---|
-| **Price** | AUD 199/mo + GST | AUD 499/mo + GST | AUD 577.50/mo inc GST | AUD 250/mo (AUD 3,000/yr) | Est. AUD 333/mo (AUD 4k/yr Lite, sales-quote)¹ |
+| **Price** | AUD 99/mo inc GST | Deferred | AUD 577.50/mo inc GST | AUD 250/mo (AUD 3,000/yr) | Est. AUD 333/mo (AUD 4k/yr Lite, sales-quote)¹ |
 | **Seats** | 1 | 3 | 2 | 1 | 1 (per Lite-tier customer reports) |
 | **Geographic scope** | 15 Sydney LGAs | 15 Sydney LGAs | 1 state (NSW) | Head-contractor tenders (AU-wide) | AU + APAC |
 | **Trade scope** | Roofing only | Roofing only | All trades | All trades (tender stage) | All trades |
@@ -400,7 +434,7 @@ The `email-templates` phase must produce these 8 templates (reference IDs for Re
 | **Government tenders** | V2 | V2 | Yes | Limited | Yes |
 | **AI relevance** | Yes — roofing vocabulary | Yes — roofing vocabulary | No — keyword/category | No | No |
 | **Self-serve signup** | Yes — 60 seconds | Yes — 60 seconds | No — sales call | Limited trial | No — demo only |
-| **14-day trial** | Yes — card on file | Yes — card on file | Demo only | Limited-tender trial | Demo only |
+| **28-day trial** | Yes — card on file | Yes — card on file | Demo only | Limited-tender trial | Demo only |
 | **Cancel anytime** | Yes — in-app | Yes — in-app | No — sales-led renewal | Yes | Unknown |
 | **Sunday digest cadence** | Yes | Yes | No | No | No |
 | **SMS alerts** | Yes | Yes | No | No | No |
@@ -419,16 +453,16 @@ The `email-templates` phase must produce these 8 templates (reference IDs for Re
 ### 7.7 FAQ Snippets
 
 **Q: Why do you require a card for the trial?**
-A: To reduce abuse. We reviewed 14 days of real DA data for your LGAs before you even open the first digest — that costs us money and time. The card is how we know you're serious. You won't be charged until day 15, and you can cancel in-app anytime before then.
+A: To reduce abuse. We reviewed 28 days of real DA data for your LGAs before you even open the first digest — that costs us money and time. The card is how we know you're serious. You won't be charged until day 29, and you can cancel in-app anytime before then.
 
-**Q: Is the AUD 199 price inclusive or exclusive of GST?**
-A: Exclusive. The all-in price is AUD 218.90/mo (AUD 199 + 10% GST). Your invoice will show both as separate line items, making it easy to claim as a business expense.
+**Q: Is the AUD 99 price inclusive or exclusive of GST?**
+A: Inclusive. AUD 99/mo is the all-in price you pay — GST is built in. Your invoice still itemises the GST component (~AUD 9) separately so you can claim it as a business expense.
 
 **Q: What happens if I cancel?**
 A: Your access continues until the end of your paid period. No prorating, no drama. Cancel from Account → Subscription — no support ticket needed.
 
 **Q: Can I get a refund?**
-A: If you've had zero digest interactions (never clicked a DA, never given feedback) and you're charged on day 15, we'll refund the full amount within 7 days. Just email us. No questions asked.
+A: If you've had zero digest interactions (never clicked a DA, never given feedback) and you're charged on day 29, we'll refund the full amount within 7 days. Just email us. No questions asked.
 
 **Q: Will the price go up?**
 A: Possibly, as we add features. But existing customers keep their price for at least 12 months after any price change — you'll always get 60 days' notice.
@@ -438,41 +472,43 @@ A: Possibly, as we add features. But existing customers keep their price for at 
 ## Self-Critique Gate
 
 ### Mom Test
-A Sydney roofing owner sees two tiers: Solo at AUD 199/mo (1 seat) and Team at AUD 499/mo (3 seats). He is Estimator Eli (1-person quoting operation) — he picks Solo without reading the Team copy. Gabby (2 estimators under her) sees Team and invites her two estimators. Both know immediately which tier they belong in. **Pass.**
+A Sydney roofing owner sees one plan: Solo at AUD 99/mo inc GST (1 seat). He is Estimator Eli (1-person quoting operation) — one plan, one all-in price, no tier decision to agonise over. When the multi-seat "Team" tier ships, Gabby (2 estimators under her) will get an upgrade path; until then the single Solo plan is unambiguous. **Pass.**
 
 ### Spreadsheet Test
-ROI case for Eli: He currently pays Cordell AUD 577.50/mo and spends 6 hours/week triaging. PI-AU costs AUD 218.90/mo (inc GST) and returns 5 minutes/week. Cost saving vs Cordell: AUD 358.60/mo. Time saving: ~24 hours/month. At AUD 80/hr opportunity cost, that's AUD 1,920/month in recovered time + AUD 358.60 cash saving = **AUD 2,278.60/month ROI on a AUD 218.90 spend**. 10× positive in 60 seconds of back-of-napkin math. **Pass.**
+ROI case for Eli: He currently pays Cordell AUD 577.50/mo and spends 6 hours/week triaging. PI-AU costs AUD 99/mo (GST included) and returns 5 minutes/week. Cost saving vs Cordell: AUD 478.50/mo. Time saving: ~24 hours/month. At AUD 80/hr opportunity cost, that's AUD 1,920/month in recovered time + AUD 478.50 cash saving = **AUD 2,398.50/month ROI on a AUD 99 spend**. >20× positive in 60 seconds of back-of-napkin math. **Pass.**
 
 ### Competitor Delta
-Solo AUD 199/mo vs Cordell AUD 577.50/mo = 0.34×. Solo AUD 199/mo vs EstimateOne AUD 250/mo = 0.80×. Both within 0.5×–2× guidance range (lower bound breached vs Cordell, but this is intentional and the wedge's price advantage is the positioning, not a commodity trap — the delivery channel and niche are structurally different). **Pass with note.**
+Solo AUD 99/mo inc GST vs Cordell AUD 577.50/mo = 0.17×. Solo AUD 99/mo vs EstimateOne AUD 250/mo = 0.40×. Both now sit below the 0.5×–2× guidance floor — intentionally, post-repricing (see Changelog): the price advantage is deliberate self-serve positioning against a clean all-in number, not a commodity trap, because the delivery channel and niche are structurally different from either incumbent. **Pass with note.**
 
 ### Wedge Consistency
-Niche axis → flat-rate subscription at mid-high price for a small TAM. AUD 199/mo is mid-range for AU trade SaaS (above Xero, below Cordell). Trial mechanic is card-on-file (appropriate for Niche/trust axis, not freemium). No free tier (explicitly required by anti-axis). Upgrade trigger (second seat) is cleanly tied to team growth, not artificial feature locks. **Pass.**
+Niche axis → flat-rate subscription for a small TAM. AUD 99/mo inc GST sits at the low-mid of AU trade SaaS (near Xero, well below Cordell) — a deliberate self-serve entry price post-repricing. Trial mechanic is card-on-file (appropriate for Niche/trust axis, not freemium). No free tier (explicitly required by anti-axis). The Solo → Team upgrade path (second seat) is deferred with the Team tier but remains cleanly tied to team growth, not artificial feature locks. **Pass.**
 
 ---
 
 ## Open Issues
 
-0 open issues. All binding constraints from wedge are honoured:
-- Solo: AUD 199/mo + GST. One seat. All 15 LGAs. ✓
-- Team: AUD 499/mo + GST. Three seats. All 15 LGAs. ✓
-- 14-day trial, card on file, day-15 charge. ✓
+0 open issues. All binding constraints from wedge are honoured (post-2026-07 reprice — see Changelog):
+- Solo: AUD 99/mo, GST included. One seat. All 15 LGAs. ✓
+- Team: deferred until multi-seat ships (design retained above). ✓
+- 28-day trial, card on file, day-29 charge. ✓
 - Full refund within 7 days post-charge if zero usage. ✓
 - No free tier. ✓
 - No contact-data add-on. ✓
 - No head-contractor tender upsell. ✓
 - No multi-trade add-on. ✓
-- GST via Stripe Tax, AUD prices shown "+ GST". ✓
+- GST via Stripe Tax, AUD prices shown GST-inclusive (all-in AUD 99). ✓
 - Annual option: NO for MVP. ✓
-- Upgrade trigger: second seat invitation (Solo → Team). ✓
+- Upgrade trigger (second seat, Solo → Team): deferred with the Team tier. ✓
+- Single source of truth for price + trial length: `src/lib/pricing.ts`. ✓
 
 ---
 
 ## Pricing Locked
 
-- Model:              Flat-rate tiered subscription
-- Tiers:              Solo AUD 199/mo + GST | Team AUD 499/mo + GST
-- Trial:              14-day, card on file, day-15 charge
+- Model:              Flat-rate subscription (single plan)
+- Tiers:              Solo AUD 99/mo, GST included | Team deferred (multi-seat)
+- Trial:              28-day, card on file, day-29 charge
 - Activation event:   First Sunday digest: user taps DA card or gives thumbs feedback
-- Currency:           AUD
-- Status:             LOCKED
+- Currency:           AUD (GST-inclusive pricing)
+- Source of truth:    src/lib/pricing.ts
+- Status:             LOCKED (repriced 2026-07)

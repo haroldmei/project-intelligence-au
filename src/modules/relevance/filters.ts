@@ -1,5 +1,5 @@
 // Stage 1: prefilter SQL — roofing keyword GIN tsvector + LGA bundle + value range.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 // FR-004 | system-design §2 relevance component, §3.4 vector/embedding tables
 //

@@ -43,9 +43,11 @@ Then in the Vercel dashboard:
 1. https://dashboard.stripe.com → toggle to Live mode (top-left).
 2. Settings → API Keys → reveal `sk_live_...`. Paste as `STRIPE_SECRET_KEY`.
 3. Products → Create:
-   - **Solo** — recurring, AUD $199/month → copy `price_...` to
-     `STRIPE_PRICE_ID_SOLO`.
-   - **Team** — recurring, AUD $499/month → `STRIPE_PRICE_ID_TEAM`.
+   - **Solo** — recurring, AUD $99/month, **tax behaviour: inclusive** (GST is
+     built into the $99; see `src/lib/pricing.ts`, the single source of truth,
+     and docs/16-pricing.md) → copy `price_...` to `STRIPE_PRICE_ID_SOLO`.
+   - **Team** — *deferred*: do not create until the multi-seat flow ships.
+     `STRIPE_PRICE_ID_TEAM` stays unset in live mode for now.
 4. Webhooks → Add endpoint:
    - URL: `https://<your-vercel-domain>/api/webhooks/stripe`
    - Events: `customer.subscription.created`, `customer.subscription.updated`,
@@ -133,7 +135,7 @@ status with `vercel crons ls` after the first deploy.
 ## Month 1 success criteria
 
 Per `docs/18-roadmap-3-month.md`, end of May:
-- 3 design-partner subscriptions at AUD $199
+- 3 design-partner subscriptions at AUD $99 (GST included)
 - Sunday digest delivers (manual researcher curation OK while scrapers
   come online)
 - PostHog funnel measurable: landing → signup → onboarding → first paid

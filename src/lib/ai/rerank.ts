@@ -1,5 +1,5 @@
 // LLM rerank — Anthropic Claude haiku-4-5 primary, sonnet-4-6 fallback.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2 | Phase: ai-features
 //
 // Stage 3 of the relevance pipeline (system-design §3.3 / §contract.ai.relevance_pipeline).

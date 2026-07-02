@@ -1,7 +1,10 @@
 // Stripe billing service — subscription create/cancel/reactivate.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
-// contract: payments.provider = stripe | payments.billing_region = au | payments.plans.solo = AUD 199/mo
+// contract: payments.provider = stripe | payments.billing_region = au | payments.plans.solo = AUD 99/mo inc GST
+// Price is the single source of truth in src/lib/pricing.ts — the actual amount
+// charged lives in the Stripe Price object (STRIPE_PRICE_ID_SOLO); the module
+// values are echoed into checkout metadata for reconciliation, never re-charged.
 // FR-018, FR-019, FR-021 | system-design §2 billing + §4 API
 //
 // ASSUMPTION: Stripe SDK is not yet in package.json. Using REST API via fetch.
@@ -9,6 +12,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import pino from "pino";
 import { env } from "@/lib/env";
+import { PRICING } from "@/lib/pricing";
 
 const log = pino({ name: "billing" });
 
@@ -179,12 +183,19 @@ export async function createCheckoutSession(
     // which automatic_tax requires for the location lookup.
     "automatic_tax[enabled]": "true",
     "customer_update[address]": "auto",
-    currency: "aud",
+    currency: PRICING.currency.toLowerCase(),
     success_url: successUrl,
     cancel_url: cancelUrl,
+    // Reconciliation metadata — the price shown in-app (single source of truth:
+    // src/lib/pricing.ts) travels with the subscription so a mismatch between
+    // the Stripe Price object and the advertised price is auditable.
+    "subscription_data[metadata][plan]": plan,
+    "subscription_data[metadata][advertised_price_cents]": String(PRICING.priceCents),
+    "subscription_data[metadata][advertised_currency]": PRICING.currency,
+    "subscription_data[metadata][gst_inclusive]": String(PRICING.gstInclusive),
   };
   if (opts.withTrial !== false) {
-    params["subscription_data[trial_period_days]"] = "28";
+    params["subscription_data[trial_period_days]"] = String(PRICING.trialDays);
   }
   const session = await stripePost<{ url: string; id: string }>("/checkout/sessions", params);
   return { url: session.url, id: session.id };
