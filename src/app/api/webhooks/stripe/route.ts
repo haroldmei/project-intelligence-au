@@ -7,11 +7,41 @@
 // Idempotent: keyed on event.id (FR-030) via the stripe_webhook_events table.
 // GST: Stripe AU / Stripe Tax handles GST line items (NFR-029) — no app-side GST logic needed.
 import { db } from "@/lib/db";
-import { validateStripeWebhook, planFromPriceId } from "@/modules/billing/stripe";
+import {
+  validateStripeWebhook,
+  planFromPriceId,
+  clampAccessUntil,
+  MAX_ACCESS_DAYS,
+} from "@/modules/billing/stripe";
 import { env } from "@/lib/env";
+import * as Sentry from "@sentry/nextjs";
 import pino from "pino";
 
 const log = pino({ name: "webhook-stripe" });
+
+/**
+ * Clamp a Stripe period-end to a sane accessUntil window, warning (log +
+ * Sentry) when a bound fires. A clamp means the payload was anomalous — a
+ * far-future/absurd value (would over-grant), a past value, or missing —
+ * which is worth surfacing even though we've handled it safely (G-007).
+ */
+function clampAndWarn(
+  periodEndSeconds: number | null | undefined,
+  ctx: { userId: string; eventType: string },
+): Date {
+  const { accessUntil, clamped } = clampAccessUntil(periodEndSeconds);
+  if (clamped !== "none") {
+    log.warn(
+      { ...ctx, periodEndSeconds, clamped, accessUntil, maxAccessDays: MAX_ACCESS_DAYS },
+      `[webhook-stripe] accessUntil clamped (${clamped}) — anomalous current_period_end`,
+    );
+    Sentry.captureMessage(
+      `Stripe accessUntil clamped (${clamped}) for user ${ctx.userId}`,
+      { level: "warning", tags: { userId: ctx.userId, phase: "billing-accessuntil-clamp", clamped } },
+    );
+  }
+  return accessUntil;
+}
 
 export const runtime = "nodejs";
 
@@ -91,7 +121,7 @@ async function handleStripeEvent(type: string, obj: Record<string, unknown>): Pr
         where: { id: user.id },
         data: {
           subscriptionStatus: status,
-          accessUntil: periodEnd ? new Date(periodEnd * 1000) : undefined,
+          accessUntil: clampAndWarn(periodEnd, { userId: user.id, eventType: type }),
           cancelAtPeriodEnd,
           ...(plan ? { plan } : {}),
         },
@@ -131,7 +161,7 @@ async function handleStripeEvent(type: string, obj: Record<string, unknown>): Pr
           where: { id: user.id },
           data: {
             subscriptionStatus: "active",
-            accessUntil: periodEnd ? new Date(periodEnd * 1000) : undefined,
+            accessUntil: clampAndWarn(periodEnd, { userId: user.id, eventType: type }),
           },
         });
         log.info({ userId: user.id }, "[webhook-stripe] payment succeeded → active");
