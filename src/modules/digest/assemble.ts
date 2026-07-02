@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email/client";
 import { sendSms, SMS_SENDER_ID, SMS_STOP_FOOTER } from "@/lib/sms/client";
 import { issueFeedbackToken, issueUnsubscribeToken } from "@/lib/hmac/token";
+import { captureServer } from "@/lib/analytics/server";
 import { env } from "@/lib/env";
 import type { RelevanceRunResult } from "@/modules/relevance/run";
 import pino from "pino";
@@ -171,6 +172,10 @@ export async function assembleAndSendDigest(
       smsStatus,
     },
   });
+
+  // North-star funnel entry: a digest was sent to this user. Card count +
+  // fallbackUsed only — no DA payload text (issue #17).
+  captureServer(userId, "digest_sent", { cardCount: daCount, fallbackUsed: relevance.fallbackUsed });
 
   return { digestId: digest.id, daCount, emailStatus, smsStatus };
 }

@@ -14,6 +14,7 @@ import {
   MAX_ACCESS_DAYS,
 } from "@/modules/billing/stripe";
 import { env } from "@/lib/env";
+import { captureServer } from "@/lib/analytics/server";
 import * as Sentry from "@sentry/nextjs";
 import pino from "pino";
 
@@ -130,6 +131,12 @@ async function handleStripeEvent(type: string, obj: Record<string, unknown>): Pr
         { userId: user.id, status, cancelAtPeriodEnd, plan },
         "[webhook-stripe] subscription updated",
       );
+      // Conversion = transition INTO active from any non-active state (trial,
+      // past_due, …). Guarded on the prior DB value so re-delivered `updated`
+      // events for an already-active sub don't double-count.
+      if (status === "active" && user.subscriptionStatus !== "active") {
+        captureServer(user.id, "trial_converted", {});
+      }
       break;
     }
     case "customer.subscription.deleted": {
@@ -138,6 +145,7 @@ async function handleStripeEvent(type: string, obj: Record<string, unknown>): Pr
         data: { subscriptionStatus: "cancelled", cancelAtPeriodEnd: false },
       });
       log.info({ userId: user.id }, "[webhook-stripe] subscription cancelled");
+      captureServer(user.id, "subscription_cancelled", { cancelAtPeriodEnd: false });
       break;
     }
     case "invoice.payment_failed":

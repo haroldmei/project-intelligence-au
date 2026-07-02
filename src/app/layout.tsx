@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { CookieConsent } from "@/components/cookie-consent";
+import { AnalyticsProvider } from "@/components/analytics-provider";
 import { env } from "@/lib/env";
 
 const inter = Inter({
@@ -35,6 +36,7 @@ export default function RootLayout({
           Skip to main content
         </a>
         {children}
+        <AnalyticsProvider />
         <CookieConsent />
       </body>
     </html>

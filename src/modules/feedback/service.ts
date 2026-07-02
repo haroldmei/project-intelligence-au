@@ -3,6 +3,7 @@
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 // FR-023, FR-024 | system-design §2 feedback, §4 API design
 import { db } from "@/lib/db";
+import { captureServer } from "@/lib/analytics/server";
 
 export type FeedbackVote = "up" | "down";
 
@@ -21,6 +22,9 @@ export async function recordFeedback(
     create: { userId, daId, feedback: vote, source },
     update: { feedback: vote, source },
   });
+  // Single choke point for both channels (portal POST + email GET link).
+  // daId is an internal DA id, not payload text — safe to send.
+  captureServer(userId, "da_feedback", { vote, source });
 }
 
 /**

@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { validateFeedbackToken } from "@/lib/hmac/token";
 import { recordFeedback } from "@/modules/feedback/service";
+import { captureServer } from "@/lib/analytics/server";
 import { env } from "@/lib/env";
 import pino from "pino";
 
@@ -38,6 +39,10 @@ export async function GET(
 
   const { userId, daId, vote } = validation.payload;
   const feedbackVote = vote === 1 ? "up" : "down";
+
+  // The email link both records feedback AND lands the user in the portal —
+  // capture the clickthrough (server-side, no cookies) keyed by user id.
+  captureServer(userId, "portal_clickthrough", { source: "email" });
 
   try {
     await recordFeedback(userId, daId, feedbackVote, "email");
