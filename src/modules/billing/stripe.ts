@@ -96,6 +96,55 @@ export function planFromPriceId(priceId: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Upper bound for subscription access, in days from "now". 400 days covers an
+ * annual prepay (365d) with ~5 weeks of margin (proration, grace, clock skew).
+ * Guards adversarial finding G-007: a crafted/buggy webhook payload can carry
+ * an absurd `current_period_end` (→ year 33658) that would otherwise grant
+ * effectively unlimited access.
+ */
+export const MAX_ACCESS_DAYS = 400;
+const MS_PER_DAY = 86_400_000;
+
+export interface ClampedAccess {
+  /** The clamped access-until instant, safe to persist to `User.accessUntil`. */
+  accessUntil: Date;
+  /** Which bound fired — drives the log/Sentry warning at the call site. */
+  clamped: "none" | "floor" | "ceiling" | "invalid";
+}
+
+/**
+ * Clamp a Stripe `current_period_end` (unix seconds) to a sane accessUntil
+ * window: `[now, now + MAX_ACCESS_DAYS]` (adversarial G-007).
+ *
+ * Stripe values are trusted on the happy path, but a malformed or malicious
+ * webhook payload can carry `0` (→ 1970, instant access loss) or an absurd
+ * far-future value (→ year 33658, effectively unlimited access). We pin both
+ * ends so a bad payload can neither revoke a paid-up user early nor mint
+ * unbounded access.
+ *
+ * - missing / non-finite / ≤ 0 → floored to `now`, marked `"invalid"`
+ * - before now → floored to `now`, marked `"floor"`
+ * - after now + MAX_ACCESS_DAYS → capped at the ceiling, marked `"ceiling"`
+ * - within bounds → passed through, marked `"none"`
+ */
+export function clampAccessUntil(
+  periodEndSeconds: number | null | undefined,
+  now: Date = new Date(),
+): ClampedAccess {
+  const nowMs = now.getTime();
+  const ceilingMs = nowMs + MAX_ACCESS_DAYS * MS_PER_DAY;
+
+  if (periodEndSeconds == null || !Number.isFinite(periodEndSeconds) || periodEndSeconds <= 0) {
+    return { accessUntil: new Date(nowMs), clamped: "invalid" };
+  }
+
+  const endMs = periodEndSeconds * 1000;
+  if (endMs < nowMs) return { accessUntil: new Date(nowMs), clamped: "floor" };
+  if (endMs > ceilingMs) return { accessUntil: new Date(ceilingMs), clamped: "ceiling" };
+  return { accessUntil: new Date(endMs), clamped: "none" };
+}
+
 export interface CheckoutSession {
   url: string;
   id: string;

@@ -40,7 +40,7 @@ to close before launch tier:
 - **G-004** [Low, feedback/route.ts] Stealing both up/down email links for the same DA → upsert last-write-wins. Mitigation: include vote in URL path.
 - **G-005** [Med, relevance/run.ts] No defence-in-depth against prompt-injection in DA descriptions reaching the LLM rerank. Mitigation: sanitise/quote DA text in `rerank.ts`.
 - **G-006** [Low, lib/sms/client.ts] `validateTwilioSignature` uses `===` for HMAC comparison, not `timingSafeEqual`.
-- **G-007** [Med, webhooks/stripe/route.ts] No upper bound on `current_period_end`; 0 → access loss in 1970, huge value → year 33658. Mitigation: clamp accessUntil to `[now, now + 5y]`.
+- **G-007** [Med, webhooks/stripe/route.ts] ✅ **RESOLVED (issue #21).** No upper bound on `current_period_end`; 0 → access loss in 1970, huge value → year 33658. Fixed: `clampAccessUntil` (src/modules/billing/stripe.ts) pins `accessUntil` to `[now, now + 400d]` (annual prepay + margin) at both webhook write sites; a clamp logs + Sentry-warns. Regression: `__tests__/billing/stripe.test.ts` (far-future, past, missing/non-finite → clamped).
 - **G-008** [Low, cost-ledger.ts priceFor] Accepts negative or NaN tokens → negative/NaN cost in ledger. Mitigation: `Math.max(0, …)` and reject NaN.
 - **G-009** [Low, relevance-pipeline] Pipeline doesn't post-cap to `maxDigestSize`; trusts rerank. Mitigation: `results.slice(0, maxDigestSize)`.
 
