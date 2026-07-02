@@ -47,6 +47,9 @@ export interface DigestCard {
   approvalPathway?: string | null;
   // Honest lead class (issue #14) — persisted on DigestDa at assembly time.
   leadClass: LeadClass;
+  // ISO yyyy-mm-dd a Construction Certificate was issued against this DA (issue
+  // #13), or null. Drives the "CC issued — work starting" badge on the portal.
+  constructionCertifiedAt: string | null;
   estimatedValue: number | null;
   portalUrl: string;
   applicantName: string | null;
@@ -89,6 +92,7 @@ export async function getCurrentDigest(userId: string): Promise<DigestDetail | n
               applicantName: true,
               description: true,
               lodgementDate: true,
+              constructionCertifiedAt: true,
             },
           },
         },
@@ -114,6 +118,8 @@ export async function getCurrentDigest(userId: string): Promise<DigestDetail | n
       relevanceScore: dd.relevanceScore,
       whyMatched: dd.whyMatched,
       leadClass: toLeadClass(dd.leadClass),
+      constructionCertifiedAt:
+        dd.da.constructionCertifiedAt?.toISOString().slice(0, 10) ?? null,
       address: dd.da.address,
       council: dd.da.council,
       estimatedValue: dd.da.estimatedValue ? Number(dd.da.estimatedValue) : null,
@@ -178,6 +184,7 @@ export async function getDigestById(userId: string, digestId: string): Promise<D
               applicantName: true,
               description: true,
               lodgementDate: true,
+              constructionCertifiedAt: true,
             },
           },
         },
@@ -203,6 +210,8 @@ export async function getDigestById(userId: string, digestId: string): Promise<D
       relevanceScore: dd.relevanceScore,
       whyMatched: dd.whyMatched,
       leadClass: toLeadClass(dd.leadClass),
+      constructionCertifiedAt:
+        dd.da.constructionCertifiedAt?.toISOString().slice(0, 10) ?? null,
       address: dd.da.address,
       council: dd.da.council,
       estimatedValue: dd.da.estimatedValue ? Number(dd.da.estimatedValue) : null,

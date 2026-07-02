@@ -53,6 +53,20 @@ describe("DACard", () => {
     expect(screen.queryByText(/AUD/i)).toBeNull();
   });
 
+  // Issue #13: a fixture CC linked to a fixture DA (represented by the
+  // constructionCertifiedAt prop the PCC linkage stamps) renders the
+  // "CC issued — work starting" badge with the date.
+  it("renders the CC 'work starting' badge when constructionCertifiedAt is present", () => {
+    render(<DACard {...PROPS} constructionCertifiedAt="2026-06-15" />);
+    const badge = screen.getByText(/CC issued 15 Jun 2026 — work starting/i);
+    expect(badge).toBeTruthy();
+  });
+
+  it("does not render the CC badge when constructionCertifiedAt is absent", () => {
+    render(<DACard {...PROPS} />);
+    expect(screen.queryByText(/work starting/i)).toBeNull();
+  });
+
   it("renders the whyMatched text", () => {
     render(<DACard {...PROPS} />);
     expect(screen.getByText(/Colorbond replacement/i)).toBeTruthy();

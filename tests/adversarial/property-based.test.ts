@@ -139,6 +139,7 @@ describe("Digest assembly determinism property", () => {
       rawScopeText: null,
       estimatedValue: 50_000 + i,
       lodgementDate: "2026-04-01",
+      constructionCertifiedAt: null,
       applicantName: null,
       portalUrl: `https://example.com/da-${i}`,
     }));

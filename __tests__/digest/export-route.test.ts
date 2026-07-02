@@ -38,6 +38,7 @@ const sampleDigest: DigestDetail = {
       relevanceScore: 0.9,
       whyMatched: "roofing",
       leadClass: "builder_pipeline",
+      constructionCertifiedAt: null,
       address: "1 Smith St",
       council: "Inner West",
       estimatedValue: 100000,

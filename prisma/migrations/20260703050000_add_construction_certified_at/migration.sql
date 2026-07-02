@@ -1,0 +1,15 @@
+-- Persist the date a Construction Certificate was issued against a DA/CDC
+-- (issue #13, docs/24 G11). A CC is the "work starting now" timing signal — the
+-- head contractor has procured trades and is about to break ground, unlike
+-- lodgement (6–18 months out) or determination (approved, not yet begun).
+--
+-- Populated by the Online PCC Data API adapter (src/modules/ingestion/pcc.ts),
+-- which links each Construction Certificate back to its related application by
+-- (da_id, council). v1 ingests Construction Certificates only; OC/SC records are
+-- ignored.
+--
+-- Nullable, no default: the vast majority of DAs never get a CC (or the CC feed
+-- is off). Existing rows stay null until a matching CC is ingested. Mirrors
+-- determination_date — a single nullable date, no separate certificate table for
+-- the v1 "date + badge" signal.
+ALTER TABLE "development_applications" ADD COLUMN "construction_certified_at" DATE;

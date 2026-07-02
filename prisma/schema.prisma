@@ -157,6 +157,15 @@ model DevelopmentApplication {
   // drop stale leads (>180 days old determined DAs are noise — the project
   // has either already built or been abandoned).
   determinationDate DateTime? @map("determination_date") @db.Date
+  // Date a Construction Certificate was issued against this DA/CDC (issue #13).
+  // A CC means work is about to START — the "work starting now" timing signal,
+  // distinct from lodgement (6–18mo out) and determination (approved, not yet
+  // begun). Populated by the Online PCC Data API adapter (src/modules/ingestion/
+  // pcc.ts) linking CC records back to their related application by (da_id,
+  // council). Null until a CC is issued — the vast majority of rows. Mirrors
+  // determination_date: a single nullable date, no separate table needed for the
+  // v1 "date + badge" signal.
+  constructionCertifiedAt DateTime? @map("construction_certified_at") @db.Date
   applicantName  String?  @map("applicant_name")
   portalUrl      String   @map("portal_url")
   rawScopeText   String?  @map("raw_scope_text")

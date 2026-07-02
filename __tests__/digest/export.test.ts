@@ -13,6 +13,7 @@ function card(overrides: Partial<DigestCard> = {}): DigestCard {
     relevanceScore: 0.87,
     whyMatched: "Matches your roofing scope",
     leadClass: "builder_pipeline",
+    constructionCertifiedAt: null,
     address: "1 Smith St, Newtown NSW 2042",
     council: "Inner West",
     estimatedValue: 250000,

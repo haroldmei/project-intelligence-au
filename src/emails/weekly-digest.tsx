@@ -17,6 +17,9 @@ interface DACard {
   // Honest lead class (issue #14). Optional so pre-#14 callers still typecheck;
   // absent → the ambiguous fallback (builder pipeline).
   leadClass?: LeadClass;
+  // ISO yyyy-mm-dd a Construction Certificate was issued against this DA (issue
+  // #13), or absent. Present → the "CC issued — work starting" badge renders.
+  constructionCertifiedAt?: string | null;
   portalUrl: string;
   thumbUpUrl: string;
   thumbDownUrl: string;
@@ -37,6 +40,32 @@ function leadClassBadgeHtml(leadClass: LeadClass): string {
   const s = LEAD_CLASS_EMAIL_STYLE[leadClass];
   const label = escapeHtml(LEAD_CLASS_META[leadClass].label);
   return `<span style="display: inline-block; padding: 4px 8px; margin-left: 6px; background-color: ${s.bg}; color: ${s.fg}; border: 1px solid ${s.border}; border-radius: 4px; font-weight: 500;">${label}</span>`;
+}
+
+const CC_MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/**
+ * Format a yyyy-mm-dd date as "1 Jun 2026" without `Date` (a bare
+ * `new Date("2026-06-01")` is UTC midnight and can shift a day in AEST). Mirrors
+ * the portal ConstructionCertBadge so the email and portal read identically.
+ */
+function formatCcDate(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  const [, year, month, day] = m;
+  return `${Number(day)} ${CC_MONTHS[Number(month) - 1] ?? month} ${year}`;
+}
+
+/**
+ * The "CC issued — work starting" badge (issue #13), inlined green ("go") so it
+ * survives email clients that strip <style>. Mirrors the `success` Badge variant.
+ */
+function ccBadgeHtml(isoDate: string): string {
+  const label = escapeHtml(`CC issued ${formatCcDate(isoDate)} — work starting`);
+  return `<span style="display: inline-block; padding: 4px 8px; margin-left: 6px; background-color: #DCFCE7; color: #14532D; border-radius: 4px; font-weight: 500;">${label}</span>`;
 }
 
 function leadClassGroupHeaderHtml(leadClass: LeadClass): string {
@@ -103,7 +132,7 @@ export function WeeklyDigestTemplate(props: {
               <table style="width: 100%;">
                 <tr>
                   <td style="font-size: 12px; color: #627D98;">
-                    <span style="display: inline-block; padding: 4px 8px; background-color: #FEF3C7; color: #78350F; border-radius: 4px; font-weight: 500;">${escapeHtml(card.lga)}</span>${leadClassBadgeHtml(toLeadClass(card.leadClass))}
+                    <span style="display: inline-block; padding: 4px 8px; background-color: #FEF3C7; color: #78350F; border-radius: 4px; font-weight: 500;">${escapeHtml(card.lga)}</span>${leadClassBadgeHtml(toLeadClass(card.leadClass))}${card.constructionCertifiedAt ? ccBadgeHtml(card.constructionCertifiedAt) : ""}
                   </td>
                   <td style="text-align: right; font-size: 12px; color: #627D98; letter-spacing: 2px;">${getPips(card.relevanceScore)}</td>
                 </tr>

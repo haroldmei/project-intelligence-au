@@ -29,6 +29,9 @@ export interface CandidateDA {
   lodgementDate: string; // yyyy-mm-dd
   applicantName: string | null;
   portalUrl: string;
+  /** ISO yyyy-mm-dd a Construction Certificate was issued against this DA (#13),
+   *  or null. A recency/timing signal fed to the rerank ("work starting now"). */
+  constructionCertifiedAt: string | null;
   /** Cosine similarity from stage 2 — used for tie-break and logging. */
   cosineSimilarity?: number;
 }
@@ -196,6 +199,7 @@ export async function runRelevancePipeline(
     rawScopeText: c.rawScopeText,
     estimatedValue: c.estimatedValue,
     lodgementDate: c.lodgementDate,
+    constructionCertifiedAt: c.constructionCertifiedAt,
   }));
 
   const rerankResults = await rerankCandidates(
