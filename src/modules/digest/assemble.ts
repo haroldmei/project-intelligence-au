@@ -55,29 +55,46 @@ export async function assembleAndSendDigest(
     }),
   );
 
-  // Create Digest record
-  const digest = await db.digest.create({
-    data: {
-      userId,
-      runId,
-      daCount,
-      fallbackUsed: relevance.fallbackUsed,
-    },
+  // Idempotent resume (issue #12): the retry tick re-enters assembly for a
+  // user whose primary attempt partially failed. Reuse the Digest row the
+  // primary already created rather than inserting a duplicate — and remember
+  // which channels already succeeded so we don't re-send them below.
+  const existing = await db.digest.findFirst({
+    where: { userId, runId },
+    select: { id: true, emailStatus: true, smsStatus: true },
   });
+  const emailAlreadyDelivered =
+    existing?.emailStatus === "sent" || existing?.emailStatus === "skipped_optout";
+  const smsAlreadyDelivered = existing?.smsStatus === "sent" || existing?.smsStatus === "skipped";
 
-  // Create DigestDa records (FR-012: DA card stores portal_url)
-  for (let i = 0; i < results.length; i++) {
-    const r = results[i];
-    await db.digestDa.create({
+  const digest =
+    existing ??
+    (await db.digest.create({
       data: {
-        digestId: digest.id,
-        daId: r.daId,
-        relevanceScore: r.score * 2, // 0–5 → 0–10 per schema comment
-        whyMatched: r.why,
-        rank: i + 1,
-        leadClass: leadClasses[i],
+        userId,
+        runId,
+        daCount,
+        fallbackUsed: relevance.fallbackUsed,
       },
-    });
+    }));
+
+  // Create DigestDa records only on first assembly (FR-012: DA card stores
+  // portal_url). The cards are fixed for the week, so a retry must not
+  // duplicate them.
+  if (!existing) {
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      await db.digestDa.create({
+        data: {
+          digestId: digest.id,
+          daId: r.daId,
+          relevanceScore: r.score * 2, // 0–5 → 0–10 per schema comment
+          whyMatched: r.why,
+          rank: i + 1,
+          leadClass: leadClasses[i],
+        },
+      });
+    }
   }
 
   const weekStart = getWeekStartLabel();
@@ -121,9 +138,12 @@ export async function assembleAndSendDigest(
   const smsOptIn = optState?.smsOptIn ?? false;
   const mobile = optState?.mobile_e164 ?? null;
 
-  // Send email (FR-010)
-  let emailStatus = "pending";
-  if (!emailOptIn) {
+  // Send email (FR-010). On a retry, skip the send entirely if the primary
+  // tick already delivered it — re-sending would double-mail the user.
+  let emailStatus = existing?.emailStatus ?? "pending";
+  if (emailAlreadyDelivered) {
+    log.info({ userId, digestId: digest.id }, "[digest] email already delivered — not re-sending");
+  } else if (!emailOptIn) {
     emailStatus = "skipped_optout";
     log.info({ userId, digestId: digest.id }, "[digest] email suppressed — unsubscribed");
   } else {
@@ -153,9 +173,11 @@ export async function assembleAndSendDigest(
 
   // Send SMS to top-3 if opted in (FR-011). Uses the freshly re-read flag so a
   // mid-run STOP suppresses the SMS even though `user.smsOptIn` was true at
-  // assembly time.
-  let smsStatus = "skipped";
-  if (smsOptIn && mobile && cards.length > 0) {
+  // assembly time. On a retry, skip if the primary tick already delivered it.
+  let smsStatus = existing?.smsStatus ?? "skipped";
+  if (smsAlreadyDelivered) {
+    log.info({ userId, digestId: digest.id }, "[digest] sms already delivered — not re-sending");
+  } else if (smsOptIn && mobile && cards.length > 0) {
     const top3 = cards.slice(0, SMS_MAX_CARDS);
     // Persist a ShortUrl row per card BEFORE building the SMS body so
     // the /s/<slug> redirect handler can resolve clicks. Without these
@@ -175,6 +197,10 @@ export async function assembleAndSendDigest(
     const smsBody = buildSmsBody(linkedTop3, lgaLabels, weekStart);
     const sent = await sendSms({ to: mobile, body: smsBody });
     smsStatus = sent ? "sent" : "failed";
+  } else {
+    // Not opted in / no mobile — nothing to send this pass. Reset any prior
+    // "failed" so the row doesn't stay retryable after the user opts out.
+    smsStatus = "skipped";
   }
 
   // Update Digest with send statuses
@@ -188,8 +214,15 @@ export async function assembleAndSendDigest(
   });
 
   // North-star funnel entry: a digest was sent to this user. Card count +
-  // fallbackUsed only — no DA payload text (issue #17).
-  captureServer(userId, "digest_sent", { cardCount: daCount, fallbackUsed: relevance.fallbackUsed });
+  // fallbackUsed only — no DA payload text (issue #17). Fire only when THIS
+  // pass delivered the email, so a retry recovering the SMS channel (email
+  // already sent on the primary tick) doesn't double-count the funnel.
+  if (emailStatus === "sent" && !emailAlreadyDelivered) {
+    captureServer(userId, "digest_sent", {
+      cardCount: daCount,
+      fallbackUsed: relevance.fallbackUsed,
+    });
+  }
 
   return { digestId: digest.id, daCount, emailStatus, smsStatus };
 }

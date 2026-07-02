@@ -11,6 +11,7 @@
 //   NFR-001: cron must complete in < 55 minutes for N ≤ 100 users.
 import * as Sentry from "@sentry/nextjs";
 import { db } from "@/lib/db";
+import { cronWeekStartUtc } from "@/lib/cron/retry";
 import { runRelevanceForUser } from "@/modules/relevance/run";
 import { assembleAndSendDigest } from "./assemble";
 import { digestWeekWindow, getJurisdictionConfig } from "@/modules/ingestion/jurisdictions/config";
@@ -20,10 +21,36 @@ const log = pino({ name: "digest-cron" });
 
 export interface DigestCronResult {
   runId: string;
+  /** True when this invocation resumed an existing week's run (the retry tick). */
+  resumed: boolean;
   usersProcessed: number;
   sent: number;
   failed: number;
+  /** Active users still without a delivered digest after this pass. */
+  unserved: number;
   durationMs: number;
+}
+
+/**
+ * A Digest row needs no further work for the week when BOTH channels have
+ * reached a terminal state — delivered, or legitimately not sendable.
+ *
+ * Retryable (NOT complete): emailStatus "failed"/"pending"/null, or
+ * smsStatus "failed". A user with no Digest row for the run is likewise
+ * treated as incomplete (never attempted).
+ */
+export function isDigestComplete(d: {
+  emailStatus: string | null;
+  smsStatus: string | null;
+}): boolean {
+  // "skipped" = no relevance result (audit row); "skipped_optout" = unsubscribed.
+  // Both are terminal for the week — re-running won't change them in 3 hours.
+  const emailDone =
+    d.emailStatus === "sent" || d.emailStatus === "skipped_optout" || d.emailStatus === "skipped";
+  // smsStatus is null only on audit rows (paired with a terminal email skip);
+  // "skipped" = not opted in. Neither is retryable.
+  const smsDone = d.smsStatus == null || d.smsStatus === "sent" || d.smsStatus === "skipped";
+  return emailDone && smsDone;
 }
 
 /**
@@ -36,27 +63,47 @@ export interface DigestCronResult {
 export async function runDigestCron(): Promise<DigestCronResult> {
   const startTime = Date.now();
 
-  // Create DigestRun record
-  const run = await db.digestRun.create({
-    data: {
-      runDate: new Date(),
-      status: "running",
-    },
-  });
-
   // The digest week window is anchored to "Sunday 18:00 local" for the NSW
   // jurisdiction (Australia/Sydney), read from the registry config rather than
   // a hardcoded offset — DST-correct across AEST/AEDT (#28 timezone groundwork).
   const nswConfig = getJurisdictionConfig("nsw");
   const weekWindow = digestWeekWindow(nswConfig);
+
+  // Idempotent resume (issue #12): the retry tick (Sun 10:00 UTC) must reuse
+  // the primary tick's (Sun 07:00 UTC) DigestRun, not start a fresh one. Both
+  // ticks share `cronWeekStartUtc`, so this finds the week's run if it exists.
+  const weekStart = cronWeekStartUtc();
+  const existing = await db.digestRun.findFirst({
+    where: { triggeredAt: { gte: weekStart } },
+    orderBy: { triggeredAt: "asc" },
+  });
+  const resumed = existing !== null;
+
+  const run =
+    existing ??
+    (await db.digestRun.create({
+      data: {
+        runDate: new Date(),
+        status: "running",
+      },
+    }));
+  if (resumed) {
+    // Reopen the run for this pass (it was marked done/failed by the primary).
+    await db.digestRun.update({
+      where: { id: run.id },
+      data: { status: "running", completedAt: null },
+    });
+  }
+
   log.info(
     {
       runId: run.id,
+      resumed,
       timezone: nswConfig.timezone,
       weekStart: weekWindow.start.toISOString(),
       weekEnd: weekWindow.end.toISOString(),
     },
-    "[digest] cron started",
+    resumed ? "[digest] cron resumed" : "[digest] cron started",
   );
 
   // Load active subscribers. Hard cap matches NFR-008 (≤ 100 active subs at
@@ -76,29 +123,35 @@ export async function runDigestCron(): Promise<DigestCronResult> {
     take: 1000,
   });
 
+  // Resume filter: skip users who already have a delivered digest for this
+  // run. On the primary tick this set is empty (fresh run). On the retry tick
+  // it holds everyone the primary served, so only the failed/never-attempted
+  // users are re-processed — and a fully-successful week is a no-op.
+  const priorDigests = await db.digest.findMany({
+    where: { runId: run.id },
+    select: { userId: true, emailStatus: true, smsStatus: true },
+  });
+  const completeUserIds = new Set(
+    priorDigests.filter(isDigestComplete).map((d) => d.userId),
+  );
+  const pending = users.filter((u) => !completeUserIds.has(u.id));
+
+  log.info(
+    { runId: run.id, activeUsers: users.length, alreadyDelivered: completeUserIds.size, pending: pending.length },
+    "[digest] resume filter applied",
+  );
+
   let sent = 0;
   let failed = 0;
 
-  for (const user of users) {
+  for (const user of pending) {
     try {
       const relevance = await runRelevanceForUser(user.id);
       if (!relevance) {
         // Persist a Digest row anyway so observability queries can answer
         // "did Sunday work for everyone?" — null relevance means the user
         // is missing prerequisites (saved query embedding, LGAs, etc.).
-        await db.digest
-          .create({
-            data: {
-              userId: user.id,
-              runId: run.id,
-              daCount: 0,
-              fallbackUsed: false,
-              emailStatus: "skipped",
-            },
-          })
-          .catch(() => {
-            /* best-effort audit row */
-          });
+        await recordAuditDigest(user.id, run.id, "skipped");
         log.warn({ userId: user.id }, "[digest] no relevance result — skipping user");
         continue;
       }
@@ -116,26 +169,24 @@ export async function runDigestCron(): Promise<DigestCronResult> {
       failed++;
       // Audit row even on hard failure so the digest_runs/digests join
       // can show "this user was attempted but errored".
-      await db.digest
-        .create({
-          data: {
-            userId: user.id,
-            runId: run.id,
-            daCount: 0,
-            fallbackUsed: false,
-            emailStatus: "failed",
-          },
-        })
-        .catch(() => {
-          /* best-effort */
-        });
+      await recordAuditDigest(user.id, run.id, "failed");
       log.error({ userId: user.id, err }, "[digest] unhandled error for user — continuing");
       Sentry.captureException(err, { tags: { userId: user.id, phase: "digest-user" } });
     }
   }
 
   const durationMs = Date.now() - startTime;
-  const status = failed === users.length && users.length > 0 ? "failed" : "done";
+
+  // Recount over ALL of this run's rows (this pass + any prior tick) so a
+  // per-channel retry is reflected: how many active users still lack a
+  // delivered digest?
+  const finalDigests = await db.digest.findMany({
+    where: { runId: run.id },
+    select: { userId: true, emailStatus: true, smsStatus: true },
+  });
+  const served = new Set(finalDigests.filter(isDigestComplete).map((d) => d.userId));
+  const unserved = users.filter((u) => !served.has(u.id)).length;
+  const status = users.length > 0 && served.size === 0 ? "failed" : "done";
 
   // Update DigestRun
   await db.digestRun.update({
@@ -147,6 +198,30 @@ export async function runDigestCron(): Promise<DigestCronResult> {
     },
   });
 
+  // Fail loud (issue #12, docs/01c-wedge — the digest is the highest-
+  // availability code path). On the primary tick, leftover failures are
+  // expected to be recovered by the retry tick (~3h later), so warn. On the
+  // retry tick, leftover failures mean recovery FAILED — page with an error.
+  if (unserved > 0) {
+    if (resumed) {
+      Sentry.captureMessage(
+        `Digest retry left ${unserved}/${users.length} users unserved for run ${run.id}`,
+        {
+          level: "error",
+          tags: { runId: run.id, phase: "digest-unserved", pass: "retry" },
+        },
+      );
+    } else {
+      Sentry.captureMessage(
+        `Digest primary left ${unserved}/${users.length} users unserved (retry pending) for run ${run.id}`,
+        {
+          level: "warning",
+          tags: { runId: run.id, phase: "digest-unserved", pass: "primary" },
+        },
+      );
+    }
+  }
+
   // NFR-001: alert if > 55 minutes
   if (durationMs > 55 * 60 * 1000) {
     Sentry.captureMessage(`Digest cron exceeded 55-minute SLA: ${durationMs / 1000}s`, {
@@ -155,6 +230,34 @@ export async function runDigestCron(): Promise<DigestCronResult> {
     });
   }
 
-  log.info({ runId: run.id, sent, failed, durationMs }, "[digest] cron complete");
-  return { runId: run.id, usersProcessed: users.length, sent, failed, durationMs };
+  log.info({ runId: run.id, resumed, sent, failed, unserved, durationMs }, "[digest] cron complete");
+  return { runId: run.id, resumed, usersProcessed: pending.length, sent, failed, unserved, durationMs };
+}
+
+/**
+ * Write (or update) the per-user audit Digest row for a run without a full
+ * send — for the "no relevance" and "hard failure" branches. Idempotent for
+ * the retry tick: it updates the row the primary tick already left rather
+ * than inserting a duplicate. Best-effort; never throws.
+ */
+async function recordAuditDigest(
+  userId: string,
+  runId: string,
+  emailStatus: string,
+): Promise<void> {
+  try {
+    const prior = await db.digest.findFirst({
+      where: { userId, runId },
+      select: { id: true },
+    });
+    if (prior) {
+      await db.digest.update({ where: { id: prior.id }, data: { emailStatus } });
+    } else {
+      await db.digest.create({
+        data: { userId, runId, daCount: 0, fallbackUsed: false, emailStatus },
+      });
+    }
+  } catch {
+    /* best-effort audit row */
+  }
 }
