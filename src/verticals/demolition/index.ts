@@ -13,6 +13,7 @@ import { DEMOLITION_RERANK_FRAGMENT } from "./prompt";
 export const demolitionPack: VerticalPack = {
   slug: "demolition",
   label: "Demolition",
+  version: "1.0.0",
   defaultSavedQuery:
     "demolition, knock-down rebuild and site clearance work in Greater Sydney for residential and light-commercial sites",
   vocabulary: DEMOLITION_VOCABULARY,

@@ -2,7 +2,7 @@
 // Locks the demolition composition (shared scaffold + pack fragment) as a
 // snapshot so an accidental scaffold edit is caught, plus structural asserts.
 import { describe, expect, it } from "vitest";
-import { composeRerankSystemPrompt } from "./types";
+import { composeRerankSystemPrompt } from "./rerank-prompt";
 import { demolitionPack } from "./demolition";
 import { DEMOLITION_RERANK_FRAGMENT } from "./demolition/prompt";
 

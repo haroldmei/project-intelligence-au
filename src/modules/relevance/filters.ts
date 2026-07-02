@@ -7,66 +7,36 @@
 // Uses Prisma raw query for full-text GIN tsvector (@@) which Prisma ORM doesn't support natively.
 import { db } from "@/lib/db";
 import type { CandidateDA } from "@/lib/ai/relevance-pipeline";
+import { getPack, packTsQuery, type VerticalPack } from "@/verticals";
+
+// The rule-pass vocabulary now lives in the roofing vertical pack (#27) — this
+// module owns none of it. We resolve `roofing` through the registry (its only
+// always-on entry) rather than importing the pack directly, so every trade
+// flows through the same seam. See src/verticals/roofing/vocabulary.ts.
+function roofingPack(): VerticalPack {
+  const pack = getPack("roofing");
+  if (!pack) throw new Error("[filters] roofing vertical pack is not registered");
+  return pack;
+}
 
 /**
- * Vocabulary used in the GIN tsvector rule pass (FR-004). Two tiers:
- *
- * - Explicit roofing terms: re-roof, colorbond, gutters, etc. These match
- *   DAs that *literally* call out roofing scope.
- *
- * - Roofing-implicit construction terms: dwelling, residential, alterations,
- *   single storey, dual occupancy, additions. These match DAs where roofing
- *   work is implicit (every new dwelling needs a roof; every alteration to
- *   an existing roof line probably does too). The Stage-3 LLM rerank scores
- *   each candidate 0–5 against the user's saved query, so non-relevant
- *   construction DAs get demoted before the digest fires — Stage 1 just has
- *   to surface candidates with plausible roofing scope.
- *
- * If precision drops below the 0.85 target, narrow this list back down.
+ * Two-tier vocabulary of the active trade, re-exported for tests/tooling. The
+ * data is owned by the vertical pack (FR-004): tier 1 explicit terms match DAs
+ * that literally call out the trade's scope; tier 2 implicit construction terms
+ * match DAs where the work is implied. The Stage-3 LLM rerank demotes the false
+ * positives, so Stage 1 only has to surface plausible candidates.
  */
-const ROOFING_KEYWORDS = [
-  // Tier 1 — explicit roofing
-  "roof",
-  "roofing",
-  "re-roof",
-  "reroof",
-  "metal roof",
-  "colorbond",
-  "colour bond",
-  "membrane",
-  "gutters",
-  "downpipes",
-  "skylights",
-  "roof tiles",
-  "roof replacement",
-  "roof restoration",
-  "roof repair",
-  "insulation",
-  "fascia",
-  "barge",
-  "ridge cap",
-  "hip and ridge",
-  "sarking",
-  "rooflight",
-  // Tier 2 — roofing-implicit construction (new builds, alterations)
-  "dwelling",
-  "residential",
-  "alterations",
-  "additions",
-  "alterations and additions",
-  "construction of",
-  "single storey",
-  "two storey",
-  "dual occupancy",
-  "secondary dwelling",
-].map((k) => k.toLowerCase());
+const ROOFING_KEYWORDS: string[] = [
+  ...roofingPack().vocabulary.explicit,
+  ...roofingPack().vocabulary.implicit,
+];
 
 /**
- * Build the PostgreSQL tsquery string: keywords joined with |
- * E.g. "roof | colorbond | membrane | ..."
+ * Build the PostgreSQL tsquery string from the active pack's vocabulary:
+ * terms joined with | and phrase-linked with <-> (see packTsQuery).
  */
 function buildTsQuery(): string {
-  return ROOFING_KEYWORDS.map((k) => k.replace(/\s+/g, "<->")).join(" | ");
+  return packTsQuery(roofingPack());
 }
 
 /**

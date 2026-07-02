@@ -3,15 +3,15 @@
 // EXPANSION: docs/25 §2 — each trade beyond roofing (V1) ships as a self-contained
 // "vertical pack": rule lexicon + development-type filters + rerank prompt fragment.
 //
-// This module defines the pack shape and the pure composition helpers that turn
-// a pack into (a) a Postgres tsquery for the Stage-1 rule pass and (b) a rerank
-// system prompt. It has NO env / DB / model imports so it stays trivially
-// testable and safe to import from anywhere.
+// This module defines the pack shape and the pure tsquery/vocabulary helpers.
+// It has NO env / DB / model / fs imports so it stays trivially testable and
+// safe to import from anywhere (including the jsdom suite). Rerank-prompt
+// composition (which reads template files) lives in ./rerank-prompt.
 //
-// NOTE: the full extraction of the *roofing* pipeline onto this contract is #27.
-// Until that lands, `src/modules/relevance/filters.ts` and
-// `src/prompts/rerank.system.md` remain the live roofing path; packs registered
-// here are dormant scaffolding validated by unit tests + the seed eval set.
+// As of #27 the roofing pipeline is fully extracted onto this contract:
+// src/modules/relevance/filters.ts builds its tsquery from roofingPack, and
+// src/lib/ai/rerank.ts composes its system prompt from roofingPack. Other
+// trades (e.g. demolition) register here dormant behind a flag.
 
 /**
  * Two-tier trade vocabulary, mirroring the roofing rule pass
@@ -30,10 +30,12 @@ export interface VerticalVocabulary {
 }
 
 export interface VerticalPack {
-  /** Stable identifier, e.g. "roofing" | "demolition". Used as the registry key. */
+  /** Stable identifier (docs/25 §2 "id"), e.g. "roofing" | "demolition". Registry key. */
   slug: string;
-  /** Human label for logs / future UI. */
+  /** Human display name for logs / future UI. */
   label: string;
+  /** Pack version — bump when the vocabulary or rerank fragment changes. */
+  version: string;
   /**
    * Seed saved-query shown as the default for this vertical's onboarding once
    * it launches. Also used as the query text in the pack's eval set.
@@ -48,9 +50,10 @@ export interface VerticalPack {
    */
   developmentTypeFilters: string[];
   /**
-   * Trade-specific fragment spliced into the rerank system prompt by
-   * `composeRerankSystemPrompt`. Written in the same voice as roofing's rubric
-   * in src/prompts/rerank.system.md — a 0–5 table plus hard constraints.
+   * Trade-specific fragment spliced into the base rerank template by
+   * `composeRerankSystemPrompt` (src/verticals/rerank-prompt.ts) at the
+   * `{{rubric_fragment}}` marker — a 0–5 rubric table plus hard constraints.
+   * See src/verticals/roofing/prompt-fragment.md for the reference shape.
    */
   rerankPromptFragment: string;
 }
@@ -94,73 +97,4 @@ export function matchesVocabulary(pack: VerticalPack, text: string): boolean {
   return [...pack.vocabulary.explicit, ...pack.vocabulary.implicit].some(
     (term) => haystack.includes(term.trim().toLowerCase()),
   );
-}
-
-/**
- * Build the rerank system prompt for a pack: a shared, trade-agnostic scaffold
- * (output schema, confidence policy, do-nots) with the pack's trade-specific
- * rubric fragment spliced in. Deterministic — snapshot-tested per pack.
- *
- * The scaffold intentionally re-states the locked structure of
- * src/prompts/rerank.system.md so a second trade reads identically to roofing.
- * When #27 extracts the roofing prompt, that file becomes
- * `composeRerankSystemPrompt(roofingPack)` and this stays the single source.
- */
-export function composeRerankSystemPrompt(pack: VerticalPack): string {
-  return `You are the relevance ranker for ProjectIntelligence AU — a Sunday-night
-DA digest for Sydney ${pack.label.toLowerCase()} subcontractors. Your only job is to
-score each candidate Development Application (DA) on a 0–5 relevance scale
-against the user's saved query, and produce a one-sentence "why this
-matched" string.
-
-## System rule (locked)
-
-The product is a single-trade digest. You MUST refuse to expand scope. If a
-DA is for a different trade, a different metro, or a job size that does not
-match the user's economics, score it accordingly low. Never invent fields the
-DA does not contain.
-
-## Output schema (strict JSON)
-
-Return ONLY a JSON object of this shape, with no preamble, no Markdown, no
-commentary:
-
-\`\`\`json
-{
-  "results": [
-    {
-      "da_id": "<the id from input, verbatim>",
-      "score": 0,
-      "why": "<one sentence, ≤ 140 chars, citing the DA evidence>",
-      "confidence": 0.0
-    }
-  ]
-}
-\`\`\`
-
-- \`score\`: integer 0–5 (see the trade rubric below)
-- \`why\`: ONE sentence, ≤ 140 chars, written for a tradie skim-reading on a
-  phone in a ute. Plain English. No marketing voice. Quote evidence from the
-  DA (address, scope phrase, value).
-- \`confidence\`: float 0.0–1.0 — your own confidence that the score is within
-  ±1 of the true rating. Used by the runtime to decide whether to escalate to
-  the sonnet fallback.
-
-${pack.rerankPromptFragment.trim()}
-
-## Confidence
-
-- \`confidence ≥ 0.7\`: you are sure of the score.
-- \`0.5 ≤ confidence < 0.7\`: borderline; the runtime may escalate to the
-  sonnet fallback for a second opinion.
-- \`confidence < 0.5\`: you are guessing; the runtime WILL escalate.
-
-## What you MUST NOT do
-
-- Do not return DAs not in the input list.
-- Do not invent fields, addresses, or values.
-- Do not output prose explanations, headers, or apologies.
-- Do not exceed the 140-char limit on \`why\`.
-- Do not refuse to score a DA — score 0 is the right answer for noise.
-`;
 }
