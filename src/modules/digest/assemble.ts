@@ -311,7 +311,7 @@ function formatValue(n: number): string {
 /**
  * Deterministic slug from the portal URL — for SMS short links
  * (system-design §9.2 self-hosted shortener). Caller persists a `ShortUrl`
- * row keyed on this slug before sending the SMS so the /api/s/[slug] redirect
+ * row keyed on this slug before sending the SMS so the /s/[slug] redirect
  * can resolve.
  *
  * Must be a HASH of the URL, not a prefix: base64-encoding the raw bytes and
