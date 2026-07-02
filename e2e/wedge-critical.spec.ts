@@ -162,7 +162,7 @@ test.describe("Wedge Critical Flow", () => {
     // requiring DB. The wedge critical flow from landing → plan selection passes end-to-end.
     // Portal rendering tests covered in digest.spec.ts (requires PLAYWRIGHT_DB=1).
     const currentUrl = page.url();
-    const reachedDigest = currentUrl.includes("/digest");
+    const _reachedDigest = currentUrl.includes("/digest");
     const redirectedToLogin = currentUrl.includes("/login");
 
     if (redirectedToLogin) {

@@ -53,6 +53,10 @@ export async function runDigestCron(): Promise<DigestCronResult> {
     where: {
       emailVerified: true,
       subscriptionStatus: { in: ["trial", "active"] },
+      // Spam Act 2003: skip users who have unsubscribed. assembleAndSendDigest
+      // also re-checks at send time to catch opt-outs that land mid-run, but
+      // filtering here avoids the wasted assembly work up front.
+      emailOptIn: true,
     },
     select: { id: true, email: true },
     take: 1000,

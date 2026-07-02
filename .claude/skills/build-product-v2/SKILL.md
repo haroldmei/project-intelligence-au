@@ -42,8 +42,9 @@ waterfall.
    phase via `scripts/route-failure.sh`. Critic verdicts can demote
    `LOCKED` artifacts to `DRAFT` and replan.
 7. **Hard gates beat soft gates.** Use `scripts/quality-gates.sh` —
-   typecheck → lint → unit → mutation ≥ 70% → integration → contract →
-   e2e → a11y → Lighthouse → visual. Each gate is a separate hard pass.
+   typecheck → lint → seed-integrity → unit → mutation ≥ 70% →
+   integration → contract → e2e → a11y → Lighthouse → visual. Each
+   gate is a separate hard pass.
 8. **No ops bloat.** Default scale tier is `preview`. Most products
    ship without Terraform, BullMQ, or a PRR.
 
@@ -467,6 +468,21 @@ Each writes its `phase_status` field. Wait for all three to return.
 All three read `docs/00-tech-stack.md` as their first action and refuse
 to introduce vendors not in the contract.
 
+**`db-migrator` post-condition (HARD):** the phase is only `done` if
+`state/artifacts/db-migrator.json` exists AND every required path it
+lists is present on disk AND every `package_scripts` entry is in
+`package.json`. The orchestrator must verify this before advancing,
+not trust the subagent's `PHASE_RESULT.summary`:
+
+```bash
+scripts/quality-gates.sh --only seed-integrity
+```
+
+If this fails, the phase is `failed` (not `done`); route via
+`scripts/route-failure.sh --gate seed-integrity --area prisma/`. This
+catches the "phantom artifact" failure mode where a subagent narrates
+"seed shipped" but never wrote the file.
+
 ### Phase 7.5 — `api-docs` (NEW, sequential after impl join)
 Subagent, skill `api-docs`, manifest `[code, 02, 03]`, model `haiku`.
 Scans the now-implemented routes, extracts validators and types, and
@@ -509,6 +525,8 @@ only; `launch+` → full OWASP ASVS.
 ### Phase 11 — `dogfood` (NEW)
 Subagent, skill `dogfood`, manifest `[01c, 03b]`, model `opus`.
 The skill returns a verdict. Routing:
+- `BLOCKED` → loop to `db-migrator` (seed gate failed at Phase 1.5;
+  re-run `seed-integrity` quality gate after the loop)
 - `SHIP` → advance to perf branch
 - `POLISH` → loop to `frontend-developer` (one round, capped)
 - `LOOP` → loop to `ux-designer` + `frontend-developer`
@@ -617,8 +635,51 @@ Writes a runbook to `docs/19-rollback-runbook.md`.
 ### Phase 18 — `production-readiness` (scale only)
 
 ### Phase 19 — Preview ship (orchestrator)
-Tier-dependent deploy:
-- `toy`     → emit run instructions, no deploy
+
+**Phase 19a — Local quickstart runbook (ALL tiers, mandatory).**
+Before any tier branching, write `docs/RUN.md` with a single
+copy-pasteable line that takes a fresh clone to a seeded, running app,
+sourced from the db-migrator manifest. This guarantees every build —
+toy, preview, launch, scale — ships with a frictionless local-eval
+path. `docs/RUN.md` is reserved for this purpose; it does not collide
+with `docs/12-runbook.md` (deploy/incident runbook, launch+ only).
+
+```bash
+BOOT=$(jq -r '.boot_command' state/artifacts/db-migrator.json)
+PM=$(jq -r '.tech_stack.package_manager // "pnpm"' state/state.json)
+DEV_CMD="$PM run dev"
+ONELINER="$PM install && $BOOT && $DEV_CMD"
+SEED_CMD=$(jq -r '.seed_command' state/artifacts/db-migrator.json)
+
+mkdir -p docs
+
+# Overwrite docs/RUN.md every run so it stays in sync with the
+# current db-migrator manifest. This file has exactly one purpose.
+cat > docs/RUN.md <<EOF
+# Run locally
+
+Fresh clone to seeded, running app:
+
+\`\`\`bash
+$ONELINER
+\`\`\`
+
+- Seed contents: see \`state/artifacts/db-migrator.json#.required_paths\`
+- Re-seed only: \`$SEED_CMD\`
+- Deploy / incident runbook: \`docs/12-runbook.md\` (launch+ only)
+EOF
+
+# Persist for the Completion block.
+scripts/state-set.sh '.local_quickstart' "\"$ONELINER\""
+```
+
+This phase is **non-skippable**. If `state/artifacts/db-migrator.json`
+is missing or `boot_command` is null, fail and route back to
+`db-migrator` — the seed-integrity gate should have caught this at
+Phase 7, so reaching Phase 19 without a manifest is a bug.
+
+**Phase 19b — Tier-dependent deploy:**
+- `toy`     → no deploy; the runbook is the deliverable
 - `preview` → Vercel/Fly preview URL
 - `launch+` → `cicd` + `deployer` deploy
 Then run a canary check (spawn `qa` subagent against the deployed URL).
@@ -696,12 +757,14 @@ Instrument the wedge workflow only. Schedule:
 |---|---|
 | Critic rejects spec/wedge | last passing producer |
 | Quality gate: typecheck/lint | `route-failure.sh --gate <g> --area <path>` |
+| Quality gate: seed-integrity | `db-migrator` (manifest mismatch / phantom artifact) |
 | Quality gate: mutation | `adversarial-tester` |
 | Quality gate: contract | `backend-developer` |
 | Quality gate: e2e | `e2e-tester` (test bug) or `frontend-developer`/`backend-developer` (feature bug) |
 | Perf hard-fail (p95 > 2× NFR) | `backend-developer` (queries/indexes) |
 | Perf hard-fail (bundle > 1.5×) | `frontend-developer` |
 | Reviewer finds cross-cutting issue | the responsible implementer (`backend-developer` / `frontend-developer`) |
+| Dogfood `BLOCKED` (empty wedge-critical seed) | `db-migrator` (re-run `seed-integrity` after) |
 | Dogfood `LOOP` | `ux-designer` + `frontend-developer` |
 | Dogfood `RETHINK` | `designer` |
 | Security Critical/High | `backend-developer` (code) or `env-manager` (secrets) |
@@ -752,7 +815,10 @@ into the middle of that prefix.
 
 ## Completion
 
-When the state machine reaches `[*]`, print:
+When the state machine reaches `[*]`, print the summary block followed
+by the guaranteed local-run one-liner. The one-liner is the **last
+line** of the orchestrator's output — never omit it, never reorder
+below it, regardless of tier or any phase being skipped.
 
 ```
 ## Build Complete (v2)
@@ -766,7 +832,13 @@ Quality gates:   <which passed, which were waived and why>
 Dogfood health:  <final score>
 Preview URL:     <or "local-only">
 Next steps:      <iterate cadence; what kill switch to watch>
+
+Run locally:     <state.local_quickstart>     (also in docs/RUN.md)
 ```
+
+`state.local_quickstart` is set by Phase 19a and is verified by the
+`seed-integrity` quality gate. If it is null at completion, the build
+is incomplete — do not print "Build Complete" and surface to the user.
 
 Append a one-line entry to `docs/06-iteration-log.md` as iteration 0.
 

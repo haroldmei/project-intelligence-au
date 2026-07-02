@@ -1,5 +1,6 @@
 // Unit tests for HMAC token issue/validate (no DB needed)
 // system-design §6.3 NFR-016
+import { createHmac } from "node:crypto";
 import { describe, it, expect } from "vitest";
 import { issueFeedbackToken, validateFeedbackToken } from "@/lib/hmac/token";
 
@@ -49,7 +50,6 @@ describe("issueFeedbackToken / validateFeedbackToken", () => {
       issuedAt: Math.floor(Date.now() / 1000) - 8 * 24 * 60 * 60,
     };
     // Build the token manually (bypass issueFeedbackToken's now())
-    const { createHmac } = require("node:crypto");
     const data = JSON.stringify(payload);
     const sig = createHmac("sha256", TEST_HMAC_SECRET).update(data).digest("hex");
     const envelope = JSON.stringify({ payload, sig });

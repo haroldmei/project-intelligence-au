@@ -67,7 +67,7 @@ async function getActiveSubscriptionId(customerId: string): Promise<string | nul
 
 // ─── App fixture: signup + onboarding ───────────────────────────────────────
 
-interface E2EUser {
+interface _E2EUser {
   email: string;
   page: Page;
 }

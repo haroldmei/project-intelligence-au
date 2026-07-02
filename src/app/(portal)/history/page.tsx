@@ -51,10 +51,13 @@ export default async function HistoryPage() {
             const sendIssue =
               digest.emailStatus === "failed" || digest.smsStatus === "failed";
             return (
-              <li key={digest.id}>
+              <li
+                key={digest.id}
+                className="rounded-md border border-[#E5E5E5] bg-white shadow-sm hover:shadow-md transition-shadow duration-[150ms]"
+              >
                 <Link
                   href={`/digest/${digest.id}`}
-                  className="block rounded-md border border-[#E5E5E5] bg-white shadow-sm p-4 hover:shadow-md transition-shadow duration-[150ms] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] focus-visible:ring-offset-1 min-h-[44px]"
+                  className="block p-4 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] focus-visible:ring-offset-1 min-h-[44px]"
                   aria-label={`Digest from ${dateLabel}, ${digest.daCount} leads, ${areaLabel}`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -82,6 +85,18 @@ export default async function HistoryPage() {
                     </span>
                   </div>
                 </Link>
+                {digest.daCount > 0 && (
+                  <div className="px-4 pb-3 -mt-1">
+                    <a
+                      href={`/api/export/digest/${digest.id}.csv`}
+                      download
+                      className="inline-flex items-center gap-1 text-xs font-medium text-[#1E3A5F] hover:text-[#D97706] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] rounded"
+                      aria-label={`Export leads from ${dateLabel} as a CSV file`}
+                    >
+                      <span aria-hidden="true">↓</span> Export CSV
+                    </a>
+                  </div>
+                )}
               </li>
             );
           })}

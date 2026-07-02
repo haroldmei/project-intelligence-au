@@ -1,0 +1,18 @@
+# Fires pi-agent-scout.service twice a day. The scout runs LLM producer engines + a critic
+# pass, so it is deliberately INFREQUENT — a periodic deep sweep, not a tight loop. Each run
+# is capped (SCOUT_MAX_ISSUES) and files nothing when it finds nothing.
+#
+# OnCalendar (wall-clock), NOT OnBootSec/OnUnitActiveSec: boot-anchored timers lose their
+# next-elapse on restart/suspend (next-elapse=infinity → silently dead).
+[Unit]
+Description=Scan ProjectIntelligence twice a day and file proposed dev-item issues for review
+
+[Timer]
+OnCalendar=*-*-* 04:40:00
+OnCalendar=*-*-* 16:40:00
+AccuracySec=5min
+Persistent=true
+Unit=pi-agent-scout.service
+
+[Install]
+WantedBy=timers.target

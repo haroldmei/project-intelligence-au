@@ -1,0 +1,29 @@
+# pi-agent-scout — one-shot product scan that FILES `proposed` dev-item issues for review
+# (see scripts/agent-scout.sh). The producer half of the loop; agent-inbox.sh (run by the
+# pipeline) is the consumer. Installed as a USER service (no root) by
+# scripts/agent-scout-setup.sh and fired by pi-agent-scout.timer (twice a day). Read-only:
+# it never pushes and never touches your working copy — it only files issues you then accept
+# (relabel `agent`) or reject (close).
+[Unit]
+Description=ProjectIntelligence agent-scout — file proposed dev-item issues from a product scan
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/hmei/jobhunt/ProjectIntelligence
+Environment=PATH=/home/hmei/.local/share/pnpm:/home/hmei/.nvm/versions/node/v22.14.0/bin:/home/hmei/.local/bin:/home/hmei/miniconda3/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-/home/hmei/.anthropic-env
+Environment=SCOUT_BASE=develop
+# ALL engines each tick. Quote: systemd splits an unquoted Environment= on whitespace.
+Environment="SCOUT_ENGINES=bug ux req journey docs"
+Environment=SCOUT_DEPS=symlink
+# Lock + logdir + worktrees are namespaced PER REPO by the script itself (it derives a key
+# from the git common dir), so this scout never collides with another repo's scout.
+# Scope the bug engine to the latest merge's diff by pointing SCOUT_SINCE at a ref:
+# Environment=SCOUT_SINCE=HEAD~1
+ExecStart=/usr/bin/env bash /home/hmei/jobhunt/ProjectIntelligence/scripts/agent-scout.sh
+TimeoutStartSec=3600
+Nice=15
+
+[Install]
+WantedBy=default.target

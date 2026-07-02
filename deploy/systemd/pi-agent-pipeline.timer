@@ -1,0 +1,20 @@
+# Fires pi-agent-pipeline.service every minute. The service exits fast when there's no
+# eligible issue and no in-flight PR, so idle ticks are cheap; a flock guarantees one run at
+# a time, so a long end-to-end run is simply followed by the next issue on the tick after it
+# finishes.
+#
+# OnCalendar (wall-clock), NOT OnBootSec/OnUnitActiveSec: a boot-anchored timer loses its
+# next-elapse on restart/suspend (next-elapse=infinity → silently dead). OnCalendar always
+# has a future next-minute, surviving `systemctl restart`, daemon-reload, and WSL
+# suspend/resume.
+[Unit]
+Description=Drive the ProjectIntelligence agent pipeline (one issue end-to-end) every 1 minute
+
+[Timer]
+OnCalendar=*:0/1:00
+AccuracySec=1s
+Persistent=false
+Unit=pi-agent-pipeline.service
+
+[Install]
+WantedBy=timers.target

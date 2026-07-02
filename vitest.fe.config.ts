@@ -2,6 +2,11 @@ import { defineConfig } from "vitest/config";
 import path from "path";
 
 export default defineConfig({
+  // Next's tsconfig sets "jsx": "preserve"; rolldown-vite honors it (esbuild-vite
+  // ignored it), leaving JSX untransformed → parse failure. Force the transform here.
+  oxc: {
+    jsx: { runtime: "automatic" },
+  },
   test: {
     name: "frontend",
     environment: "jsdom",
