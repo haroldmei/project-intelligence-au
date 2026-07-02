@@ -207,10 +207,18 @@ model DaGroundTruth {
   council     String
   isRelevant  Boolean  @map("is_relevant")
   labelledBy  String   @map("labelled_by")
+  // Provenance of the label (#19): `manual` = a human labelled it in the
+  // scripts/label-das.ts CLI; `thumb` = imported from a DaFeedback thumbs-up/down
+  // as a *candidate* label pending human review before it counts toward the gate.
+  source      String   @default("manual")
   labelledAt  DateTime @default(now()) @map("labelled_at")
 
   da DevelopmentApplication @relation(fields: [daId], references: [id], onDelete: Cascade)
 
+  // One label per (DA, labeller) — lets multiple labellers score the same DA for
+  // inter-rater agreement (Cohen's κ, docs/01b §599) and makes the labelling CLI
+  // and thumb-import idempotent via upsert.
+  @@unique([daId, labelledBy])
   @@map("da_ground_truth")
 }
 

@@ -31,7 +31,10 @@
     "ingest:now": "tsx --env-file-if-exists=.env.local scripts/run-ingest-now.ts",
     "ingest:now:staging": "tsx --env-file-if-exists=.env.staging.local scripts/run-ingest-now.ts",
     "ingest:now:prod": "tsx --env-file-if-exists=.env.production.local scripts/run-ingest-now.ts",
-    "eval:rerank": "promptfoo eval --config evals/rerank/promptfooconfig.yaml --no-cache"
+    "eval:rerank": "tsx --env-file-if-exists=.env.local scripts/eval-rerank.ts",
+    "label-das": "tsx --env-file-if-exists=.env.local scripts/label-das.ts",
+    "label-das:staging": "tsx --env-file-if-exists=.env.staging.local scripts/label-das.ts",
+    "export-eval-set": "tsx --env-file-if-exists=.env.local scripts/export-eval-set.ts"
   },
   "prisma": {
     "seed": "tsx --env-file-if-exists=.env.local prisma/seed.ts"
