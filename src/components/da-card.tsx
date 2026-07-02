@@ -6,6 +6,7 @@ import { LGABadge } from "@/components/lga-badge";
 import { LeadClassBadge } from "@/components/lead-class-badge";
 import { ConstructionCertBadge } from "@/components/construction-cert-badge";
 import { RelevanceDots } from "@/components/relevance-dots";
+import { captureClient } from "@/lib/analytics/browser";
 import type { LeadClass } from "@/modules/relevance/lead-class";
 
 export interface DACardProps {
@@ -162,6 +163,10 @@ export function DACard({
           href={portalUrl}
           target="_blank"
           rel="noopener noreferrer"
+          // FR-031 da_card_clicked: which leads a tradie actually pursues — the
+          // core wedge signal. Consent-gated inside captureClient (no-op before
+          // the cookie banner is accepted).
+          onClick={() => captureClient("da_card_clicked", { source: "portal" })}
           className="text-sm font-medium text-[#1E3A5F] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] focus-visible:ring-offset-1 rounded min-h-[44px] flex items-center pr-2"
           aria-label={`View DA application for ${address} on council portal`}
         >

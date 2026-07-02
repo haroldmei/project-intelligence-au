@@ -15,6 +15,8 @@ export interface AnalyticsEventProperties {
   email_verified: Record<string, never>;
   /** First saved-query save — end of the onboarding flow. */
   onboarding_completed: Record<string, never>;
+  /** LGA bundle selection saved (activation step — FR-031 `lga_bundle_selected`). */
+  lga_bundle_selected: { bundleCount: number };
   /** 28-day trial began (at signup, or on a checkout that grants a trial). */
   trial_started: { source: "signup" | "checkout" };
   /** Subscription transitioned into `active` from a non-active state. */
@@ -25,6 +27,9 @@ export interface AnalyticsEventProperties {
   digest_sent: { cardCount: number; fallbackUsed: boolean };
   /** Thumb up/down on a DA card (portal or email link). */
   da_feedback: { vote: "up" | "down"; source: "email" | "portal" };
+  /** Portal "View DA →" click-out to a council portal (FR-031 `da_card_clicked`).
+   *  Client-side event — the only one gated on the browser cookie banner. */
+  da_card_clicked: { source: "portal" };
   /** A digest short-link / email link resolved to a DA portal. Cookieless. */
   portal_clickthrough: { source: "sms" | "email"; slug?: string };
 }

@@ -2,12 +2,18 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DACard } from "./da-card";
 
+// captureClient is consent-gated internally; mock it so the test asserts the
+// call the component makes without needing a real posthog-js init.
+const { captureClientMock } = vi.hoisted(() => ({ captureClientMock: vi.fn() }));
+vi.mock("@/lib/analytics/browser", () => ({ captureClient: captureClientMock }));
+
 // Mock fetch
 global.fetch = vi.fn(() =>
   Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) })
 ) as unknown as typeof fetch;
 
 beforeEach(() => {
+  captureClientMock.mockClear();
   (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(() =>
     Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) })
   );
@@ -146,5 +152,20 @@ describe("DACard", () => {
     // Retry — fetch now succeeds (default mock), error should clear.
     fireEvent.click(thumbUp);
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  // FR-031 da_card_clicked: clicking through to the council portal is the core
+  // wedge signal (which leads a tradie actually pursues).
+  it("captures da_card_clicked when the View DA link is clicked", () => {
+    render(<DACard {...PROPS} />);
+    fireEvent.click(screen.getByRole("link", { name: /view da application/i }));
+    expect(captureClientMock).toHaveBeenCalledWith("da_card_clicked", { source: "portal" });
+  });
+
+  it("does not capture da_card_clicked on render or on a thumb vote", () => {
+    render(<DACard {...PROPS} />);
+    expect(captureClientMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /thumb up for/i }));
+    expect(captureClientMock).not.toHaveBeenCalled();
   });
 });

@@ -87,6 +87,16 @@ describe("captureServer — with key", () => {
     expect(JSON.stringify(arg)).not.toMatch(/@|email|address|applicant/i);
   });
 
+  it("lga_bundle_selected carries only bundleCount (activation funnel, no PII)", async () => {
+    const { captureServer } = await loadHelper({ NEXT_PUBLIC_POSTHOG_KEY: "phc_test" });
+    captureServer("user_7", "lga_bundle_selected", { bundleCount: 3 });
+    expect(captureMock).toHaveBeenCalledWith({
+      distinctId: "user_7",
+      event: "lga_bundle_selected",
+      properties: { bundleCount: 3 },
+    });
+  });
+
   it("captureAnonymous disables person profiles", async () => {
     const { captureAnonymous } = await loadHelper({ NEXT_PUBLIC_POSTHOG_KEY: "phc_test" });
     captureAnonymous("sms:xyz", "portal_clickthrough", { source: "sms", slug: "xyz" });

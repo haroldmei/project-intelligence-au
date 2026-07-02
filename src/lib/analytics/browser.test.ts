@@ -3,14 +3,15 @@
 // the user has accepted analytics cookies (issue #17 acceptance criterion).
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { initMock, identifyMock, resetMock } = vi.hoisted(() => ({
+const { initMock, identifyMock, resetMock, captureMock } = vi.hoisted(() => ({
   initMock: vi.fn(),
   identifyMock: vi.fn(),
   resetMock: vi.fn(),
+  captureMock: vi.fn(),
 }));
 
 vi.mock("posthog-js", () => ({
-  default: { init: initMock, identify: identifyMock, reset: resetMock },
+  default: { init: initMock, identify: identifyMock, reset: resetMock, capture: captureMock },
 }));
 
 beforeEach(() => {
@@ -80,5 +81,23 @@ describe("identifyUser", () => {
     initAnalytics();
     identifyUser("user_1");
     expect(identifyMock).toHaveBeenCalledWith("user_1");
+  });
+});
+
+describe("captureClient — consent gating (FR-031 da_card_clicked)", () => {
+  it("does NOT capture before init (i.e. before consent)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "phc_test");
+    const { captureClient } = await load();
+    captureClient("da_card_clicked", { source: "portal" }); // no consent yet
+    expect(captureMock).not.toHaveBeenCalled();
+  });
+
+  it("captures the typed event shape once consent is accepted and init ran", async () => {
+    vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "phc_test");
+    window.localStorage.setItem("pi_cookie_consent", "accepted");
+    const { initAnalytics, captureClient } = await load();
+    initAnalytics();
+    captureClient("da_card_clicked", { source: "portal" });
+    expect(captureMock).toHaveBeenCalledWith("da_card_clicked", { source: "portal" });
   });
 });
