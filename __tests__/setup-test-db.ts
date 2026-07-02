@@ -15,6 +15,7 @@ export async function truncateAll(): Promise<void> {
   // Raw SQL: disable triggers during truncation, then cascade
   await testDb.$executeRawUnsafe(`
     TRUNCATE TABLE
+      waitlist_entries,
       short_urls,
       da_ground_truth,
       ai_cost_log,

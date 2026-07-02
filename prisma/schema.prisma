@@ -402,6 +402,28 @@ model DigestCandidate {
   @@map("digest_candidate")
 }
 
+// ─── Waitlist (expansion Wave 0 — demand instrument) ─────────────────────────
+
+// Out-of-scope demand capture: a Melbourne roofer or a Sydney plumber lands on
+// the waitlist instead of falling off the funnel (docs/25 §2, docs/01c-wedge §3).
+// PURE MEASUREMENT — no product implication, no confirmation email (Spam Act:
+// v1 stores intent only). (email, trade, region) is unique so repeat submissions
+// are idempotent; email is citext in DB (case-insensitive), and the route also
+// lowercases trade/region so "Roofing"/"roofing" collapse to one row.
+model WaitlistEntry {
+  id        String   @id @default(cuid())
+  email     String   /// citext in DB (case-insensitive); enforced by the route via toLowerCase()
+  trade     String
+  region    String
+  note      String?
+  source    String   // landing | signup
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([email, trade, region])
+  @@index([createdAt])
+  @@map("waitlist_entries")
+}
+
 // ─── Rate Limiting ────────────────────────────────────────────────────────────
 
 model RateLimit {
