@@ -31,6 +31,7 @@ function makeCandidate(over: Partial<CandidateDA> = {}): CandidateDA {
     rawScopeText: null,
     estimatedValue: 50_000,
     lodgementDate: "2026-04-01",
+    constructionCertifiedAt: null,
     applicantName: null,
     portalUrl: "https://example.com/da-default",
     ...over,

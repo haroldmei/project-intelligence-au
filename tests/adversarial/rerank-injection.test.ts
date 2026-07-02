@@ -49,6 +49,7 @@ function makeCandidate(over: Partial<RerankCandidate> = {}): RerankCandidate {
     rawScopeText: null,
     estimatedValue: 120_000,
     lodgementDate: "2026-04-01",
+    constructionCertifiedAt: null,
     ...over,
   };
 }

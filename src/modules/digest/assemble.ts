@@ -101,6 +101,7 @@ export async function assembleAndSendDigest(
       applicant: c.applicantName ?? "",
       relevanceScore: r.score * 2,
       leadClass: leadClasses[i],
+      constructionCertifiedAt: c.constructionCertifiedAt,
       portalUrl: c.portalUrl,
       thumbUpUrl,
       thumbDownUrl,

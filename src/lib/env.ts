@@ -91,6 +91,14 @@ const baseShape = {
     // CALL TIME (src/modules/ingestion/jurisdictions/registry.ts), not this
     // frozen snapshot, so a single process/test can toggle it.
     SA_INGEST_ENABLED: z.coerce.boolean().default(false),
+    // Online PCC Data API (planningportal.nsw.gov.au/opendata — Construction /
+    // Occupation / Subdivision Certificates, statewide, daily, CC-BY). Same
+    // subscription-key model as the DA feed (reuses NSW_PLANNING_API_KEY). A
+    // Construction Certificate means work is about to START — the "work starting
+    // now" timing signal (issue #13, docs/24 G11). Default off; the adapter
+    // no-ops without both this flag AND NSW_PLANNING_API_KEY. v1 ingests
+    // Construction Certificates only (OC/SC ignored).
+    PCC_INGEST_ENABLED: z.coerce.boolean().default(false),
 
     // ── Vertical packs (multi-trade expansion, docs/25 §2) ──────────────────
     // Each trade beyond roofing (V1) ships behind its own flag, default off,

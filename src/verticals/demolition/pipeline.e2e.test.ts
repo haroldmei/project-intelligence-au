@@ -72,6 +72,7 @@ const fixture: CandidateDA = {
   rawScopeText: null,
   estimatedValue: 62000,
   lodgementDate: "2026-06-01",
+  constructionCertifiedAt: null,
   applicantName: null,
   portalUrl: "https://example.com/da/demo-fixture-1",
 };

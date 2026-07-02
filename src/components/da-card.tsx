@@ -4,6 +4,7 @@ import React, { useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { LGABadge } from "@/components/lga-badge";
 import { LeadClassBadge } from "@/components/lead-class-badge";
+import { ConstructionCertBadge } from "@/components/construction-cert-badge";
 import { RelevanceDots } from "@/components/relevance-dots";
 import type { LeadClass } from "@/modules/relevance/lead-class";
 
@@ -13,6 +14,10 @@ export interface DACardProps {
   lga: string;
   relevanceScore: number; // 0–10
   leadClass?: LeadClass;
+  // ISO yyyy-mm-dd a Construction Certificate was issued against this DA (issue
+  // #13). Present → the "CC issued — work starting" badge renders. Null/undefined
+  // for the vast majority of leads (no CC yet, or the PCC feed is off).
+  constructionCertifiedAt?: string | null;
   estimatedValue?: number | null; // AUD; null = not disclosed
   whyMatched: string;
   scopeText: string;
@@ -29,6 +34,7 @@ export function DACard({
   lga,
   relevanceScore,
   leadClass,
+  constructionCertifiedAt,
   estimatedValue,
   whyMatched,
   scopeText,
@@ -111,6 +117,9 @@ export function DACard({
         <div className="flex items-center gap-1.5 flex-wrap">
           <LGABadge label={lga} />
           {leadClass && <LeadClassBadge leadClass={leadClass} />}
+          {constructionCertifiedAt && (
+            <ConstructionCertBadge issuedDate={constructionCertifiedAt} />
+          )}
         </div>
         <RelevanceDots score={relevanceScore} />
       </div>

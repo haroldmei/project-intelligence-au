@@ -98,6 +98,9 @@ export interface RerankCandidate {
   estimatedValue: number | null;
   /** ISO yyyy-mm-dd */
   lodgementDate: string;
+  /** ISO yyyy-mm-dd a Construction Certificate was issued against this DA (#13),
+   *  or null. Surfaced to the model as a "work starting now" timing signal. */
+  constructionCertifiedAt: string | null;
 }
 
 export interface RerankInput {
@@ -189,7 +192,11 @@ export function renderUserPrompt(input: RerankInput): string {
 da_id: ${sanitizeDaId(c.daId)}
 council: <council>${sanitizeDaField(c.council)}</council>
 address: <address>${sanitizeDaField(c.address)}</address>
-lodgement_date: ${c.lodgementDate}
+lodgement_date: ${c.lodgementDate}${
+        c.constructionCertifiedAt
+          ? `\nconstruction_certificate_issued: ${c.constructionCertifiedAt} (work starting now — strongest timing signal)`
+          : ""
+      }
 estimated_value: ${c.estimatedValue ?? "unknown"}
 <description>
 ${sanitizeDaField(c.description)}

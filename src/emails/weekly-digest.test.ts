@@ -65,6 +65,21 @@ describe("WeeklyDigestTemplate — lead classes (issue #14)", () => {
     expect(html.indexOf("1 Pipeline St")).toBeGreaterThan(html.indexOf("3 Heritage Ln"));
   });
 
+  it("renders the CC 'work starting' badge when constructionCertifiedAt is set (issue #13)", () => {
+    const { html: h } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 1,
+      lgas: ["Inner West"],
+      cards: [{ ...card("cc-1", "fast_track", "9 Cert St", 9), constructionCertifiedAt: "2026-06-15" }],
+      smsEnabled: false,
+    });
+    expect(h).toContain("CC issued 15 Jun 2026 — work starting");
+  });
+
+  it("omits the CC badge when constructionCertifiedAt is absent", () => {
+    expect(html).not.toContain("work starting");
+  });
+
   it("defaults a card with no leadClass to the builder pipeline", () => {
     const { html: h } = WeeklyDigestTemplate({
       weekStart: "27 Apr 2026",
