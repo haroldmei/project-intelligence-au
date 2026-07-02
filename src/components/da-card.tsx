@@ -44,7 +44,13 @@ export function DACard({
   initialFeedback = null,
 }: DACardProps) {
   const [feedback, setFeedback] = useState<Feedback>(initialFeedback);
+  // The feedback state to restore when Undo is tapped.
   const [undoQueue, setUndoQueue] = useState<Feedback>(null);
+  // Explicit undo-toast visibility (issue #54). Toast visibility must be driven
+  // by a real user thumb action, never derived from state that is also seeded on
+  // mount by initialFeedback — otherwise an already-thumbed card renders a stuck
+  // 'Feedback saved / Undo' toast whose Undo silently deletes the saved thumb.
+  const [showUndo, setShowUndo] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [liveMessage, setLiveMessage] = useState("");
   // Visible error affordance (issue #59): a failed feedback POST must show a
@@ -72,7 +78,8 @@ export function DACard({
 
     // Undo toast for 5 seconds
     setUndoQueue(prev);
-    setTimeout(() => setUndoQueue(null), 5000);
+    setShowUndo(true);
+    setTimeout(() => setShowUndo(false), 5000);
 
     startTransition(async () => {
       try {
@@ -93,6 +100,7 @@ export function DACard({
         // avoid a double announcement.
         setFeedback(prev);
         setUndoQueue(null);
+        setShowUndo(false);
         setLiveMessage("");
         setErrorMessage("Couldn't save that — tap again to retry");
       }
@@ -103,6 +111,7 @@ export function DACard({
     const prev = undoQueue;
     setFeedback(prev);
     setUndoQueue(null);
+    setShowUndo(false);
     startTransition(async () => {
       await fetch("/api/feedback", {
         method: "POST",
@@ -243,8 +252,8 @@ export function DACard({
         {liveMessage}
       </span>
 
-      {/* Undo toast */}
-      {undoQueue !== undefined && undoQueue !== feedback && (
+      {/* Undo toast — only after a real thumb action (issue #54), never on mount */}
+      {showUndo && (
         <div
           role="status"
           aria-live="polite"

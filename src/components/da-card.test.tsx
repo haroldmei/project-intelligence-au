@@ -154,6 +154,48 @@ describe("DACard", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
+  // Issue #54: a card thumbed in a previous session (loaded via feedbackMap →
+  // initialFeedback) must NOT render the 'Feedback saved / Undo' toast on mount.
+  // The old code derived toast visibility from `undoQueue !== feedback`, which was
+  // true the instant an already-thumbed card rendered — and its Undo wrote
+  // feedback:'remove', silently destroying the tradie's saved thumb.
+  it("does not render the undo toast on mount when initialFeedback is set", () => {
+    render(<DACard {...PROPS} initialFeedback="up" />);
+    // The thumb reflects the saved state...
+    expect(
+      screen.getByRole("button", { name: /thumb up for/i }).getAttribute("aria-pressed")
+    ).toBe("true");
+    // ...but no spurious 'Feedback saved' toast / Undo affordance appears.
+    expect(screen.queryByText("Feedback saved")).toBeNull();
+    expect(screen.queryByRole("button", { name: /undo/i })).toBeNull();
+  });
+
+  it("does not render the undo toast on mount when initialFeedback is down", () => {
+    render(<DACard {...PROPS} initialFeedback="down" />);
+    expect(screen.queryByText("Feedback saved")).toBeNull();
+  });
+
+  it("shows the undo toast only after a thumb interaction", () => {
+    render(<DACard {...PROPS} initialFeedback={null} />);
+    expect(screen.queryByText("Feedback saved")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /thumb up for/i }));
+    expect(screen.getByText("Feedback saved")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /undo/i })).toBeTruthy();
+  });
+
+  // Undo must restore the prior feedback, not blow it away. Thumb up on a
+  // previously-neutral card, then Undo → back to neutral.
+  it("undo restores the pre-interaction feedback state", async () => {
+    render(<DACard {...PROPS} initialFeedback={null} />);
+    const thumbUp = screen.getByRole("button", { name: /thumb up for/i });
+    fireEvent.click(thumbUp);
+    expect(thumbUp.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: /undo/i }));
+    expect(thumbUp.getAttribute("aria-pressed")).toBe("false");
+    // Toast dismisses on undo.
+    expect(screen.queryByText("Feedback saved")).toBeNull();
+  });
+
   // FR-031 da_card_clicked: clicking through to the council portal is the core
   // wedge signal (which leads a tradie actually pursues).
   it("captures da_card_clicked when the View DA link is clicked", () => {
