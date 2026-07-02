@@ -3,8 +3,8 @@
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 // FR-023 | system-design §6.3 NFR-016 — HMAC token, 7-day expiry
 //
-// On success: records feedback, redirects to portal with ?feedback=recorded toast.
-// On failure: returns plain HTML "link expired — view in portal" (system-design §7.3).
+// On success: records feedback, redirects to /digest with ?feedback=recorded toast.
+// On failure: returns plain HTML "link expired — view in portal" linking to /digest (system-design §7.3).
 import { NextResponse } from "next/server";
 import { validateFeedbackToken } from "@/lib/hmac/token";
 import { recordFeedback } from "@/modules/feedback/service";
@@ -27,12 +27,12 @@ export async function GET(
     log.warn({ reason }, "[feedback-token] invalid token");
     if (reason === "expired") {
       return new Response(
-        `<!DOCTYPE html><html><body><p>This feedback link has expired. <a href="${APP_BASE}/portal">View your digests in the portal</a>.</p></body></html>`,
+        `<!DOCTYPE html><html><body><p>This feedback link has expired. <a href="${APP_BASE}/digest">View your digests in the portal</a>.</p></body></html>`,
         { status: 410, headers: { "Content-Type": "text/html" } },
       );
     }
     return new Response(
-      `<!DOCTYPE html><html><body><p>Invalid feedback link. <a href="${APP_BASE}/portal">View your digests in the portal</a>.</p></body></html>`,
+      `<!DOCTYPE html><html><body><p>Invalid feedback link. <a href="${APP_BASE}/digest">View your digests in the portal</a>.</p></body></html>`,
       { status: 400, headers: { "Content-Type": "text/html" } },
     );
   }
@@ -52,7 +52,8 @@ export async function GET(
     // Still redirect — user tapped, show them the portal
   }
 
-  // Redirect to portal with toast query param
-  const redirectUrl = `${APP_BASE}/portal?feedback=recorded&daId=${encodeURIComponent(daId)}&vote=${feedbackVote}`;
+  // Redirect to the digest (the portal is a route group mounted at /digest —
+  // there is no /portal URL) with a toast query param.
+  const redirectUrl = `${APP_BASE}/digest?feedback=recorded&daId=${encodeURIComponent(daId)}&vote=${feedbackVote}`;
   return NextResponse.redirect(redirectUrl, 302);
 }

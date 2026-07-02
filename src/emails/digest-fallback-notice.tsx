@@ -1,8 +1,14 @@
 export function DigestFallbackNoticeTemplate(props: {
   lgas: string[];
   daCount: number;
+  /** Origin of the app (env.NEXT_PUBLIC_APP_URL), passed by the caller so this
+   *  template stays a pure, jsdom-safe string builder with no @/lib/env import. */
+  appBaseUrl: string;
 }): { subject: string; html: string } {
-  const { lgas, daCount } = props;
+  const { lgas, daCount, appBaseUrl } = props;
+  // The portal is a Next.js route group mounted at /digest — there is no
+  // /portal URL. Link to the real digest page on the configured app origin.
+  const digestUrl = `${appBaseUrl}/digest`;
 
   const html = `<!DOCTYPE html>
 <html>
@@ -37,7 +43,7 @@ export function DigestFallbackNoticeTemplate(props: {
             <tbody>
               <tr>
                 <td>
-                  <a href="https://pi-au.example.com/portal/digest" style="display: inline-block; padding: 12px 24px; background-color: #1E3A5F; color: #FFFFFF; border-radius: 6px; font-weight: 600; font-size: 16px; text-decoration: none; line-height: 24px;">
+                  <a href="${digestUrl}" style="display: inline-block; padding: 12px 24px; background-color: #1E3A5F; color: #FFFFFF; border-radius: 6px; font-weight: 600; font-size: 16px; text-decoration: none; line-height: 24px;">
                     View Digest in Portal
                   </a>
                 </td>
