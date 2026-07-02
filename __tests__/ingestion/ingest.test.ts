@@ -5,8 +5,8 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 
 // Mock external fetch to avoid live API calls during tests. NSW_PLANNING_API_KEY
-// and DA_LEADS_API_KEY are seeded in __tests__/setup-env.ts so the dispatcher
-// routes through these mocks instead of short-circuiting to [].
+// is seeded in __tests__/setup-env.ts so the dispatcher routes through these
+// mocks instead of short-circuiting to [].
 vi.mock("@/modules/ingestion/fetch", () => ({
   fetchWithRetry: vi.fn(),
   fetchTextWithRetry: vi.fn(),

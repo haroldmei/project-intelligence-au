@@ -2,6 +2,7 @@ import Link from "next/link";
 import { DigestHeader } from "@/components/digest-header";
 import { DACard } from "@/components/da-card";
 import type { DigestDetail } from "@/modules/portal/loaders";
+import { DA_SOURCE_ATTRIBUTION, DA_SOURCE_LICENCE } from "@/lib/attribution";
 
 function formatWeekDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-AU", {
@@ -125,6 +126,11 @@ export function DigestView({
           {digest.daCount === 1 ? "lead" : "leads"} ───
         </div>
       )}
+
+      {/* CC-BY attribution: required wherever NSW DA source data is surfaced. */}
+      <div className="px-4 pb-6 text-center text-[11px] text-[#A3A3A3]">
+        DA data: {DA_SOURCE_ATTRIBUTION}, licensed {DA_SOURCE_LICENCE}.
+      </div>
     </div>
   );
 }

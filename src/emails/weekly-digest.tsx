@@ -4,6 +4,7 @@ import {
   LEAD_CLASS_GROUP_ORDER,
   type LeadClass,
 } from "@/modules/relevance/lead-class";
+import { DA_SOURCE_ATTRIBUTION, DA_SOURCE_LICENCE } from "@/lib/attribution";
 
 interface DACard {
   id: string;
@@ -307,9 +308,11 @@ export function WeeklyDigestTemplate(props: {
           <p style="margin: 0 0 8px 0;">ProjectIntelligence AU Pty Ltd</p>
           <p style="margin: 0 0 8px 0;">Level 1, 123 Business Street, Sydney NSW 2000 AU</p>
           ${smsEnabled ? '<p style="margin: 0 0 8px 0;">Reply STOP to any SMS to unsubscribe.</p>' : ""}
-          <p style="margin: 0;">
+          <p style="margin: 0 0 8px 0;">
             <a href="${unsubHref}" style="color: #1E3A5F; text-decoration: underline;">Unsubscribe from these emails</a>
           </p>
+          <!-- CC-BY attribution: required wherever NSW DA source data is surfaced. -->
+          <p style="margin: 0; font-size: 11px; color: #829AB1;">DA data: ${escapeHtml(DA_SOURCE_ATTRIBUTION)}, licensed ${escapeHtml(DA_SOURCE_LICENCE)}.</p>
         </td>
       </tr>
     </tbody>

@@ -66,8 +66,8 @@ flowchart TB
   end
 
   subgraph Third["Third-party (contract.* only)"]
-    NSWPlanning["NSW Planning Portal API"]
-    DALeads["DA Leads / Council DA APIs"]
+    NSWPlanning["NSW ePlanning Online DA Data API<br/>(+ CDC/PCC feeds)"]
+    DAEX["DA Exhibitions register<br/>(no-key HTML fallback)"]
     OpenAI["OpenAI<br/>text-embedding-3-small"]
     Anthropic["Anthropic<br/>claude-haiku-4-5"]
     Resend["Resend<br/>(React Email)"]
@@ -93,7 +93,7 @@ flowchart TB
   Accelerate --> Postgres
 
   CronIngest --> NSWPlanning
-  CronIngest --> DALeads
+  CronIngest --> DAEX
   CronDigest --> OpenAI
   CronDigest --> Anthropic
   CronDigest --> Resend
@@ -192,7 +192,7 @@ erDiagram
     text applicant_name
     text portal_url
     text raw_scope_text
-    text source_api "nsw_planning|da_leads|council_da"
+    text source_api "nsw_planning|da_exhibitions|nsw_cdc|ssd_register|plansa"
     boolean rule_filtered_out
     timestamptz ingested_at
   }
