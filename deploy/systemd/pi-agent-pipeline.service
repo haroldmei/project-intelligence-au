@@ -1,0 +1,50 @@
+# pi-agent-pipeline — SEQUENTIAL per-issue orchestrator (see scripts/agent-pipeline.sh).
+# One run drives ONE issue end to end: build → PR → review⇄fix → merge → close the issue;
+# the next tick starts the next issue. Carries the UNION of all four stages' env — they run
+# one-at-a-time inside this service.
+# The merger IS ProjectIntelligence's CI/CD gate: it re-runs the quality gates on the
+# integrated PR and fast-forwards the base branch only on green. Deploys stay Vercel's job
+# (push → build); nothing here deploys.
+[Unit]
+Description=ProjectIntelligence agent-pipeline — build→review→fix→merge→close ONE issue, then the next
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/hmei/jobhunt/ProjectIntelligence
+Environment=PATH=/home/hmei/.local/share/pnpm:/home/hmei/.nvm/versions/node/v22.14.0/bin:/home/hmei/.local/bin:/home/hmei/miniconda3/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-/home/hmei/.anthropic-env
+# ── base branch: development happens on develop (main is the production branch) ──
+Environment=AGENT_BASE=develop
+Environment=PR_BASE=develop
+# ── shared gates (inbox uses AGENT_GATES_CMD; fixer/merger use PR_GATES_CMD).
+#    unit boots its own docker test Postgres via scripts/ensure-test-db.sh. ──
+Environment="AGENT_GATES_CMD=scripts/quality-gates.sh --only typecheck,lint,unit"
+Environment="PR_GATES_CMD=scripts/quality-gates.sh --only typecheck,lint,unit"
+Environment=AGENT_DEPS=install
+Environment=PR_DEPS=install
+# ── models + review loop bound (reviewer and fixer MUST differ — FR-075) ──
+Environment=PR_REVIEWER_MODEL=opus
+Environment=PR_FIXER_MODEL=sonnet
+Environment=PR_MERGER_MODEL=opus
+Environment=PR_MAX_ROUNDS=4
+# ── namespaced /tmp state, locks, worktrees (stage scripts keep their own locks; the
+#    pipeline serializes them, and a single PIPELINE lock guards the whole run) ──
+Environment=AGENT_LOGDIR=/tmp/pi-agent-inbox
+Environment=AGENT_WORKTREE_BASE=/tmp/pi-agent-inbox/worktrees
+Environment=AGENT_LOCK=/tmp/pi-agent-inbox.lock
+Environment=PR_LOGDIR=/tmp/pi-agent-pr-review
+Environment=PR_WORKTREE_BASE=/tmp/pi-agent-pr-review/worktrees
+Environment=PR_REVIEWER_LOCK=/tmp/pi-agent-pr-reviewer.lock
+Environment=PR_FIXER_LOCK=/tmp/pi-agent-pr-fixer.lock
+Environment=PR_MERGER_LOCK=/tmp/pi-agent-pr-merger.lock
+Environment=PIPELINE_LOGDIR=/tmp/pi-agent-pipeline
+Environment=PIPELINE_LOCK=/tmp/pi-agent-pipeline.lock
+ExecStart=/usr/bin/env bash /home/hmei/jobhunt/ProjectIntelligence/scripts/agent-pipeline.sh
+# One issue end-to-end (build + up to PR_MAX_ROUNDS review⇄fix rounds + merge) can be long;
+# 3h is a generous backstop. If killed, the next tick resumes the in-flight PR.
+TimeoutStartSec=10800
+Nice=10
+
+[Install]
+WantedBy=default.target
