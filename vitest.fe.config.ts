@@ -20,6 +20,11 @@ export default defineConfig({
       // Vertical packs — pure logic + fully-mocked pipeline (no DB), so they run
       // in the always-on fe suite rather than the DB-gated backend suite.
       "src/verticals/**/*.test.{ts,tsx}",
+      // Jurisdiction adapters (e.g. PlanSA) — pure mapping/paging logic with the
+      // network layer mocked (no DB). Same rationale as vertical packs: run in
+      // the always-on suite. They avoid `@/lib/env` (server-only, throws in
+      // jsdom) by reading flags from process.env at call time.
+      "src/modules/ingestion/jurisdictions/**/*.test.{ts,tsx}",
     ],
   },
   resolve: {

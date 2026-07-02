@@ -81,6 +81,16 @@ const baseShape = {
     // wired into the standard fetchCouncilDAs() dispatcher. Flip on for
     // Teams-only crons when that tier ships.
     SSD_INGEST_ENABLED: z.coerce.boolean().default(false),
+    // PlanSA (South Australia) statewide ArcGIS FeatureServer — Expansion Wave 2
+    // (docs/25 §1.2/§2), the only other NSW-grade per-application statewide feed.
+    // The `sa` jurisdiction adapter is built + fixture-tested but DORMANT: the
+    // jurisdiction registry only includes SA when this flag is truthy.
+    // DO NOT enable until the PlanSA commercial-use license question
+    // (docs/25 §6, human-owned) is closed. Default off; declared here for prod-
+    // config validation + .env.example, but the registry reads the RAW env at
+    // CALL TIME (src/modules/ingestion/jurisdictions/registry.ts), not this
+    // frozen snapshot, so a single process/test can toggle it.
+    SA_INGEST_ENABLED: z.coerce.boolean().default(false),
 
     // ── Vertical packs (multi-trade expansion, docs/25 §2) ──────────────────
     // Each trade beyond roofing (V1) ships behind its own flag, default off,

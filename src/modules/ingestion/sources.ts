@@ -14,7 +14,8 @@ export type SourceApi =
   | "da_leads"
   | "council_da"
   | "da_exhibitions"
-  | "ssd_register"; // State Significant Development register (Teams-tier — dormant for now)
+  | "ssd_register" // State Significant Development register (Teams-tier — dormant for now)
+  | "plansa"; // South Australia PlanSA ArcGIS register (Wave 2 — dormant behind SA_INGEST_ENABLED)
 
 /** Normalised DA record after adapting from any source. */
 export interface RawDaRecord {
