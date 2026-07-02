@@ -34,6 +34,19 @@ export function DigestView({
         weeksOfHistory={weeksOfHistory}
       />
 
+      {digest.cards.length > 0 && (
+        <div className="px-4 pt-4 flex justify-end">
+          <a
+            href={`/api/export/digest/${digest.id}.csv`}
+            download
+            className="inline-flex items-center gap-1.5 rounded-md border border-[#E5E5E5] bg-white px-3 py-2 text-sm font-medium text-[#1E3A5F] shadow-sm hover:bg-[#F7FAFC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] focus-visible:ring-offset-1 min-h-[44px]"
+            aria-label="Export this digest's leads as a CSV file"
+          >
+            <span aria-hidden="true">↓</span> Export CSV
+          </a>
+        </div>
+      )}
+
       {showFallbackBanner && (
         <div
           className="mx-4 mt-4 rounded-md bg-[#FEF3C7] text-[#78350F] text-sm px-4 py-3"
