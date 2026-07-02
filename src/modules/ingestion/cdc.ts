@@ -72,6 +72,19 @@ export function isCdcIngestEnabled(): boolean {
 }
 
 /**
+ * Whether the CDC feed is actually live this run — the flag AND the shared
+ * ePlanning key, the exact gate `fetchCouncilDAs` uses before calling
+ * `fetchCouncilCdcs` (#10). Ingestion drift detection (ingest.ts) uses this to
+ * decide whether to emit a `cdc` baseline row: gating on the flag alone would
+ * fire a permanent "count=0" drift alert in any environment where CDC was
+ * simply never configured (no API key yet), rather than only when a
+ * previously-live feed goes dark.
+ */
+export function isCdcActive(): boolean {
+  return isCdcIngestEnabled() && Boolean(env.NSW_PLANNING_API_KEY);
+}
+
+/**
  * Namespace a CDC application number so it can never collide with a DA of the
  * same council-issued reference under the (daId, council) uniqueness. Councils
  * mint DA and CDC references from overlapping number ranges (e.g. both a

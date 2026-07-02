@@ -14,6 +14,7 @@ import * as Sentry from "@sentry/nextjs";
 import { getEnabledJurisdictions } from "./jurisdictions/registry";
 import { NSW_REGIONS, MS_PER_DAY } from "./jurisdictions/config";
 import type { JurisdictionAdapter, NormalisedApplication } from "./jurisdictions/types";
+import { isCdcActive } from "./cdc";
 
 const log = pino({ name: "ingestion" });
 
@@ -37,7 +38,10 @@ export interface IngestResult {
    * pathway (da|cdc|ssd) so each is logged and drift-checked independently — a
    * CDC-feed outage must not be masked by healthy DA volume, and vice versa.
    * Always carries the `da` baseline (count 0 when the region ingested nothing),
-   * matching the pre-#10 one-row-per-region behaviour.
+   * matching the pre-#10 one-row-per-region behaviour. Also carries a `cdc`
+   * baseline (count 0 when absent) whenever the CDC feed is live, so a total
+   * CDC outage is logged and drift-checked exactly like a DA outage, rather
+   * than silently producing no `cdc` row at all.
    */
   pathwayCounts: Array<{ pathway: string; count: number }>;
 }
@@ -109,9 +113,11 @@ async function ingestRegion(
     // ingestion_log row per pathway, so the drift alert can tell a DA-feed drop
     // apart from a CDC-feed drop. The `da` baseline is ALWAYS written (count 0
     // when the region ingested nothing), preserving the pre-#10 one-row-per-
-    // region behaviour byte-for-byte when no CDC records are present. `sourceApi`
-    // on each row reflects a record actually returned for that pathway, falling
-    // back to "none" for the empty DA baseline.
+    // region behaviour byte-for-byte when no CDC records are present. The `cdc`
+    // baseline is written the same way whenever the CDC feed is live, so a total
+    // CDC outage gets its own count=0 row instead of silently vanishing.
+    // `sourceApi` on each row reflects a record actually returned for that
+    // pathway, falling back to "none" for an empty baseline.
     const pathwayCounts = summarisePathways(records);
     for (const { pathway, count, sourceApi } of pathwayCounts) {
       await db.ingestionLog.create({
@@ -142,15 +148,22 @@ async function ingestRegion(
 /**
  * Group a region's records into per-pathway counts for logging + drift. Always
  * includes the `da` baseline first (count 0 when absent) so the DA drift series
- * is continuous; any other pathway (cdc, ssd) appears only when it produced
- * records. `sourceApi` is the last source seen for that pathway — records within
- * one pathway share a source in practice.
+ * is continuous. Also always includes a `cdc` baseline (count 0 when absent)
+ * whenever the CDC feed is actually live (`isCdcActive`) — otherwise a total
+ * CDC-feed outage for a council (0 CDC records while DA still works) would
+ * write no `cdc` row at all, and `checkDrift` would never be invoked for it
+ * (the exact regression #10's drift alert must catch). Any other pathway (ssd)
+ * appears only when it produced records. `sourceApi` is the last source seen
+ * for that pathway — records within one pathway share a source in practice.
  */
 function summarisePathways(
   records: NormalisedApplication[],
 ): Array<{ pathway: string; count: number; sourceApi: string }> {
   const byPathway = new Map<string, { count: number; sourceApi: string }>();
   byPathway.set("da", { count: 0, sourceApi: "none" });
+  if (isCdcActive()) {
+    byPathway.set("cdc", { count: 0, sourceApi: "none" });
+  }
   for (const r of records) {
     const entry = byPathway.get(r.approvalPathway) ?? { count: 0, sourceApi: r.sourceApi };
     entry.count++;
@@ -158,7 +171,7 @@ function summarisePathways(
     byPathway.set(r.approvalPathway, entry);
   }
   return [...byPathway.entries()]
-    .filter(([pathway, { count }]) => pathway === "da" || count > 0)
+    .filter(([pathway, { count }]) => pathway === "da" || pathway === "cdc" || count > 0)
     .map(([pathway, { count, sourceApi }]) => ({ pathway, count, sourceApi }));
 }
 

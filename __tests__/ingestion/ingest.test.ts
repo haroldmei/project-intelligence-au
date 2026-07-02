@@ -296,5 +296,59 @@ describe("CDC ingestion through runIngest (#10)", () => {
       where: { approvalPathway: "cdc" },
     });
     expect(cdcCount).toBe(0);
+    // No cdc baseline row either — CDC was never active this run, so a
+    // permanent count=0 log entry (and the drift alert it would trigger every
+    // day) would be a false positive, not a real outage.
+    const cdcLogCount = await testDb.ingestionLog.count({
+      where: { council: "blacktown", approvalPathway: "cdc" },
+    });
+    expect(cdcLogCount).toBe(0);
+  });
+
+  it("still logs and drift-checks a cdc=0 baseline when the CDC feed goes fully dark for a council while DA stays healthy (#10)", async () => {
+    const { captureMessage } = await import("@sentry/nextjs");
+
+    // A week of healthy CDC history for blacktown.
+    await testDb.ingestionLog.create({
+      data: { council: "blacktown", approvalPathway: "cdc", sourceApi: "nsw_cdc", daCount: 5, success: true },
+    });
+
+    // Today: the DA endpoint returns a record (DA feed healthy), but the CDC
+    // endpoint returns nothing at all — a total feed outage, not just a low day.
+    (fetchWithRetry as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes("complying-development-certificates")) {
+        return Promise.resolve({ applications: [] });
+      }
+      return Promise.resolve({
+        applications: [
+          {
+            applicationNumber: "DA-DARK-1",
+            councilCode: "blacktown",
+            address: "1 Slate Rd, Blacktown",
+            proposedDevelopment: "New dwelling",
+            estimatedCost: 50000,
+            lodgedDate: new Date().toISOString(),
+            applicant: null,
+            url: "https://planningportal.nsw.gov.au/DA-DARK-1",
+            scopeDescription: "Metal roof to new dwelling",
+          },
+        ],
+      });
+    });
+
+    await runIngest(1);
+
+    // A cdc=0 baseline row must be written even though zero CDC records arrived.
+    const cdcLog = await testDb.ingestionLog.findFirst({
+      where: { council: "blacktown", approvalPathway: "cdc", success: true, daCount: 0 },
+    });
+    expect(cdcLog).not.toBeNull();
+
+    // ...and checkDrift must actually fire for the cdc pathway — the outage
+    // this feature exists to catch — not just get silently logged.
+    const cdcDriftCalls = (captureMessage as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (call: unknown[]) => (call[1] as { tags?: { pathway?: string } } | undefined)?.tags?.pathway === "cdc",
+    );
+    expect(cdcDriftCalls.length).toBeGreaterThan(0);
   });
 });

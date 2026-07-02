@@ -18,6 +18,7 @@ vi.mock("@/modules/ingestion/fetch", () => ({
 import { fetchWithRetry } from "@/modules/ingestion/fetch";
 import {
   isCdcIngestEnabled,
+  isCdcActive,
   namespaceCdcDaId,
   mapCdcApplication,
   fetchCouncilCdcs,
@@ -72,6 +73,23 @@ describe("isCdcIngestEnabled — default-on flag", () => {
     expect(isCdcIngestEnabled()).toBe(false);
     process.env.CDC_INGEST_ENABLED = "0";
     expect(isCdcIngestEnabled()).toBe(false);
+  });
+});
+
+describe("isCdcActive — flag AND shared API key both required", () => {
+  // `env.NSW_PLANNING_API_KEY` is the frozen `@/lib/env` snapshot (parsed once
+  // at module load, per src/lib/env.ts), unlike `isCdcIngestEnabled`'s raw
+  // `process.env` read — so the "key absent" branch can't be exercised by
+  // toggling process.env mid-test-file. It's the same `env.NSW_PLANNING_API_KEY`
+  // check `fetchCouncilDAs`/`fetchCouncilCdcs` already gate on (sources.ts,
+  // cdc.ts), so it's covered by those call sites.
+  it("is true when the flag defaults on and the key is present (seeded by setup-env.ts)", () => {
+    expect(isCdcActive()).toBe(true);
+  });
+
+  it("is false when the flag is explicitly off, even with the key present", () => {
+    process.env.CDC_INGEST_ENABLED = "false";
+    expect(isCdcActive()).toBe(false);
   });
 });
 
