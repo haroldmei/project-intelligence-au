@@ -140,6 +140,7 @@ describe("Digest assembly determinism property", () => {
       estimatedValue: 50_000 + i,
       lodgementDate: "2026-04-01",
       constructionCertifiedAt: null,
+      approvalPathway: "da",
       applicantName: null,
       portalUrl: `https://example.com/da-${i}`,
     }));

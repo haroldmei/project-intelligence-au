@@ -32,7 +32,9 @@ const ROOFING_RERANK_FRAGMENT = readFileSync(
 export const roofingPack: VerticalPack = {
   slug: "roofing",
   label: "Roofing",
-  version: "1.0.0",
+  // 1.1.0 — #10 added the CDC re-roof vocabulary + the CDC-pathway rerank
+  // constraint (the tile→metal Complying Development Certificate signals).
+  version: "1.1.0",
   defaultSavedQuery:
     "roofing replacement and re-roof work in Greater Sydney for residential dwellings",
   vocabulary: ROOFING_VOCABULARY,

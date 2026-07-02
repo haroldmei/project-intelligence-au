@@ -49,6 +49,7 @@ const RERANK_INPUT: Omit<RerankInput, "thumbsExamples"> = {
       estimatedValue: 500000,
       lodgementDate: "2026-06-01",
       constructionCertifiedAt: null,
+      approvalPathway: "da",
     },
   ],
 };

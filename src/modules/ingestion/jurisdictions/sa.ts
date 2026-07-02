@@ -165,6 +165,10 @@ export function mapFeatures(features: ArcgisFeature[]): NormalisedApplication[] 
       portalUrl: `${PLANSA_PORTAL_BASE}?appid=${encodeURIComponent(appid)}`,
       rawScopeText: nature || null,
       sourceApi: "plansa",
+      // PlanSA records are development applications; the DA/CDC/SSD distinction
+      // (#10) is NSW-specific, so SA rows carry the `da` default. The richer
+      // SA-native `assessmentPathway` string is preserved separately below.
+      approvalPathway: "da",
       jurisdiction: "sa",
       assessmentPathway: a.assessmentpathway?.trim() || null,
     });

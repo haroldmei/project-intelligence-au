@@ -177,7 +177,19 @@ model DevelopmentApplication {
   // for feeds that expose no category (NSW Planning API, DA Leads, PlanSA), the
   // same way estimated_value is null for value-less feeds.
   developmentType String? @map("development_type")
-  sourceApi      String   @map("source_api")  // nsw_planning|da_leads|council_da|da_exhibitions|plansa
+  sourceApi      String   @map("source_api")  // nsw_planning|da_leads|council_da|da_exhibitions|nsw_cdc|plansa
+  // Which NSW planning approval pathway carried this record (#10):
+  //   da  — a Development Application (the incumbent feeds; the default).
+  //   cdc — a Complying Development Certificate from the Online CDC Data API.
+  //         The pathway that actually carries material-change re-roofs
+  //         (tile→metal), which never generate a DA (docs/24 G1). daId is
+  //         namespaced with a `CDC-` prefix at ingest so a CDC number can never
+  //         collide with a DA of the same council-issued reference.
+  //   ssd — State Significant Development (dormant Teams-tier feed).
+  // Persisted so the reranker/lead-class can treat "CDC re-roof" as a strong
+  // positive and the digest can group by pathway. Defaults 'da' so every
+  // pre-#10 row backfills in place and NSW DA output stays byte-identical.
+  approvalPathway String  @default("da") @map("approval_pathway")
   // Statewide jurisdiction this DA belongs to (nsw|sa|…). The multi-jurisdiction
   // seam (#28); defaults 'nsw' so pre-existing rows backfill in place and NSW
   // output is byte-identical.
@@ -329,6 +341,11 @@ model IngestionLog {
   id           String   @id @default(cuid())
   council      String
   sourceApi    String   @map("source_api")
+  // Approval pathway this log row counts (#10): da|cdc|ssd. Rows are now written
+  // per (council, pathway) so drift detection can distinguish a DA-feed drop from
+  // a CDC-feed drop rather than averaging the two together. Historical rows are
+  // all DA (default 'da').
+  approvalPathway String @default("da") @map("approval_pathway")
   daCount      Int      @default(0) @map("da_count")
   runAt        DateTime @default(now()) @map("run_at")
   success      Boolean  @default(true)

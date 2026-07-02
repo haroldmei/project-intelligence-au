@@ -101,6 +101,13 @@ no commentary:
    user thumbs-up/down on similar DAs), use them to break ties. Never
    override the rubric — they shift confidence, not the score floor.
 
+7. **CDC pathway.** A candidate's `approval_pathway` may read `cdc` — a
+   Complying Development Certificate. CDC is the fast-track pathway that
+   carries material-change re-roofs (tile→metal / Colorbond
+   conversion), work that never files a DA. A roofing CDC is therefore
+   strong positive evidence, not a downgrade: score it on the roofing
+   rubric above and never penalise it for being a CDC.
+
 ## Confidence
 
 - `confidence ≥ 0.7`: you are sure of the score.

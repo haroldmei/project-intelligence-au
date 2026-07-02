@@ -79,6 +79,7 @@ export async function ruleFilter({
       estimated_value: string | null;
       lodgement_date: Date;
       construction_certified_at: Date | null;
+      approval_pathway: string;
       applicant_name: string | null;
       portal_url: string;
     }>
@@ -93,6 +94,7 @@ export async function ruleFilter({
       estimated_value::text,
       lodgement_date,
       construction_certified_at,
+      approval_pathway,
       applicant_name,
       portal_url
     FROM development_applications
@@ -117,6 +119,7 @@ export async function ruleFilter({
     lodgementDate: r.lodgement_date.toISOString().slice(0, 10),
     constructionCertifiedAt:
       r.construction_certified_at?.toISOString().slice(0, 10) ?? null,
+    approvalPathway: r.approval_pathway,
     applicantName: r.applicant_name,
     portalUrl: r.portal_url,
   }));

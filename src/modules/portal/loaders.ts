@@ -22,6 +22,21 @@ function tallyLeadClasses(rows: Array<{ leadClass: string }>): LeadClassCounts {
   return counts;
 }
 
+/**
+ * Human label for a DA's approval pathway (#10), shown in the CSV export. The
+ * stored enum is da|cdc|ssd; surface it as the pathway names a tradie recognises.
+ */
+function pathwayLabel(pathway: string): string {
+  switch (pathway) {
+    case "cdc":
+      return "CDC";
+    case "ssd":
+      return "State significant";
+    default:
+      return "DA";
+  }
+}
+
 export interface DigestSummary {
   id: string;
   sentAt: string | null;
@@ -93,6 +108,7 @@ export async function getCurrentDigest(userId: string): Promise<DigestDetail | n
               description: true,
               lodgementDate: true,
               constructionCertifiedAt: true,
+              approvalPathway: true,
             },
           },
         },
@@ -118,6 +134,7 @@ export async function getCurrentDigest(userId: string): Promise<DigestDetail | n
       relevanceScore: dd.relevanceScore,
       whyMatched: dd.whyMatched,
       leadClass: toLeadClass(dd.leadClass),
+      approvalPathway: pathwayLabel(dd.da.approvalPathway),
       constructionCertifiedAt:
         dd.da.constructionCertifiedAt?.toISOString().slice(0, 10) ?? null,
       address: dd.da.address,
@@ -185,6 +202,7 @@ export async function getDigestById(userId: string, digestId: string): Promise<D
               description: true,
               lodgementDate: true,
               constructionCertifiedAt: true,
+              approvalPathway: true,
             },
           },
         },
@@ -210,6 +228,7 @@ export async function getDigestById(userId: string, digestId: string): Promise<D
       relevanceScore: dd.relevanceScore,
       whyMatched: dd.whyMatched,
       leadClass: toLeadClass(dd.leadClass),
+      approvalPathway: pathwayLabel(dd.da.approvalPathway),
       constructionCertifiedAt:
         dd.da.constructionCertifiedAt?.toISOString().slice(0, 10) ?? null,
       address: dd.da.address,
