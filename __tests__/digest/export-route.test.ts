@@ -30,12 +30,14 @@ const sampleDigest: DigestDetail = {
   smsStatus: null,
   fallbackUsed: false,
   runDate: "2026-07-05",
+  leadClassCounts: { fast_track: 0, strata_heritage: 0, builder_pipeline: 1 },
   cards: [
     {
       daId: "da_1",
       rank: 1,
       relevanceScore: 0.9,
       whyMatched: "roofing",
+      leadClass: "builder_pipeline",
       address: "1 Smith St",
       council: "Inner West",
       estimatedValue: 100000,

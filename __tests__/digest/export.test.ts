@@ -12,6 +12,7 @@ function card(overrides: Partial<DigestCard> = {}): DigestCard {
     rank: 1,
     relevanceScore: 0.87,
     whyMatched: "Matches your roofing scope",
+    leadClass: "builder_pipeline",
     address: "1 Smith St, Newtown NSW 2042",
     council: "Inner West",
     estimatedValue: 250000,
@@ -33,6 +34,7 @@ function digest(cards: DigestCard[], runDate = "2026-07-05"): DigestDetail {
     smsStatus: null,
     fallbackUsed: false,
     runDate,
+    leadClassCounts: { fast_track: 0, strata_heritage: 0, builder_pipeline: cards.length },
     cards,
   };
 }

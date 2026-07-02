@@ -264,6 +264,12 @@ model DigestDa {
   relevanceScore Int    @map("relevance_score") // 0–10
   whyMatched     String @map("why_matched")
   rank           Int
+  // Honest lead class (issue #14): builder_pipeline | fast_track | strata_heritage.
+  // Computed deterministically at assembly time from the DA's approval pathway +
+  // scope keywords (src/modules/relevance/lead-class.ts) and PERSISTED here so a
+  // digest's classification never drifts when the classifier rules evolve.
+  // Defaults to the ambiguous fallback so pre-existing rows backfill in place.
+  leadClass      String @default("builder_pipeline") @map("lead_class")
 
   digest Digest                 @relation(fields: [digestId], references: [id], onDelete: Cascade)
   da     DevelopmentApplication @relation(fields: [daId], references: [id])

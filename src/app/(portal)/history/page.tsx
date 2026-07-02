@@ -3,6 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { validateRequest } from "@/lib/auth/session";
 import { getDigestHistory, getMyArea, type MyArea } from "@/modules/portal/loaders";
+import { LeadClassBadge } from "@/components/lead-class-badge";
+import { LEAD_CLASS_GROUP_ORDER } from "@/modules/relevance/lead-class";
 
 export const metadata: Metadata = {
   title: "Digest History — ProjectIntelligence AU",
@@ -70,6 +72,23 @@ export default async function HistoryPage() {
                         </span>
                       </p>
                       <p className="text-xs text-[#829AB1]">{areaLabel}</p>
+                      {digest.daCount > 0 && (
+                        <div
+                          className="flex flex-wrap items-center gap-1 pt-0.5"
+                          aria-label="Lead classes in this digest"
+                        >
+                          {LEAD_CLASS_GROUP_ORDER.filter(
+                            (lc) => digest.leadClassCounts[lc] > 0,
+                          ).map((lc) => (
+                            <span key={lc} className="inline-flex items-center gap-1">
+                              <LeadClassBadge leadClass={lc} className="text-[10px]" />
+                              <span className="text-[10px] text-[#829AB1]">
+                                {digest.leadClassCounts[lc]}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {digest.fallbackUsed && (
                         <p className="text-xs text-[#78350F]">Degraded ranking</p>
                       )}

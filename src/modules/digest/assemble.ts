@@ -10,6 +10,7 @@ import { issueFeedbackToken, issueUnsubscribeToken } from "@/lib/hmac/token";
 import { captureServer } from "@/lib/analytics/server";
 import { env } from "@/lib/env";
 import type { RelevanceRunResult } from "@/modules/relevance/run";
+import { classifyLeadClass, type LeadClass } from "@/modules/relevance/lead-class";
 import pino from "pino";
 
 const log = pino({ name: "digest-assemble" });
@@ -44,6 +45,16 @@ export async function assembleAndSendDigest(
   const results = relevance.results.slice(0, 15);
   const daCount = results.length;
 
+  // Honest lead class per lead (issue #14). Deterministic + pure over the DA's
+  // scope text (+ approval pathway once #10 populates it). Computed ONCE here so
+  // the persisted DigestDa.leadClass and the email/portal badge always agree.
+  const leadClasses: LeadClass[] = results.map((r) =>
+    classifyLeadClass({
+      description: r.candidate.description,
+      rawScopeText: r.candidate.rawScopeText,
+    }),
+  );
+
   // Create Digest record
   const digest = await db.digest.create({
     data: {
@@ -64,6 +75,7 @@ export async function assembleAndSendDigest(
         relevanceScore: r.score * 2, // 0–5 → 0–10 per schema comment
         whyMatched: r.why,
         rank: i + 1,
+        leadClass: leadClasses[i],
       },
     });
   }
@@ -75,7 +87,7 @@ export async function assembleAndSendDigest(
   // per-card DB roundtrip — the candidate carries everything we need
   // (CandidateDA includes address, description, council, estimatedValue,
   // applicantName, portalUrl).
-  const cards = results.map((r) => {
+  const cards = results.map((r, i) => {
     const c = r.candidate;
     const thumbUpUrl = buildFeedbackUrl(userId, r.daId, 1);
     const thumbDownUrl = buildFeedbackUrl(userId, r.daId, 0);
@@ -88,6 +100,7 @@ export async function assembleAndSendDigest(
       scope: c.description.slice(0, 200),
       applicant: c.applicantName ?? "",
       relevanceScore: r.score * 2,
+      leadClass: leadClasses[i],
       portalUrl: c.portalUrl,
       thumbUpUrl,
       thumbDownUrl,
