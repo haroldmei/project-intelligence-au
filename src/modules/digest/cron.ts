@@ -1,5 +1,5 @@
 // Digest cron service — iterates active subscribers, runs relevance, sends digest.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 // FR-009 | system-design §2 digest, §3.3 Sunday digest data flow, §7.3
 //

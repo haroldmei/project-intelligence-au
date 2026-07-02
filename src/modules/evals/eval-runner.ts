@@ -1,6 +1,6 @@
 // Rerank eval orchestration (issue #19) — turns the gold dataset into a scored
 // precision/recall report by driving a model caller over each case.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 //
 // jsdom-safe: builds prompts from files (composeRerankSystemPrompt is fs-only)

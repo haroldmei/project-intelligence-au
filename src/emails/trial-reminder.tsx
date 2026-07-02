@@ -1,3 +1,5 @@
+import { PRICING, PRICE_AMOUNT, GST_SUFFIX } from "@/lib/pricing";
+
 export function TrialReminderTemplate(props: {
   daysLeft: number;
   manageBillingUrl: string;
@@ -27,7 +29,7 @@ export function TrialReminderTemplate(props: {
           <h2 style="margin: 0 0 16px 0; font-size: 18px; font-weight: 600; color: #1E3A5F;">Your trial ends in ${daysLeft} ${daysLeft === 1 ? "day" : "days"}</h2>
 
           <p style="margin: 0 0 12px 0; font-size: 16px; line-height: 1.5; color: #334E68;">
-            You're on day 26 of your 28-day ProjectIntelligence trial. After that, your card on file will be charged AUD 199 + GST so the Sunday digest keeps landing.
+            You're on day ${PRICING.trialDays - 2} of your ${PRICING.trialDays}-day ProjectIntelligence trial. After that, your card on file will be charged ${PRICE_AMOUNT} (${GST_SUFFIX}) so the Sunday digest keeps landing.
           </p>
 
           <p style="margin: 0 0 24px 0; font-size: 16px; line-height: 1.5; color: #334E68;">

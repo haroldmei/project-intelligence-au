@@ -1,5 +1,5 @@
 // Precision / recall / F1 machinery for the rerank gold set (issue #19).
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2 (ai.eval_harness / eval_launch_gate)
 //
 // Pure functions — NO DB, NO @/lib/env, NO Anthropic. Safe to import from the

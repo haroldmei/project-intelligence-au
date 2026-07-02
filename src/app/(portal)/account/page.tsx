@@ -6,12 +6,14 @@ import { useRouter } from "next/navigation";
 import { CancelSubscriptionDialog } from "@/components/cancel-subscription-dialog";
 import { Button } from "@/components/ui/button";
 import type { AccountDTO } from "@/modules/account/service";
+import { SOLO_PLAN_LABEL } from "@/lib/pricing";
 
+// Solo is the only plan — multi-seat ("Team") is deferred until it ships, so
+// every current subscription maps to the single Solo label/seat count.
 const PLAN_LABELS: Record<string, string> = {
-  solo: "Solo — AUD 199/mo + GST",
-  team: "Team — AUD 499/mo + GST",
+  solo: SOLO_PLAN_LABEL,
 };
-const PLAN_SEATS: Record<string, number> = { solo: 1, team: 3 };
+const PLAN_SEATS: Record<string, number> = { solo: 1 };
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";

@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(env.NEXT_PUBLIC_APP_URL),
   title: "ProjectIntelligence AU — Roofing DA Digest for Sydney Subbies",
   description:
-    "The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.",
+    "The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.",
 };
 
 export const viewport: Viewport = {

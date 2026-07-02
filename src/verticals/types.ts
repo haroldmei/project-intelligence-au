@@ -1,5 +1,5 @@
 // Vertical pack contract — the trade-swappable unit of the relevance pipeline.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // EXPANSION: docs/25 §2 — each trade beyond roofing (V1) ships as a self-contained
 // "vertical pack": rule lexicon + development-type filters + rerank prompt fragment.
 //

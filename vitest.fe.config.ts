@@ -43,6 +43,9 @@ export default defineConfig({
       // Anthropic, no @/lib/env. The DB-backed labelling logic is covered in the
       // backend suite (__tests__/evals/labelling.test.ts).
       "src/modules/evals/**/*.test.{ts,tsx}",
+      // Pure lib modules with no DB / no @/lib/env (e.g. pricing, the single
+      // source of truth for price + trial length). jsdom-safe, always-on.
+      "src/lib/pricing.test.ts",
     ],
   },
   resolve: {
