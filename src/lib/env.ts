@@ -82,6 +82,14 @@ const baseShape = {
     // Teams-only crons when that tier ships.
     SSD_INGEST_ENABLED: z.coerce.boolean().default(false),
 
+    // ── Vertical packs (multi-trade expansion, docs/25 §2) ──────────────────
+    // Each trade beyond roofing (V1) ships behind its own flag, default off,
+    // so the pack + eval seed can merge while the launch decision stays human-
+    // owned. Declared here for prod-config validation + .env.example; the
+    // vertical registry (src/verticals/registry.ts) reads the raw env at
+    // CALL TIME (not this frozen snapshot) so a single process/test can toggle.
+    VERTICAL_DEMOLITION_ENABLED: z.coerce.boolean().default(false),
+
     // ── Observability (optional Month 1) ────────────────────────────────────
     SENTRY_DSN: z.string().url().optional(),
     NEXT_PUBLIC_SENTRY_DSN: z.string().url().optional(),

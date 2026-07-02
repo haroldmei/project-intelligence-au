@@ -17,6 +17,9 @@ export default defineConfig({
       "src/app/(auth)/**/*.test.{ts,tsx}",
       "src/app/(portal)/**/*.test.{ts,tsx}",
       "src/components/**/*.test.{ts,tsx}",
+      // Vertical packs — pure logic + fully-mocked pipeline (no DB), so they run
+      // in the always-on fe suite rather than the DB-gated backend suite.
+      "src/verticals/**/*.test.{ts,tsx}",
     ],
   },
   resolve: {
