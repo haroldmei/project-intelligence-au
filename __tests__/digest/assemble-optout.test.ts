@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const { mockDb, sendSmsMock, sendEmailMock } = vi.hoisted(() => ({
   mockDb: {
     user: { findUniqueOrThrow: vi.fn(), findUnique: vi.fn() },
-    digest: { create: vi.fn(), update: vi.fn() },
+    digest: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     digestDa: { create: vi.fn() },
     shortUrl: { upsert: vi.fn() },
   },
@@ -62,6 +62,7 @@ const RELEVANCE = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.user.findUniqueOrThrow.mockResolvedValue({ ...SNAPSHOT });
+  mockDb.digest.findFirst.mockResolvedValue(null); // no prior row — first assembly
   mockDb.digest.create.mockResolvedValue({ id: "digest-1" });
   mockDb.digestDa.create.mockResolvedValue({});
   mockDb.shortUrl.upsert.mockResolvedValue({});
