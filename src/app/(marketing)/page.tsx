@@ -1,6 +1,7 @@
 // <!-- WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, top-3 leads, AUD 99/mo (GST included), signup in 60 seconds. -->
 
 import Link from "next/link";
+import { WaitlistForm } from "./waitlist-form";
 
 // ── JSON-LD Product schema for pricing tiers ──────────────────────────────
 const jsonLd = {
@@ -558,6 +559,33 @@ export default function MarketingPage() {
                 Start free trial
               </Link>
               <p className="text-xs text-[#627D98]">No sales call. No lock-in.</p>
+            </div>
+          </section>
+
+          {/* ═══════════════════════════════════════════════════════════════
+              WAITLIST — out-of-scope demand capture (issue #25).
+              Not a product promise; measures who's asking so we know where to
+              go next. The wedge copy above is untouched.
+          ═══════════════════════════════════════════════════════════════ */}
+          <section
+            id="waitlist"
+            className="px-4 py-14 bg-[#F5F7FA] border-t border-[#E4E7EB]"
+            aria-labelledby="waitlist-heading"
+          >
+            <div className="max-w-xl mx-auto space-y-5">
+              <div className="space-y-2">
+                <h2
+                  id="waitlist-heading"
+                  className="text-2xl font-extrabold text-[#102A43] tracking-tight"
+                >
+                  Not a Sydney roofer?
+                </h2>
+                <p className="text-sm text-[#486581] leading-relaxed">
+                  We only cover roofing in Greater Sydney today. Tell us your trade and
+                  city and we&apos;ll email you when it opens — no spam, no sales call.
+                </p>
+              </div>
+              <WaitlistForm />
             </div>
           </section>
 

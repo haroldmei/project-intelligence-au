@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -78,6 +79,18 @@ export default function AreaPage() {
         </h1>
         <p className="text-sm text-[#627D98] mt-1">
           Pick the LGA bundles you work in. You can change this anytime.
+        </p>
+        {/* Out-of-scope escape hatch (issue #25): a user who works outside
+            Greater Sydney has no bundle to pick — send them to the waitlist. */}
+        <p className="text-sm text-[#627D98] mt-2">
+          Work outside Greater Sydney?{" "}
+          <Link
+            href="/#waitlist"
+            className="font-semibold text-[#B45309] underline underline-offset-2 hover:text-[#92400E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] rounded"
+          >
+            Join the waitlist
+          </Link>
+          .
         </p>
       </div>
 
