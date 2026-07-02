@@ -60,6 +60,22 @@ const templates = [
       }),
   },
   {
+    // FR-010 quiet week (issue #58): no leads surfaced — the reassurance
+    // variant must still satisfy every email invariant (no script, absolute
+    // links, non-empty subject, < 100KB).
+    name: "weekly-digest-quiet-week",
+    fn: () =>
+      WeeklyDigestTemplate({
+        weekStart: "27 Apr 2026",
+        leadCount: 0,
+        lgas: ["Western Sydney", "Hills"],
+        cards: [],
+        dasChecked: 143,
+        smsEnabled: false,
+        unsubscribeUrl: "https://pi-au.example.com/api/unsubscribe/tok123",
+      }),
+  },
+  {
     name: "digest-fallback-notice",
     fn: () =>
       DigestFallbackNoticeTemplate({

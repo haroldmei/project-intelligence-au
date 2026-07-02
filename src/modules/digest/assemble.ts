@@ -157,6 +157,11 @@ export async function assembleAndSendDigest(
           leadCount: daCount,
           lgas: lgaLabels,
           cards,
+          // FR-010 quiet week (issue #58): the count of DAs the relevance
+          // pipeline actually scanned this week. `ruleFiltered` is the roofing-
+          // relevant candidate pool in the user's LGAs after the rule pass —
+          // the honest "we checked N DAs" number for a no-lead reassurance.
+          dasChecked: relevance.stats.ruleFiltered,
           smsEnabled: smsOptIn,
           fallbackUsed: relevance.fallbackUsed,
           unsubscribeUrl: buildUnsubscribeUrl(userId),

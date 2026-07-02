@@ -80,6 +80,55 @@ describe("WeeklyDigestTemplate — lead classes (issue #14)", () => {
     expect(html).not.toContain("work starting");
   });
 
+  it("renders the quiet-week reassurance with the DAs-checked count (issue #58)", () => {
+    const { subject, html: h } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 0,
+      lgas: ["Inner West", "Eastern Suburbs"],
+      cards: [],
+      dasChecked: 143,
+      smsEnabled: false,
+    });
+    expect(h).toContain("No strong re-roof leads this week");
+    expect(h).toContain("We checked 143 DAs across your Inner West + Eastern Suburbs");
+    // The empty card table and the "0 leads" strings must NOT appear.
+    expect(h).not.toContain("0 leads");
+    expect(h).not.toContain("End of digest ·");
+    // Subject reassures rather than advertising "0 leads".
+    expect(subject).toContain("143 DAs");
+    expect(subject).not.toContain("0 leads");
+  });
+
+  it("singularises the DA word when exactly one DA was checked (issue #58)", () => {
+    const { html: h } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 0,
+      lgas: ["Inner West"],
+      cards: [],
+      dasChecked: 1,
+      smsEnabled: false,
+    });
+    expect(h).toContain("We checked 1 DA across your Inner West");
+    expect(h).not.toContain("1 DAs");
+  });
+
+  it("falls back to 0 when dasChecked is omitted on a quiet week (issue #58)", () => {
+    const { html: h } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 0,
+      lgas: ["Inner West"],
+      cards: [],
+      smsEnabled: false,
+    });
+    expect(h).toContain("No strong re-roof leads this week");
+    expect(h).toContain("We checked 0 DAs across your Inner West");
+  });
+
+  it("keeps the normal card layout when leads exist (no quiet-week branch)", () => {
+    expect(html).not.toContain("No strong re-roof leads this week");
+    expect(html).toContain("End of digest · 4 leads");
+  });
+
   it("defaults a card with no leadClass to the builder pipeline", () => {
     const { html: h } = WeeklyDigestTemplate({
       weekStart: "27 Apr 2026",
