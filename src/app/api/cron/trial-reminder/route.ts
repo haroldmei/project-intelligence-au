@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { verifyCronSecret } from "@/lib/cron/retry";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email/client";
+import { issueUnsubscribeToken } from "@/lib/hmac/token";
 import { env } from "@/lib/env";
 import pino from "pino";
 
@@ -41,6 +42,8 @@ export async function GET(request: Request): Promise<NextResponse> {
       subscriptionStatus: "trial",
       createdAt: { lte: eligibleCreatedBefore },
       trialReminderSentAt: null,
+      // Spam Act 2003: don't email a user who has unsubscribed.
+      emailOptIn: true,
     },
     select: { id: true, email: true },
     take: 1000, // bounded daily cohort; matches NFR-008 ceiling
@@ -53,7 +56,12 @@ export async function GET(request: Request): Promise<NextResponse> {
       await sendEmail({
         to: user.email,
         template: "trial-reminder",
-        props: { daysLeft: 2, manageBillingUrl },
+        props: {
+          daysLeft: 2,
+          manageBillingUrl,
+          // Per-user token link — functional, no-login unsubscribe.
+          unsubscribeUrl: `${env.NEXT_PUBLIC_APP_URL}/api/unsubscribe/${encodeURIComponent(issueUnsubscribeToken(user.id))}`,
+        },
       });
       // Mark sent BEFORE the next user so a function-timeout mid-loop
       // can't re-deliver to the same user on retry.

@@ -91,3 +91,55 @@ export function validateFeedbackToken(raw: string): TokenValidation {
 
   return { ok: true, payload };
 }
+
+// ─── Unsubscribe token ───────────────────────────────────────────────────────
+// Spam Act 2003: the unsubscribe link must stay functional with NO login and NO
+// fee. Unlike feedback tokens it does NOT expire — a user unsubscribing from a
+// months-old email must still work. A "purpose" tag domain-separates it from
+// feedback tokens so one can't be replayed as the other.
+
+interface UnsubscribeTokenPayload {
+  userId: string;
+  purpose: "unsubscribe";
+}
+
+/** Issue an unauthenticated email-unsubscribe token (base64url envelope). */
+export function issueUnsubscribeToken(userId: string): string {
+  const payload: UnsubscribeTokenPayload = { userId, purpose: "unsubscribe" };
+  const data = JSON.stringify(payload);
+  const sig = sign(data);
+  const envelope = JSON.stringify({ payload, sig });
+  return Buffer.from(envelope).toString("base64url");
+}
+
+export type UnsubscribeValidation =
+  | { ok: true; userId: string }
+  | { ok: false; reason: "invalid" | "tampered" };
+
+/**
+ * Validate an unsubscribe token. Returns the userId on success; never throws.
+ * No expiry check — the opt-out link must remain honourable indefinitely.
+ */
+export function validateUnsubscribeToken(raw: string): UnsubscribeValidation {
+  let envelope: { payload: UnsubscribeTokenPayload; sig: string };
+  try {
+    const decoded = Buffer.from(raw, "base64url").toString("utf8");
+    envelope = JSON.parse(decoded);
+    if (!envelope?.payload || !envelope?.sig) return { ok: false, reason: "invalid" };
+  } catch {
+    return { ok: false, reason: "invalid" };
+  }
+
+  const { payload, sig } = envelope;
+  if (payload?.purpose !== "unsubscribe" || typeof payload?.userId !== "string") {
+    return { ok: false, reason: "invalid" };
+  }
+  // Canonicalise with the same key order used at issue time.
+  const expectedSig = sign(JSON.stringify({ userId: payload.userId, purpose: payload.purpose }));
+  const sigBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expectedBuf.length) return { ok: false, reason: "tampered" };
+  if (!timingSafeEqual(sigBuf, expectedBuf)) return { ok: false, reason: "tampered" };
+
+  return { ok: true, userId: payload.userId };
+}

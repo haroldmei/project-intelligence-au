@@ -5,8 +5,8 @@
 import * as Sentry from "@sentry/nextjs";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email/client";
-import { sendSms } from "@/lib/sms/client";
-import { issueFeedbackToken } from "@/lib/hmac/token";
+import { sendSms, SMS_SENDER_ID, SMS_STOP_FOOTER } from "@/lib/sms/client";
+import { issueFeedbackToken, issueUnsubscribeToken } from "@/lib/hmac/token";
 import { env } from "@/lib/env";
 import type { RelevanceRunResult } from "@/modules/relevance/run";
 import pino from "pino";
@@ -93,33 +93,54 @@ export async function assembleAndSendDigest(
     };
   });
 
+  // Spam Act 2003 — opt-out takes effect IMMEDIATELY. A run iterates many
+  // users in one invocation; a STOP (SMS) or unsubscribe (email) that lands
+  // after this digest was assembled must still suppress the send. So re-read
+  // the opt-in flags from the DB at send time rather than trusting the copy
+  // loaded when assembly started.
+  const optState = await db.user.findUnique({
+    where: { id: userId },
+    select: { emailOptIn: true, smsOptIn: true, mobile_e164: true },
+  });
+  const emailOptIn = optState?.emailOptIn ?? user.emailOptIn;
+  const smsOptIn = optState?.smsOptIn ?? false;
+  const mobile = optState?.mobile_e164 ?? null;
+
   // Send email (FR-010)
   let emailStatus = "pending";
-  try {
-    await sendEmail({
-      to: user.email,
-      template: "weekly-digest",
-      props: {
-        weekStart,
-        leadCount: daCount,
-        lgas: lgaLabels,
-        cards,
-        smsEnabled: user.smsOptIn,
-        fallbackUsed: relevance.fallbackUsed,
-      },
-    });
-    emailStatus = "sent";
-  } catch (err) {
-    emailStatus = "failed";
-    log.error({ userId, digestId: digest.id, err }, "[digest] email send failed");
-    Sentry.captureException(err, {
-      tags: { phase: "digest-email", userId, digestId: digest.id },
-    });
+  if (!emailOptIn) {
+    emailStatus = "skipped_optout";
+    log.info({ userId, digestId: digest.id }, "[digest] email suppressed — unsubscribed");
+  } else {
+    try {
+      await sendEmail({
+        to: user.email,
+        template: "weekly-digest",
+        props: {
+          weekStart,
+          leadCount: daCount,
+          lgas: lgaLabels,
+          cards,
+          smsEnabled: smsOptIn,
+          fallbackUsed: relevance.fallbackUsed,
+          unsubscribeUrl: buildUnsubscribeUrl(userId),
+        },
+      });
+      emailStatus = "sent";
+    } catch (err) {
+      emailStatus = "failed";
+      log.error({ userId, digestId: digest.id, err }, "[digest] email send failed");
+      Sentry.captureException(err, {
+        tags: { phase: "digest-email", userId, digestId: digest.id },
+      });
+    }
   }
 
-  // Send SMS to top-3 if opted in (FR-011)
+  // Send SMS to top-3 if opted in (FR-011). Uses the freshly re-read flag so a
+  // mid-run STOP suppresses the SMS even though `user.smsOptIn` was true at
+  // assembly time.
   let smsStatus = "skipped";
-  if (user.smsOptIn && user.mobile_e164 && cards.length > 0) {
+  if (smsOptIn && mobile && cards.length > 0) {
     const top3 = cards.slice(0, SMS_MAX_CARDS);
     // Persist a ShortUrl row per card BEFORE building the SMS body so
     // the /s/<slug> redirect handler can resolve clicks. Without these
@@ -137,7 +158,7 @@ export async function assembleAndSendDigest(
       }),
     );
     const smsBody = buildSmsBody(linkedTop3, lgaLabels, weekStart);
-    const sent = await sendSms({ to: user.mobile_e164, body: smsBody });
+    const sent = await sendSms({ to: mobile, body: smsBody });
     smsStatus = sent ? "sent" : "failed";
   }
 
@@ -160,11 +181,22 @@ function buildFeedbackUrl(userId: string, daId: string, vote: 1 | 0): string {
 }
 
 /**
+ * Build the unauthenticated, token-based email unsubscribe link (Spam Act
+ * 2003: no login, no fee). Same HMAC pattern as the thumbs links.
+ */
+function buildUnsubscribeUrl(userId: string): string {
+  const token = issueUnsubscribeToken(userId);
+  return `${APP_BASE_URL}/api/unsubscribe/${encodeURIComponent(token)}`;
+}
+
+/**
  * Build the SMS body. Stays within 2 SMS parts (~320 chars) to avoid
  * carrier mangling and double-billing — addresses are truncated as needed.
+ * Sender-id + STOP footer strings come from the centralised SMS client so
+ * this call site and the client can never drift apart.
  */
 const SMS_MAX_CHARS = 320;
-const SMS_FOOTER = "\nReply STOP to opt out.";
+const SMS_FOOTER = `\n${SMS_STOP_FOOTER}`;
 const SMS_ADDRESS_FALLBACK_LEN = 40;
 
 function buildSmsBody(
@@ -175,7 +207,7 @@ function buildSmsBody(
   // Don't include every LGA in the header — the SMS doesn't need them, and a
   // user with all 4 bundles selected blows the char budget on the header alone.
   const lgaLabel = lgas.length === 1 ? lgas[0] : `${lgas.length} areas`;
-  const header = `PI-AU ${weekStart} (${lgaLabel}):\n`;
+  const header = `${SMS_SENDER_ID} ${weekStart} (${lgaLabel}):\n`;
 
   const renderLine = (
     c: { address: string; value?: string; portalUrl: string },
