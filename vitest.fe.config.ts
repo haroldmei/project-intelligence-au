@@ -38,6 +38,11 @@ export default defineConfig({
       // they run in the always-on suite. The DB-backed cron send is covered in
       // the backend suite (__tests__/weather/cron.test.ts).
       "src/modules/weather/**/*.test.{ts,tsx}",
+      // Eval metrics/export/runner (#19) — pure precision/recall, dataset
+      // dedupe, and prompt-building over an injected model caller. No DB, no
+      // Anthropic, no @/lib/env. The DB-backed labelling logic is covered in the
+      // backend suite (__tests__/evals/labelling.test.ts).
+      "src/modules/evals/**/*.test.{ts,tsx}",
     ],
   },
   resolve: {
