@@ -9,6 +9,7 @@
 // consent is "accepted"; until then posthog-js is never initialised, so it
 // cannot set cookies or capture anything.
 import posthog from "posthog-js";
+import type { AnalyticsEventName, AnalyticsEventProperties } from "./events";
 
 /** localStorage key the cookie banner writes and this module reads. */
 export const COOKIE_CONSENT_KEY = "pi_cookie_consent";
@@ -56,4 +57,21 @@ export function identifyUser(userId: string): void {
 export function resetAnalytics(): void {
   if (!started) return;
   posthog.reset();
+}
+
+/**
+ * Capture a client-side product event. No-op before `initAnalytics()`, which
+ * itself no-ops until the user accepts analytics cookies — so this inherits the
+ * consent gate for free: ZERO capture before consent. Typed against the shared
+ * event catalogue so a wrong/PII property is a compile error at the call site.
+ *
+ * Server-side events use `captureServer` (./server); use this only for the few
+ * interactions with no server round-trip (e.g. an external portal click-out).
+ */
+export function captureClient<E extends AnalyticsEventName>(
+  event: E,
+  properties: AnalyticsEventProperties[E],
+): void {
+  if (!started) return;
+  posthog.capture(event, properties);
 }

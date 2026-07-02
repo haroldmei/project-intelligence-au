@@ -4,6 +4,7 @@
 // FR-020, FR-022 | system-design §2 portal + §4 API
 import { db } from "@/lib/db";
 import { embed } from "@/lib/ai/embeddings";
+import { captureServer } from "@/lib/analytics/server";
 import {
   getActiveSubscription,
   cancelSubscriptionAtPeriodEnd,
@@ -64,6 +65,10 @@ export async function updateLgaBundles(userId: string, bundleIds: string[]): Pro
     where: { id: userId },
     include: { lgaBundles: true },
   });
+  // Activation signal (FR-031): which users picked their lead coverage, and how
+  // wide. bundleCount only — bundle *ids* aren't PII but the count is the funnel
+  // metric that matters; keeps the shape minimal.
+  captureServer(userId, "lga_bundle_selected", { bundleCount: bundleIds.length });
   return toDTO(user);
 }
 
