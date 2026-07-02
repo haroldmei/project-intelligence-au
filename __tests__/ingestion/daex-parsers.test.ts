@@ -13,6 +13,7 @@ import {
   parseDaexDetail,
   parseSsdListing,
   parseSsdDetail,
+  buildDaexRecord,
 } from "@/modules/ingestion/sources";
 
 const FIXTURES = join(__dirname, "fixtures");
@@ -137,6 +138,37 @@ describe("parseDaexDetail — project description", () => {
 
   it("the two fields are distinct (project description is richer)", () => {
     expect(detail.projectDescription).not.toBe(detail.developmentTypeText);
+  });
+});
+
+describe("buildDaexRecord — development-type persistence (#26)", () => {
+  // The koo fixture carries both a categorical 'Type of development' and a
+  // richer free-text project description.
+  const html = readFileSync(join(FIXTURES, "daex-detail-koo.html"), "utf-8");
+  const detail = parseDaexDetail(html);
+
+  const record = buildDaexRecord({
+    slug: "ku_ring_gai",
+    daId: "PAN-123456",
+    detailUrl: "https://www.planningportal.nsw.gov.au/daex/exhibition/koo",
+    row: { title: "Alterations and additions to dwelling" },
+    detail,
+    status: "On Exhibition",
+    today: "2026-04-30",
+  });
+
+  it("persists the categorical Type of development as developmentType", () => {
+    expect(record.developmentType).toBe(detail.developmentTypeText);
+    expect(record.developmentType).toBeTruthy();
+    expect(record.developmentType!.toLowerCase()).toContain("residential");
+  });
+
+  it("still folds the category into rawScopeText for the rerank (unchanged)", () => {
+    expect(record.rawScopeText).toContain(detail.developmentTypeText!);
+  });
+
+  it("keeps developmentType distinct from the free-text scope", () => {
+    expect(record.developmentType).not.toBe(record.rawScopeText);
   });
 });
 
