@@ -60,7 +60,7 @@ const FEATURES = [
     withUs:
       "One email at 6 pm Sunday covers all 15 Greater Sydney LGAs — Western Sydney, Inner West, Northern, Southern — in a single scan.",
     detail:
-      "Cordell Connect sends a state-wide fire-hose of 47 alerts; you manually triage 6 hours to find 3 real re-roofs. We cover the 15 LGAs in your service area, ranked to the top 5–15 jobs you'd actually quote.",
+      "Cordell Connect sends a state-wide fire-hose of 47 alerts; you manually triage 6 hours to find 3 real roofing leads. We cover the 15 LGAs in your service area, sorted into the three lead classes the data supports — builder pipeline, fast-track CDC, and strata & heritage — and ranked to the top 5–15 jobs you'd actually quote.",
   },
   {
     id: "vocab",
@@ -71,7 +71,7 @@ const FEATURES = [
     withUs:
       "Our relevance layer is trained on roofing language — re-roof, membrane replacement, Colorbond, asbestos roof removal, guttering — not generic construction categories.",
     detail:
-      "We score every DA against the vocabulary a roofer actually uses. Before launch we tested on 500 labelled Sydney DA records. The target: 70% of the leads in your digest are genuine re-roof jobs you could quote. Cordell's current precision on the same set is around 6%.",
+      "We score every DA against the vocabulary a roofer actually uses. Before launch we tested on 500 labelled Sydney DA records. The target: 70% of the leads in your digest are genuine roofing jobs you could quote — new-build and alterations pipeline, fast-track CDC re-roofs, and strata & heritage work. Cordell's current precision on the same set is around 6%.",
   },
   {
     id: "signup",
@@ -258,9 +258,15 @@ export default function MarketingPage() {
                   The Sunday roofing digest for Sydney subbies.
                 </h1>
 
-                {/* Sub-headline — docs/17-positioning.md §5 + §9 */}
+                {/* Sub-headline — docs/17-positioning.md §5 + §9. Honest
+                    three-class framing (issue #14): DA data structurally misses
+                    like-for-like re-roofs, so we name the lead classes the data
+                    genuinely supports rather than imply exhaustive re-roof
+                    coverage. */}
                 <p className="text-base md:text-lg text-[#334E68] leading-relaxed max-w-prose">
-                  Top 3 curated re-roof DAs, 15 Sydney LGAs, every Sunday at 6&nbsp;pm.
+                  DA, CDC and strata signals across 15 Sydney LGAs — builder
+                  pipeline, fast-track CDC, and strata &amp; heritage leads,
+                  every Sunday at 6&nbsp;pm.
                   {" "}{PRICE_MONTHLY} ({GST_SUFFIX}). No sales call.
                 </p>
 
@@ -298,17 +304,22 @@ export default function MarketingPage() {
                     Your digest · Sun 27 Apr · 12 leads
                   </p>
                   {[
-                    { lga: "Western Sydney", addr: "12 Acacia Ave, Penrith NSW 2750", val: "Est. AUD 180k", why: "Existing dwelling re-roof, Colorbond replacement" },
-                    { lga: "Hills District", addr: "4 Banksia Rd, Castle Hill NSW 2154", val: "Est. AUD 95k", why: "Membrane upgrade, commercial unit block" },
-                    { lga: "Inner West", addr: "88 Parramatta Rd, Leichhardt NSW 2040", val: "Est. AUD 210k", why: "Asbestos roof removal & Colorbond re-roof" },
+                    { lga: "Western Sydney", addr: "12 Acacia Ave, Penrith NSW 2750", val: "Est. AUD 180k", why: "Tile-to-metal re-roof, CDC pathway", cls: "Fast-track", clsClass: "bg-[#E0F2FE] text-[#0C4A6E]" },
+                    { lga: "Hills District", addr: "4 Banksia Rd, Castle Hill NSW 2154", val: "Est. AUD 95k", why: "Class-2 membrane remediation, strata block", cls: "Strata & heritage", clsClass: "bg-[#F3E8FF] text-[#6B21A8]" },
+                    { lga: "Inner West", addr: "88 Parramatta Rd, Leichhardt NSW 2040", val: "Est. AUD 210k", why: "Alterations & additions — head-contractor lead", cls: "Builder pipeline", clsClass: "bg-[#E2E8F0] text-[#334155]" },
                   ].map((card) => (
                     <div
                       key={card.addr}
                       className="bg-white rounded-md border border-[#E5E5E5] p-3 shadow-sm"
                     >
-                      <span className="inline-block text-xs font-semibold bg-[#FEF3C7] text-[#78350F] rounded px-2 py-0.5 mb-1">
-                        {card.lga}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1 mb-1">
+                        <span className="inline-block text-xs font-semibold bg-[#FEF3C7] text-[#78350F] rounded px-2 py-0.5">
+                          {card.lga}
+                        </span>
+                        <span className={`inline-block text-xs font-semibold rounded px-2 py-0.5 ${card.clsClass}`}>
+                          {card.cls}
+                        </span>
+                      </div>
                       <p className="text-sm font-medium text-[#102A43] leading-snug">
                         {card.addr}
                       </p>

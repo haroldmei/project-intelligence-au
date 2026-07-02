@@ -3,13 +3,16 @@
 import React, { useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { LGABadge } from "@/components/lga-badge";
+import { LeadClassBadge } from "@/components/lead-class-badge";
 import { RelevanceDots } from "@/components/relevance-dots";
+import type { LeadClass } from "@/modules/relevance/lead-class";
 
 export interface DACardProps {
   daId: string;
   address: string;
   lga: string;
   relevanceScore: number; // 0–10
+  leadClass?: LeadClass;
   estimatedValue?: number | null; // AUD; null = not disclosed
   whyMatched: string;
   scopeText: string;
@@ -25,6 +28,7 @@ export function DACard({
   address,
   lga,
   relevanceScore,
+  leadClass,
   estimatedValue,
   whyMatched,
   scopeText,
@@ -104,7 +108,10 @@ export function DACard({
     >
       {/* Header row */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <LGABadge label={lga} />
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <LGABadge label={lga} />
+          {leadClass && <LeadClassBadge leadClass={leadClass} />}
+        </div>
         <RelevanceDots score={relevanceScore} />
       </div>
 

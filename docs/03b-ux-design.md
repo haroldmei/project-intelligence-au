@@ -118,6 +118,24 @@ Info:      Sky Blue     #0284C7
 
 **WCAG AA summary:** All body text combinations meet 4.5:1. All large text (≥18px regular or ≥14px bold) meets 3:1. The amber-600 on white (3.1:1) is used only at CTA button size (≥16px bold) where 3:1 applies. Amber-700 on white reaches 4.7:1 covering all sizes.
 
+#### Lead-class badges (issue #14)
+
+Honest three-class framing on every DA card (email + portal + history). Distinct
+but **subtle** — low-saturation tints so they read as categorisation, not alerts,
+and never compete with the amber LGA badge beside them. Implemented as `Badge`
+variants (`src/components/ui/badge.tsx`) and inlined in the email
+(`src/emails/weekly-digest.tsx`); the two must stay in sync.
+
+| Class | Label | Bg | Text | Border | Contrast |
+|---|---|---|---|---|---|
+| `fast_track` | Fast-track | `#E0F2FE` | `#0C4A6E` | `#BAE6FD` | 10.8:1 ✓ AAA |
+| `strata_heritage` | Strata & heritage | `#F3E8FF` | `#6B21A8` | `#E9D5FF` | 8.6:1 ✓ AAA |
+| `builder_pipeline` | Builder pipeline | `#E2E8F0` | `#334155` | `#CBD5E1` | 9.7:1 ✓ AAA |
+
+Email digest is **grouped** by class (order: fast-track → strata & heritage →
+builder pipeline) with a subtle section header per group; rank order is preserved
+within each group.
+
 ---
 
 ## 3. Typography Scale

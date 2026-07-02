@@ -1,3 +1,10 @@
+import {
+  toLeadClass,
+  LEAD_CLASS_META,
+  LEAD_CLASS_GROUP_ORDER,
+  type LeadClass,
+} from "@/modules/relevance/lead-class";
+
 interface DACard {
   id: string;
   address: string;
@@ -7,9 +14,42 @@ interface DACard {
   scope: string;
   applicant: string;
   relevanceScore: number; // 0-10
+  // Honest lead class (issue #14). Optional so pre-#14 callers still typecheck;
+  // absent → the ambiguous fallback (builder pipeline).
+  leadClass?: LeadClass;
   portalUrl: string;
   thumbUpUrl: string;
   thumbDownUrl: string;
+}
+
+// Inline badge palette per class — email clients strip <style>, so the hues
+// are inlined here. Mirrors the Tailwind variants in src/components/ui/badge.tsx.
+const LEAD_CLASS_EMAIL_STYLE: Record<
+  LeadClass,
+  { bg: string; fg: string; border: string }
+> = {
+  fast_track: { bg: "#E0F2FE", fg: "#0C4A6E", border: "#BAE6FD" },
+  strata_heritage: { bg: "#F3E8FF", fg: "#6B21A8", border: "#E9D5FF" },
+  builder_pipeline: { bg: "#E2E8F0", fg: "#334155", border: "#CBD5E1" },
+};
+
+function leadClassBadgeHtml(leadClass: LeadClass): string {
+  const s = LEAD_CLASS_EMAIL_STYLE[leadClass];
+  const label = escapeHtml(LEAD_CLASS_META[leadClass].label);
+  return `<span style="display: inline-block; padding: 4px 8px; margin-left: 6px; background-color: ${s.bg}; color: ${s.fg}; border: 1px solid ${s.border}; border-radius: 4px; font-weight: 500;">${label}</span>`;
+}
+
+function leadClassGroupHeaderHtml(leadClass: LeadClass): string {
+  const meta = LEAD_CLASS_META[leadClass];
+  const s = LEAD_CLASS_EMAIL_STYLE[leadClass];
+  return `
+  <tr>
+    <td style="padding: 4px 0 8px 0;">
+      <p style="margin: 0; font-size: 13px; font-weight: 700; color: ${s.fg}; text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(meta.label)}</p>
+      <p style="margin: 2px 0 0 0; font-size: 12px; color: #829AB1;">${escapeHtml(meta.blurb)}</p>
+    </td>
+  </tr>
+`;
 }
 
 /**
@@ -52,9 +92,7 @@ export function WeeklyDigestTemplate(props: {
       .join("");
   };
 
-  const cardHtml = cards
-    .map(
-      (card) => `
+  const renderCard = (card: DACard): string => `
   <tr>
     <td style="padding: 0;">
       <table style="width: 100%; border: 1px solid #E5E5E5; border-radius: 6px; overflow: hidden;">
@@ -65,7 +103,7 @@ export function WeeklyDigestTemplate(props: {
               <table style="width: 100%;">
                 <tr>
                   <td style="font-size: 12px; color: #627D98;">
-                    <span style="display: inline-block; padding: 4px 8px; background-color: #FEF3C7; color: #78350F; border-radius: 4px; font-weight: 500;">${escapeHtml(card.lga)}</span>
+                    <span style="display: inline-block; padding: 4px 8px; background-color: #FEF3C7; color: #78350F; border-radius: 4px; font-weight: 500;">${escapeHtml(card.lga)}</span>${leadClassBadgeHtml(toLeadClass(card.leadClass))}
                   </td>
                   <td style="text-align: right; font-size: 12px; color: #627D98; letter-spacing: 2px;">${getPips(card.relevanceScore)}</td>
                 </tr>
@@ -143,9 +181,18 @@ export function WeeklyDigestTemplate(props: {
     </td>
   </tr>
   <tr><td style="height: 12px;"></td></tr>
-`
-    )
-    .join("");
+`;
+
+  // Group cards by lead class (issue #14): fast-track, then strata & heritage,
+  // then builder pipeline — rank order preserved within each group. A subtle
+  // section header introduces each non-empty group.
+  const coerced = cards.map((c) => ({ ...c, leadClass: toLeadClass(c.leadClass) }));
+  const cardHtml = LEAD_CLASS_GROUP_ORDER.map((leadClass) => {
+    // Cards arrive in rank order; filtering preserves it within each group.
+    const group = coerced.filter((c) => c.leadClass === leadClass);
+    if (group.length === 0) return "";
+    return leadClassGroupHeaderHtml(leadClass) + group.map(renderCard).join("");
+  }).join("");
 
   const html = `<!DOCTYPE html>
 <html>

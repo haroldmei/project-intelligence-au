@@ -103,6 +103,7 @@ export function DigestView({
               address={card.address}
               lga={card.council}
               relevanceScore={card.relevanceScore}
+              leadClass={card.leadClass}
               estimatedValue={card.estimatedValue}
               whyMatched={card.whyMatched}
               scopeText={card.description.slice(0, 200)}
