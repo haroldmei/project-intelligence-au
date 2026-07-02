@@ -81,6 +81,7 @@ const templates = [
       DigestFallbackNoticeTemplate({
         lgas: ["Western Sydney", "Hills"],
         daCount: 87,
+        appBaseUrl: "https://pi-au.example.com",
       }),
   },
   {
