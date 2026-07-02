@@ -4,7 +4,7 @@
 //   - exact captured event shape keyed by internal user id,
 //   - anonymous (cookieless) capture disabling person profiles,
 //   - failure isolation (analytics never throws into a request).
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 
 const { PostHogCtor, captureMock, shutdownMock } = vi.hoisted(() => {
   const captureMock = vi.fn();
@@ -20,6 +20,18 @@ vi.mock("posthog-node", () => ({ PostHog: PostHogCtor }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.resetModules();
+});
+
+// This file `vi.doMock`s the shared `@/lib/env` module (a partial env missing
+// NEXT_PUBLIC_APP_URL etc.) to load the analytics helper without the full
+// server-only env schema. That registration must not survive the file: the
+// alphabetically-adjacent digest suites (assemble-*.test.ts) import the real
+// `@/lib/env`, and a leaked partial mock would silently skew their fully-mocked
+// send paths. Tear it down explicitly so the isolation never depends on runner
+// internals.
+afterAll(() => {
+  vi.doUnmock("@/lib/env");
   vi.resetModules();
 });
 
