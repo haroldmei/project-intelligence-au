@@ -28,10 +28,13 @@ export function DigestHeader({
       </p>
       {showPrecision && precision !== undefined && (
         <div className="pt-1">
-          <PrecisionBadge precision={precision} weeks={weeksOfHistory} />
+          {/* Recap is always the trailing-4-week window (CF-1.7), regardless of
+              how many total weeks of history the user has — so the badge reads
+              "4-week avg", the PrecisionBadge default. */}
+          <PrecisionBadge precision={precision} />
         </div>
       )}
-      {!showPrecision && weeksOfHistory < 4 && leadCount > 0 && (
+      {!showPrecision && leadCount > 0 && (
         <p className="text-xs text-[#829AB1] pt-1" role="status">
           Your digest gets smarter as you use it — tap 👍 or 👎 on each card.
         </p>

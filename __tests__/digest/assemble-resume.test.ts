@@ -10,8 +10,9 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const { mockDb, sendSmsMock, sendEmailMock } = vi.hoisted(() => ({
   mockDb: {
     user: { findUniqueOrThrow: vi.fn(), findUnique: vi.fn() },
-    digest: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    digest: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn() },
     digestDa: { create: vi.fn() },
+    daFeedback: { findMany: vi.fn() },
     shortUrl: { upsert: vi.fn() },
   },
   sendSmsMock: vi.fn(),
@@ -67,6 +68,8 @@ beforeEach(() => {
     mobile_e164: "+61400000001",
   });
   mockDb.digest.create.mockResolvedValue({ id: "digest-1" });
+  mockDb.digest.count.mockResolvedValue(0);
+  mockDb.daFeedback.findMany.mockResolvedValue([]);
   mockDb.digestDa.create.mockResolvedValue({});
   mockDb.shortUrl.upsert.mockResolvedValue({});
   mockDb.digest.update.mockResolvedValue({});

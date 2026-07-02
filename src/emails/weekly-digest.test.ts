@@ -155,3 +155,44 @@ describe("WeeklyDigestTemplate — lead classes (issue #14)", () => {
     expect(h).not.toContain("Fast-track");
   });
 });
+
+describe("WeeklyDigestTemplate — precision recap (CF-1.7, issue #51)", () => {
+  it("renders the '✓ Last N weeks: X% precision' block when precisionBadge is passed", () => {
+    const { html } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 4,
+      lgas: ["Inner West"],
+      cards: [card("ft-1", "fast_track", "2 Fast Rd", 8)],
+      precisionBadge: { precision: 93, weeks: 4 },
+      smsEnabled: false,
+    });
+    expect(html).toContain("✓ Last 4 weeks: 93% precision");
+    // Proof stat sits above the DA cards (design pillar P4).
+    expect(html.indexOf("93% precision")).toBeLessThan(html.indexOf("2 Fast Rd"));
+  });
+
+  it("omits the precision block entirely when precisionBadge is absent", () => {
+    const { html } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 1,
+      lgas: ["Inner West"],
+      cards: [card("ft-1", "fast_track", "2 Fast Rd", 8)],
+      smsEnabled: false,
+    });
+    expect(html).not.toContain("% precision");
+  });
+
+  it("still shows the precision proof on a quiet (no-lead) week", () => {
+    const { html } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 0,
+      lgas: ["Inner West"],
+      cards: [],
+      dasChecked: 12,
+      precisionBadge: { precision: 88, weeks: 4 },
+      smsEnabled: false,
+    });
+    expect(html).toContain("✓ Last 4 weeks: 88% precision");
+    expect(html).toContain("No strong re-roof leads this week");
+  });
+});

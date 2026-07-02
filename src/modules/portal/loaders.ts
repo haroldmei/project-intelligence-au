@@ -9,6 +9,7 @@ import {
   toLeadClass,
   type LeadClass,
 } from "@/modules/relevance/lead-class";
+import { computePrecisionRecap } from "@/modules/digest/precision";
 
 export type LeadClassCounts = Record<LeadClass, number>;
 
@@ -75,6 +76,11 @@ export interface DigestCard {
 
 export interface DigestDetail extends DigestSummary {
   cards: DigestCard[];
+  // Weekly precision recap stat (CF-1.7): the user's trailing-4-week thumbs
+  // precision (0–100), or undefined when they've rated nothing yet. The portal
+  // header only surfaces it from week 4 (weeksOfHistory >= 4); until then, or
+  // when this is undefined, the onboarding tip renders instead.
+  precision?: number;
 }
 
 export interface MyArea {
@@ -117,7 +123,10 @@ export async function getCurrentDigest(userId: string): Promise<DigestDetail | n
   });
   if (!digest) return null;
 
-  const feedbackMap = await getUserFeedbackMap(userId, digest.digestDas.map((d) => d.daId));
+  const [feedbackMap, recap] = await Promise.all([
+    getUserFeedbackMap(userId, digest.digestDas.map((d) => d.daId)),
+    computePrecisionRecap(userId),
+  ]);
 
   return {
     id: digest.id,
@@ -127,6 +136,7 @@ export async function getCurrentDigest(userId: string): Promise<DigestDetail | n
     smsStatus: digest.smsStatus,
     fallbackUsed: digest.fallbackUsed,
     runDate: digest.run.runDate.toISOString().slice(0, 10),
+    precision: recap?.precision,
     leadClassCounts: tallyLeadClasses(digest.digestDas),
     cards: digest.digestDas.map((dd) => ({
       daId: dd.daId,
@@ -211,7 +221,10 @@ export async function getDigestById(userId: string, digestId: string): Promise<D
   });
   if (!digest) return null;
 
-  const feedbackMap = await getUserFeedbackMap(userId, digest.digestDas.map((d) => d.daId));
+  const [feedbackMap, recap] = await Promise.all([
+    getUserFeedbackMap(userId, digest.digestDas.map((d) => d.daId)),
+    computePrecisionRecap(userId),
+  ]);
 
   return {
     id: digest.id,
@@ -221,6 +234,7 @@ export async function getDigestById(userId: string, digestId: string): Promise<D
     smsStatus: digest.smsStatus,
     fallbackUsed: digest.fallbackUsed,
     runDate: digest.run.runDate.toISOString().slice(0, 10),
+    precision: recap?.precision,
     leadClassCounts: tallyLeadClasses(digest.digestDas),
     cards: digest.digestDas.map((dd) => ({
       daId: dd.daId,

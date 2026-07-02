@@ -13,6 +13,11 @@ import { env } from "@/lib/env";
 import type { RelevanceRunResult } from "@/modules/relevance/run";
 import { classifyLeadClass, type LeadClass } from "@/modules/relevance/lead-class";
 import { DIGEST_EMAIL_MAX_CARDS, DIGEST_SMS_MAX_CARDS } from "./constants";
+import {
+  computePrecisionRecap,
+  countSentDigests,
+  PRECISION_MIN_WEEKS,
+} from "./precision";
 import pino from "pino";
 
 const log = pino({ name: "digest-assemble" });
@@ -140,6 +145,19 @@ export async function assembleAndSendDigest(
   const smsOptIn = optState?.smsOptIn ?? false;
   const mobile = optState?.mobile_e164 ?? null;
 
+  // Weekly precision recap stat (CF-1.7, design pillar P4): the "Last 4 weeks:
+  // X% precision" block at the top of the email — the month-2/3 retention proof.
+  // Only from week 4 (this send counts as the current week, so add 1 to the
+  // count of already-sent digests) and only when the user has rated some leads.
+  const [priorSent, recap] = await Promise.all([
+    countSentDigests(userId, digest.id),
+    computePrecisionRecap(userId),
+  ]);
+  const precisionBadge =
+    recap && priorSent + 1 >= PRECISION_MIN_WEEKS
+      ? { precision: recap.precision, weeks: recap.weeks }
+      : undefined;
+
   // Send email (FR-010). On a retry, skip the send entirely if the primary
   // tick already delivered it — re-sending would double-mail the user.
   let emailStatus = existing?.emailStatus ?? "pending";
@@ -163,6 +181,7 @@ export async function assembleAndSendDigest(
           // relevant candidate pool in the user's LGAs after the rule pass —
           // the honest "we checked N DAs" number for a no-lead reassurance.
           dasChecked: relevance.stats.ruleFiltered,
+          precisionBadge,
           smsEnabled: smsOptIn,
           fallbackUsed: relevance.fallbackUsed,
           unsubscribeUrl: buildUnsubscribeUrl(userId),
