@@ -44,6 +44,7 @@ const SNAPSHOT = {
 function makeRelevance(n: number) {
   return {
     fallbackUsed: false,
+    stats: { ruleFiltered: n, vectorRanked: n, rerankInput: n, rerankSurfaced: n },
     results: Array.from({ length: n }, (_, i) => ({
       daId: `da-${i + 1}`,
       score: 2.5,

@@ -103,15 +103,28 @@ export function WeeklyDigestTemplate(props: {
   leadCount: number;
   lgas: string[];
   cards: DACard[];
+  // FR-010 quiet week (issue #58): count of DAs the pipeline actually scanned
+  // this week. Rendered in the reassurance message when leadCount === 0 so a
+  // no-lead week reads as "we looked, nothing strong" rather than a broken
+  // "0 leads" email. Optional so pre-#58 callers still typecheck; absent → 0.
+  dasChecked?: number;
   precisionBadge?: { precision: number; weeks: number };
   smsEnabled: boolean;
   fallbackUsed?: boolean;
   unsubscribeUrl?: string;
 }): { subject: string; html: string } {
-  const { weekStart, leadCount, lgas, cards, precisionBadge, smsEnabled, fallbackUsed, unsubscribeUrl } = props;
+  const { weekStart, leadCount, lgas, cards, dasChecked, precisionBadge, smsEnabled, fallbackUsed, unsubscribeUrl } = props;
   // Spam Act 2003: a functional, no-login unsubscribe in every commercial email.
   // Falls back to the account page if a caller omits the token URL.
   const unsubHref = unsubscribeUrl ?? "/account";
+
+  // FR-010 quiet-week branch (issue #58): a week where nothing scored into the
+  // digest must still reassure — "we checked N DAs across your areas" — instead
+  // of the trust-eroding empty "0 leads" digest. leadCount === 0 ⟺ no cards.
+  const isQuietWeek = leadCount === 0;
+  const areasLabel = lgas.join(" + ");
+  const checkedCount = dasChecked ?? 0;
+  const daWord = checkedCount === 1 ? "DA" : "DAs";
 
   // Relevance pip: 1-5 dots filled left-to-right, mapped from 0-10 score
   const getPips = (score: number): string => {
@@ -245,7 +258,7 @@ export function WeeklyDigestTemplate(props: {
         <td style="padding: 24px 16px; background-color: #FFFFFF; border-bottom: 1px solid #E5E5E5;">
           <h2 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 600; color: #1E3A5F;">Your Sydney Roofing Digest</h2>
           <p style="margin: 0 0 4px 0; font-size: 14px; color: #627D98;">Week of ${weekStart}</p>
-          <p style="margin: 0; font-size: 14px; color: #627D98; font-weight: 600;">${leadCount} leads · ${lgas.join(" + ")}</p>
+          <p style="margin: 0; font-size: 14px; color: #627D98; font-weight: 600;">${isQuietWeek ? escapeHtml(areasLabel) : `${leadCount} leads · ${escapeHtml(areasLabel)}`}</p>
         </td>
       </tr>
 
@@ -284,6 +297,26 @@ export function WeeklyDigestTemplate(props: {
           : ""
       }
 
+      ${
+        isQuietWeek
+          ? `
+      <!-- FR-010 quiet week (issue #58): reassurance instead of an empty card table -->
+      <tr>
+        <td style="padding: 16px;">
+          <table style="width: 100%; border: 1px solid #E5E5E5; border-radius: 6px;">
+            <tbody>
+              <tr>
+                <td style="padding: 24px 16px; background-color: #FFFFFF;">
+                  <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1E3A5F;">No strong re-roof leads this week</p>
+                  <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #627D98;">We checked ${checkedCount} ${daWord} across your ${escapeHtml(areasLabel)} and none scored high enough to be worth your time. We'll keep watching — your next digest lands Sunday.</p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </td>
+      </tr>
+      `
+          : `
       <!-- DA cards -->
       <tr>
         <td style="padding: 16px;">
@@ -294,11 +327,13 @@ export function WeeklyDigestTemplate(props: {
           </table>
         </td>
       </tr>
+      `
+      }
 
       <!-- End of digest divider -->
       <tr>
         <td style="padding: 24px 16px; text-align: center; color: #829AB1; font-size: 12px;">
-          — End of digest · ${leadCount} leads —
+          ${isQuietWeek ? `— We checked ${checkedCount} ${daWord} · no strong leads this week —` : `— End of digest · ${leadCount} leads —`}
         </td>
       </tr>
 
@@ -321,7 +356,9 @@ export function WeeklyDigestTemplate(props: {
 </html>`;
 
   return {
-    subject: `Your Sydney Roofing Digest — ${leadCount} leads this week`,
+    subject: isQuietWeek
+      ? `Your Sydney Roofing Digest — we checked ${checkedCount} ${daWord}, no strong leads this week`
+      : `Your Sydney Roofing Digest — ${leadCount} leads this week`,
     html,
   };
 }

@@ -39,6 +39,7 @@ const SNAPSHOT = {
 
 const RELEVANCE = {
   fallbackUsed: false,
+  stats: { ruleFiltered: 1, vectorRanked: 1, rerankInput: 1, rerankSurfaced: 1 },
   results: [
     {
       daId: "da-1",
