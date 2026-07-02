@@ -50,6 +50,7 @@ export async function assembleAndSendDigest(
   // the persisted DigestDa.leadClass and the email/portal badge always agree.
   const leadClasses: LeadClass[] = results.map((r) =>
     classifyLeadClass({
+      approvalPathway: r.candidate.approvalPathway,
       description: r.candidate.description,
       rawScopeText: r.candidate.rawScopeText,
     }),

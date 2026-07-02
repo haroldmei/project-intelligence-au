@@ -32,6 +32,10 @@ export interface CandidateDA {
   /** ISO yyyy-mm-dd a Construction Certificate was issued against this DA (#13),
    *  or null. A recency/timing signal fed to the rerank ("work starting now"). */
   constructionCertifiedAt: string | null;
+  /** NSW approval pathway this record arrived on (#10): "da" | "cdc" | "ssd".
+   *  Surfaced to the rerank so a "CDC re-roof" scores as a strong positive, and
+   *  fed to the lead-class classifier (CDC → fast-track). Defaults to "da". */
+  approvalPathway: string;
   /** Cosine similarity from stage 2 — used for tie-break and logging. */
   cosineSimilarity?: number;
 }
@@ -201,6 +205,7 @@ export async function runRelevancePipeline(
     estimatedValue: c.estimatedValue,
     lodgementDate: c.lodgementDate,
     constructionCertifiedAt: c.constructionCertifiedAt,
+    approvalPathway: c.approvalPathway,
   }));
 
   const rerankResults = await rerankCandidates(

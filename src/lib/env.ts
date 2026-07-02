@@ -99,6 +99,18 @@ const baseShape = {
     // no-ops without both this flag AND NSW_PLANNING_API_KEY. v1 ingests
     // Construction Certificates only (OC/SC ignored).
     PCC_INGEST_ENABLED: z.coerce.boolean().default(false),
+    // Online CDC Data API (planningportal.nsw.gov.au/opendata/dataset/online-cdc-data-api
+    // — Complying Development Certificates, statewide, daily, CC-BY). Same
+    // subscription-key model as the DA feed (reuses NSW_PLANNING_API_KEY: a single
+    // ePlanning subscription covers both). CDC is the pathway that actually carries
+    // material-change re-roofs (tile→metal), which never generate a DA (#10,
+    // docs/24 G1) — so unlike the other expansion feeds this defaults ON. Declared
+    // here as a raw string (NOT z.coerce.boolean, which treats "false" as truthy)
+    // for prod-config validation + .env.example; the adapter interprets it at CALL
+    // TIME via `isCdcIngestEnabled()` (src/modules/ingestion/cdc.ts) with default-on
+    // semantics, so a single process/test can toggle it and an explicit "false"/"0"
+    // disables it. The feed still no-ops without NSW_PLANNING_API_KEY.
+    CDC_INGEST_ENABLED: z.string().optional(),
 
     // ── Vertical packs (multi-trade expansion, docs/25 §2) ──────────────────
     // Each trade beyond roofing (V1) ships behind its own flag, default off,

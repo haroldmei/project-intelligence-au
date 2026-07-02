@@ -159,6 +159,7 @@ describe("development-type persistence (#26)", () => {
       rawScopeText: "Full demolition. Site to be left clear.",
       assessmentPathway: null,
       sourceApi: "da_exhibitions",
+      approvalPathway: "da",
       ...overrides,
     };
   }
@@ -194,7 +195,8 @@ describe("drift detection", () => {
   it("fires Sentry alert when today count is 0 and history exists", async () => {
     const { captureMessage } = await import("@sentry/nextjs");
 
-    // Seed a historical log entry (success, daCount > 0)
+    // Seed a historical log entry (success, daCount > 0). No approvalPathway →
+    // defaults 'da', the pathway the empty run's DA baseline is checked against.
     await testDb.ingestionLog.create({
       data: { council: "blacktown", sourceApi: "nsw_planning", daCount: 10, success: true },
     });
@@ -204,5 +206,95 @@ describe("drift detection", () => {
     await runIngest(1);
 
     expect(captureMessage).toHaveBeenCalled();
+  });
+});
+
+describe("CDC ingestion through runIngest (#10)", () => {
+  // Route the shared network mock by endpoint so the DA feed and the CDC feed
+  // return their own shapes. Both share the ePlanning subscription key; CDC is
+  // additive to whichever DA source ran.
+  function routeByEndpoint() {
+    (fetchWithRetry as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes("complying-development-certificates")) {
+        return Promise.resolve({
+          applications: [
+            {
+              applicationNumber: "2026/9001",
+              councilCode: "blacktown",
+              address: "7 Ridge St, Blacktown",
+              proposedDevelopment: "Replacement roof cladding — tile to Colorbond metal deck",
+              estimatedCost: 38000,
+              lodgedDate: new Date().toISOString(),
+              applicant: "Roofer Pty Ltd",
+              url: "https://planningportal.nsw.gov.au/cdc/2026-9001",
+              scopeDescription: "Re-sheet existing roof, tile→metal conversion",
+            },
+          ],
+        });
+      }
+      // DA (Online DA Data API) endpoint.
+      return Promise.resolve({
+        applications: [
+          {
+            applicationNumber: "DA-5001",
+            councilCode: "blacktown",
+            address: "3 Gable Ave, Blacktown",
+            proposedDevelopment: "Alterations and additions to dwelling",
+            estimatedCost: 120000,
+            lodgedDate: new Date().toISOString(),
+            applicant: null,
+            url: "https://planningportal.nsw.gov.au/DA-5001",
+            scopeDescription: "New roof over rear extension",
+          },
+        ],
+      });
+    });
+  }
+
+  it("persists CDC records with approval_pathway='cdc' alongside DA records", async () => {
+    routeByEndpoint();
+    await runIngest(1);
+
+    const cdc = await testDb.developmentApplication.findFirst({
+      where: { council: "blacktown", approvalPathway: "cdc" },
+    });
+    expect(cdc).not.toBeNull();
+    expect(cdc?.daId).toBe("CDC-2026/9001"); // namespaced
+    expect(cdc?.sourceApi).toBe("nsw_cdc");
+
+    const da = await testDb.developmentApplication.findFirst({
+      where: { council: "blacktown", daId: "DA-5001" },
+    });
+    expect(da?.approvalPathway).toBe("da");
+  });
+
+  it("writes a distinct ingestion_log row per pathway", async () => {
+    routeByEndpoint();
+    await runIngest(1);
+
+    const daLog = await testDb.ingestionLog.findFirst({
+      where: { council: "blacktown", approvalPathway: "da", success: true },
+    });
+    const cdcLog = await testDb.ingestionLog.findFirst({
+      where: { council: "blacktown", approvalPathway: "cdc", success: true },
+    });
+    expect(daLog?.sourceApi).toBe("nsw_planning");
+    expect(daLog?.daCount).toBe(1);
+    expect(cdcLog?.sourceApi).toBe("nsw_cdc");
+    expect(cdcLog?.daCount).toBe(1);
+  });
+
+  it("does not fetch CDC when CDC_INGEST_ENABLED is explicitly off", async () => {
+    process.env.CDC_INGEST_ENABLED = "false";
+    routeByEndpoint();
+    try {
+      await runIngest(1);
+    } finally {
+      delete process.env.CDC_INGEST_ENABLED;
+    }
+    const cdcCount = await testDb.developmentApplication.count({
+      where: { approvalPathway: "cdc" },
+    });
+    expect(cdcCount).toBe(0);
   });
 });

@@ -32,6 +32,14 @@ export interface IngestResult {
   ingested: number;
   failed: boolean;
   errorMessage?: string;
+  /**
+   * Per-pathway ingested counts (#10). A region's records are split by approval
+   * pathway (da|cdc|ssd) so each is logged and drift-checked independently — a
+   * CDC-feed outage must not be masked by healthy DA volume, and vice versa.
+   * Always carries the `da` baseline (count 0 when the region ingested nothing),
+   * matching the pre-#10 one-row-per-region behaviour.
+   */
+  pathwayCounts: Array<{ pathway: string; count: number }>;
 }
 
 export interface RunIngestResult {
@@ -62,7 +70,11 @@ export async function runIngest(sinceDaysBack = 1): Promise<RunIngestResult> {
       const result = await ingestRegion(jurisdiction.adapter, region, since);
       results.push(result);
       if (!result.failed && jurisdiction.driftDetection) {
-        await checkDrift(region, result.ingested);
+        // Drift is checked per pathway (#10): a CDC-feed drop and a DA-feed drop
+        // are independent signals and must not average each other out.
+        for (const { pathway, count } of result.pathwayCounts) {
+          await checkDrift(region, pathway, count);
+        }
       }
     }
   }
@@ -92,22 +104,30 @@ async function ingestRegion(
       await upsertDa(r);
       ingested++;
     }
-    // sourceApi reflects what the adapter actually returned. When records is
-    // empty we don't know which underlying source ran (or whether it returned
-    // [] because none was configured), so use "none" rather than lying.
-    await db.ingestionLog.create({
-      data: {
-        council: region,
-        sourceApi: records[0]?.sourceApi ?? "none",
-        daCount: ingested,
-        success: true,
-      },
-    });
+
+    // Split the region's records by approval pathway (#10) and write one
+    // ingestion_log row per pathway, so the drift alert can tell a DA-feed drop
+    // apart from a CDC-feed drop. The `da` baseline is ALWAYS written (count 0
+    // when the region ingested nothing), preserving the pre-#10 one-row-per-
+    // region behaviour byte-for-byte when no CDC records are present. `sourceApi`
+    // on each row reflects a record actually returned for that pathway, falling
+    // back to "none" for the empty DA baseline.
+    const pathwayCounts = summarisePathways(records);
+    for (const { pathway, count, sourceApi } of pathwayCounts) {
+      await db.ingestionLog.create({
+        data: { council: region, approvalPathway: pathway, sourceApi, daCount: count, success: true },
+      });
+    }
     log.info(
-      { council: region, ingested, sourceApi: records[0]?.sourceApi ?? "none" },
+      { council: region, ingested, pathways: pathwayCounts.map((p) => `${p.pathway}:${p.count}`) },
       "[ingest] region done",
     );
-    return { council: region, ingested, failed: false };
+    return {
+      council: region,
+      ingested,
+      failed: false,
+      pathwayCounts: pathwayCounts.map(({ pathway, count }) => ({ pathway, count })),
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ council: region, err: msg }, "[ingest] region failed");
@@ -115,8 +135,31 @@ async function ingestRegion(
     await db.ingestionLog.create({
       data: { council: region, sourceApi: "error", daCount: 0, success: false, errorMessage: msg },
     });
-    return { council: region, ingested: 0, failed: true, errorMessage: msg };
+    return { council: region, ingested: 0, failed: true, errorMessage: msg, pathwayCounts: [] };
   }
+}
+
+/**
+ * Group a region's records into per-pathway counts for logging + drift. Always
+ * includes the `da` baseline first (count 0 when absent) so the DA drift series
+ * is continuous; any other pathway (cdc, ssd) appears only when it produced
+ * records. `sourceApi` is the last source seen for that pathway — records within
+ * one pathway share a source in practice.
+ */
+function summarisePathways(
+  records: NormalisedApplication[],
+): Array<{ pathway: string; count: number; sourceApi: string }> {
+  const byPathway = new Map<string, { count: number; sourceApi: string }>();
+  byPathway.set("da", { count: 0, sourceApi: "none" });
+  for (const r of records) {
+    const entry = byPathway.get(r.approvalPathway) ?? { count: 0, sourceApi: r.sourceApi };
+    entry.count++;
+    entry.sourceApi = r.sourceApi;
+    byPathway.set(r.approvalPathway, entry);
+  }
+  return [...byPathway.entries()]
+    .filter(([pathway, { count }]) => pathway === "da" || count > 0)
+    .map(([pathway, { count, sourceApi }]) => ({ pathway, count, sourceApi }));
 }
 
 /**
@@ -143,6 +186,7 @@ export async function upsertDa(r: NormalisedApplication): Promise<void> {
       rawScopeText: r.rawScopeText,
       developmentType: r.developmentType,
       sourceApi: r.sourceApi,
+      approvalPathway: r.approvalPathway,
       ruleFilteredOut: false,
     },
     update: {
@@ -156,20 +200,26 @@ export async function upsertDa(r: NormalisedApplication): Promise<void> {
       rawScopeText: r.rawScopeText,
       developmentType: r.developmentType,
       sourceApi: r.sourceApi,
+      approvalPathway: r.approvalPathway,
     },
   });
 }
 
 /**
- * Drift detection: compare today's count to the 7-day rolling average.
- * Alert if count = 0 OR drops > 50% (FR-003, system-design §7.3).
+ * Drift detection: compare today's count to the 7-day rolling average, PER
+ * PATHWAY (#10). Alert if count = 0 OR drops > 50% (FR-003, system-design §7.3).
+ * Scoping the rolling average to the same `approvalPathway` keeps a CDC-feed
+ * outage from being masked by healthy DA volume (and vice versa). The current
+ * run's row for this pathway has already been written, so a genuinely-dead feed
+ * shows a today-average of 0 across the window and still fires on the count=0
+ * branch.
  */
-async function checkDrift(council: string, todayCount: number): Promise<void> {
+async function checkDrift(council: string, pathway: string, todayCount: number): Promise<void> {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
   const logs = await db.ingestionLog.findMany({
-    where: { council, success: true, runAt: { gte: sevenDaysAgo } },
+    where: { council, approvalPathway: pathway, success: true, runAt: { gte: sevenDaysAgo } },
     select: { daCount: true },
   });
 
@@ -177,8 +227,11 @@ async function checkDrift(council: string, todayCount: number): Promise<void> {
   const avg = logs.reduce((s, r) => s + r.daCount, 0) / logs.length;
 
   if (todayCount === 0 || (avg > 0 && todayCount / avg < 0.5)) {
-    const msg = `Ingestion drift on ${council}: today=${todayCount}, 7d_avg=${avg.toFixed(1)}`;
-    log.warn({ council, todayCount, avg }, msg);
-    Sentry.captureMessage(msg, { level: "warning", tags: { council, phase: "ingestion-drift" } });
+    const msg = `Ingestion drift on ${council} (${pathway}): today=${todayCount}, 7d_avg=${avg.toFixed(1)}`;
+    log.warn({ council, pathway, todayCount, avg }, msg);
+    Sentry.captureMessage(msg, {
+      level: "warning",
+      tags: { council, pathway, phase: "ingestion-drift" },
+    });
   }
 }

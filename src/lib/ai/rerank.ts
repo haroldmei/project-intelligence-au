@@ -101,6 +101,9 @@ export interface RerankCandidate {
   /** ISO yyyy-mm-dd a Construction Certificate was issued against this DA (#13),
    *  or null. Surfaced to the model as a "work starting now" timing signal. */
   constructionCertifiedAt: string | null;
+  /** NSW approval pathway (#10): "da" | "cdc" | "ssd". Surfaced to the model so a
+   *  CDC re-roof (the tile→metal pathway) is treated as a strong positive. */
+  approvalPathway: string;
 }
 
 export interface RerankInput {
@@ -195,6 +198,11 @@ address: <address>${sanitizeDaField(c.address)}</address>
 lodgement_date: ${c.lodgementDate}${
         c.constructionCertifiedAt
           ? `\nconstruction_certificate_issued: ${c.constructionCertifiedAt} (work starting now — strongest timing signal)`
+          : ""
+      }
+approval_pathway: ${c.approvalPathway}${
+        c.approvalPathway === "cdc"
+          ? " (Complying Development Certificate — the fast-track re-roof pathway that carries tile→metal / Colorbond conversions; treat a roofing CDC as a strong positive)"
           : ""
       }
 estimated_value: ${c.estimatedValue ?? "unknown"}

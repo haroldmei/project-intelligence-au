@@ -32,6 +32,7 @@ function makeCandidate(over: Partial<CandidateDA> = {}): CandidateDA {
     estimatedValue: 50_000,
     lodgementDate: "2026-04-01",
     constructionCertifiedAt: null,
+    approvalPathway: "da",
     applicantName: null,
     portalUrl: "https://example.com/da-default",
     ...over,

@@ -7,6 +7,7 @@
 // DO NOT add Cordell, LeadManager, or EstimateOne (contract.security.public_data_only).
 import * as cheerio from "cheerio";
 import { fetchWithRetry, fetchTextWithRetry, politeDelay } from "./fetch";
+import { fetchCouncilCdcs, isCdcIngestEnabled } from "./cdc";
 import { env } from "@/lib/env";
 
 export type SourceApi =
@@ -14,8 +15,20 @@ export type SourceApi =
   | "da_leads"
   | "council_da"
   | "da_exhibitions"
+  | "nsw_cdc" // Online CDC Data API — Complying Development Certificates (#10)
   | "ssd_register" // State Significant Development register (Teams-tier — dormant for now)
   | "plansa"; // South Australia PlanSA ArcGIS register (Wave 2 — dormant behind SA_INGEST_ENABLED)
+
+/**
+ * Which NSW planning approval pathway a record arrived on (#10). Persisted on
+ * `development_applications.approval_pathway` and surfaced to the reranker /
+ * lead-class so a CDC re-roof ranks as a strong positive:
+ *   - `da`  — a Development Application (the incumbent feeds; the default).
+ *   - `cdc` — a Complying Development Certificate (the pathway that carries
+ *             material-change re-roofs — tile→metal — which never file a DA).
+ *   - `ssd` — State Significant Development (dormant Teams-tier feed).
+ */
+export type ApprovalPathway = "da" | "cdc" | "ssd";
 
 /** Normalised DA record after adapting from any source. */
 export interface RawDaRecord {
@@ -38,6 +51,9 @@ export interface RawDaRecord {
   // category field (NSW Planning API, DA Leads, PlanSA).
   developmentType: string | null;
   sourceApi: SourceApi;
+  // Which approval pathway carried this record (#10). Every DA-shaped feed sets
+  // "da"; the SSD register sets "ssd"; the CDC adapter (cdc.ts) sets "cdc".
+  approvalPathway: ApprovalPathway;
 }
 
 /**
@@ -93,16 +109,29 @@ export async function fetchCouncilDAs(
   sinceDaysBack: number,
 ): Promise<RawDaRecord[]> {
   await politeDelay();
+
+  // DA-pathway records — pick exactly one source via the precedence above.
+  const records: RawDaRecord[] = [];
   if (env.DAEX_INGEST_ENABLED && DAEX_LGA_VALUES[councilSlug]) {
-    return fetchDaExhibitionsByLga(councilSlug, sinceDaysBack);
+    records.push(...(await fetchDaExhibitionsByLga(councilSlug, sinceDaysBack)));
+  } else if (env.NSW_PLANNING_API_KEY && NSW_PLANNING_COUNCILS.has(councilSlug)) {
+    records.push(...(await fetchNswPlanningDAs(councilSlug, sinceDaysBack)));
+  } else if (env.DA_LEADS_API_KEY) {
+    records.push(...(await fetchDaLeadsDAs(councilSlug, sinceDaysBack)));
   }
-  if (env.NSW_PLANNING_API_KEY && NSW_PLANNING_COUNCILS.has(councilSlug)) {
-    return fetchNswPlanningDAs(councilSlug, sinceDaysBack);
+
+  // CDC-pathway records — ADDITIVE, not an alternative source (#10). A DA-only
+  // feed structurally misses the ICP's core re-roof work, which files as a
+  // Complying Development Certificate. The Online CDC Data API is statewide, so
+  // it runs for every council (not just NSW_PLANNING_COUNCILS); it shares the
+  // ePlanning subscription key and is gated by its own default-on flag. Both
+  // gates are checked inside fetchCouncilCdcs too, but short-circuiting here
+  // avoids the politeDelay + no-op call when the feed is dark.
+  if (isCdcIngestEnabled() && env.NSW_PLANNING_API_KEY) {
+    records.push(...(await fetchCouncilCdcs(councilSlug, sinceDaysBack)));
   }
-  if (env.DA_LEADS_API_KEY) {
-    return fetchDaLeadsDAs(councilSlug, sinceDaysBack);
-  }
-  return [];
+
+  return records;
 }
 
 // ─── NSW Planning Portal adapter ────────────────────────────────────────────
@@ -148,6 +177,7 @@ async function fetchNswPlanningDAs(
     rawScopeText: da.scopeDescription ?? null,
     developmentType: null, // NSW Planning API exposes no categorical dev-type field
     sourceApi: "nsw_planning",
+    approvalPathway: "da",
   }));
 }
 
@@ -190,6 +220,7 @@ async function fetchDaLeadsDAs(
     rawScopeText: da.scopeNotes ?? null,
     developmentType: null, // DA Leads / council feed exposes no categorical dev-type field
     sourceApi: "council_da",
+    approvalPathway: "da",
   }));
 }
 
@@ -577,6 +608,7 @@ export function buildDaexRecord(args: {
     portalUrl: detailUrl,
     rawScopeText,
     sourceApi: "da_exhibitions",
+    approvalPathway: "da",
   };
 }
 
@@ -798,6 +830,7 @@ export async function fetchSsdProjects(
         portalUrl: detailUrl,
         rawScopeText: scopeParts.join(". ") || null,
         sourceApi: "ssd_register",
+        approvalPathway: "ssd",
       });
 
       await politeDelay();
