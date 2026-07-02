@@ -1,6 +1,14 @@
 import React from "react";
 
-export function Layout({ children }: { children: React.ReactNode }): React.ReactElement {
+export function Layout({
+  children,
+  unsubscribeUrl,
+}: {
+  children: React.ReactNode;
+  /** Token-based, no-login unsubscribe (Spam Act 2003). Rendered only for
+   *  commercial emails; transactional emails (verify, reset) omit it. */
+  unsubscribeUrl?: string;
+}): React.ReactElement {
   return (
     <html>
       <head>
@@ -26,12 +34,14 @@ export function Layout({ children }: { children: React.ReactNode }): React.React
             <tr>
               <td style={{ padding: "24px 16px", backgroundColor: "#F0F4F8", borderTop: "1px solid #E5E5E5", fontSize: "12px", color: "#627D98" }}>
                 <p style={{ margin: "0 0 12px 0" }}>ProjectIntelligence AU</p>
-                <p style={{ margin: "0 0 12px 0" }}>Level 1, 123 Business Street, Sydney NSW 2000 AU</p>
-                <p style={{ margin: "0" }}>
-                  <a href="https://pi-au.example.com/unsubscribe" style={{ color: "#1E3A5F", textDecoration: "underline" }}>
-                    Manage Preferences
-                  </a>
-                </p>
+                <p style={{ margin: unsubscribeUrl ? "0 0 12px 0" : "0" }}>Level 1, 123 Business Street, Sydney NSW 2000 AU</p>
+                {unsubscribeUrl && (
+                  <p style={{ margin: "0" }}>
+                    <a href={unsubscribeUrl} style={{ color: "#1E3A5F", textDecoration: "underline" }}>
+                      Unsubscribe from these emails
+                    </a>
+                  </p>
+                )}
               </td>
             </tr>
           </tbody>

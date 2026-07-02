@@ -17,6 +17,35 @@ interface SmsOptions {
   body: string;
 }
 
+// ─── Spam Act 2003 compliance (centralised) ──────────────────────────────────
+// Every commercial SMS must (a) identify the sender and (b) carry a functional
+// opt-out instruction. These live HERE — not at call sites — so no composition
+// path (digest, trial reminder, future storm brief) can ship an SMS without
+// them. `sendSms` runs `applyComplianceWrapping` over every outbound message.
+
+/** Sender identification prefix required in every commercial SMS. */
+export const SMS_SENDER_ID = "PI-AU";
+/** Functional opt-out footer required in every commercial SMS. */
+export const SMS_STOP_FOOTER = "Reply STOP to opt out.";
+
+/**
+ * Guarantee sender-id + STOP footer are present. Idempotent: a call site that
+ * already includes them (to budget SMS character counts, e.g. the digest) is
+ * left as-is; a call site that omits either gets it added automatically.
+ */
+export function applyComplianceWrapping(body: string): string {
+  let out = body.trim();
+  // Sender identification — ensure the message is attributable to PI-AU.
+  if (!new RegExp(`(^|\\b)${SMS_SENDER_ID}\\b`).test(out)) {
+    out = `${SMS_SENDER_ID} ${out}`;
+  }
+  // Functional opt-out — match any "reply stop" phrasing so we don't double it.
+  if (!/reply\s+stop/i.test(out)) {
+    out = `${out}\n${SMS_STOP_FOOTER}`;
+  }
+  return out;
+}
+
 /** Lazy twilio client singleton */
 let _client: TwilioClient | null = null;
 
@@ -82,8 +111,12 @@ export async function sendSms(opts: SmsOptions): Promise<boolean> {
     log.warn("TWILIO_PHONE_NUMBER not set — cannot send SMS");
     return false;
   }
+  // Enforce sender-id + STOP footer on EVERY outbound SMS, regardless of what
+  // the caller passed. This is the single choke point that makes the Spam Act
+  // guarantee unbypassable.
+  const body = applyComplianceWrapping(opts.body);
   try {
-    const msg = await client.messages.create({ body: opts.body, from, to: opts.to });
+    const msg = await client.messages.create({ body, from, to: opts.to });
     log.info({ sid: msg.sid, to: opts.to }, "SMS sent");
     return true;
   } catch (err) {

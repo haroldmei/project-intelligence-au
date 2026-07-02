@@ -1,8 +1,11 @@
 export function TrialReminderTemplate(props: {
   daysLeft: number;
   manageBillingUrl: string;
+  unsubscribeUrl?: string;
 }): { subject: string; html: string } {
-  const { daysLeft, manageBillingUrl } = props;
+  const { daysLeft, manageBillingUrl, unsubscribeUrl } = props;
+  // Spam Act 2003: functional no-login unsubscribe on every commercial email.
+  const unsubHref = unsubscribeUrl ?? "/account";
 
   const html = `<!DOCTYPE html>
 <html>
@@ -48,7 +51,10 @@ export function TrialReminderTemplate(props: {
       <tr>
         <td style="padding: 24px 16px; background-color: #F0F4F8; border-top: 1px solid #E5E5E5; font-size: 12px; color: #627D98;">
           <p style="margin: 0 0 8px 0;">ProjectIntelligence AU Pty Ltd</p>
-          <p style="margin: 0;">Level 1, 123 Business Street, Sydney NSW 2000 AU</p>
+          <p style="margin: 0 0 8px 0;">Level 1, 123 Business Street, Sydney NSW 2000 AU</p>
+          <p style="margin: 0;">
+            <a href="${unsubHref}" style="color: #1E3A5F; text-decoration: underline;">Unsubscribe from these emails</a>
+          </p>
         </td>
       </tr>
     </tbody>

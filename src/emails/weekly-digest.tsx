@@ -36,8 +36,12 @@ export function WeeklyDigestTemplate(props: {
   precisionBadge?: { precision: number; weeks: number };
   smsEnabled: boolean;
   fallbackUsed?: boolean;
+  unsubscribeUrl?: string;
 }): { subject: string; html: string } {
-  const { weekStart, leadCount, lgas, cards, precisionBadge, smsEnabled, fallbackUsed } = props;
+  const { weekStart, leadCount, lgas, cards, precisionBadge, smsEnabled, fallbackUsed, unsubscribeUrl } = props;
+  // Spam Act 2003: a functional, no-login unsubscribe in every commercial email.
+  // Falls back to the account page if a caller omits the token URL.
+  const unsubHref = unsubscribeUrl ?? "/account";
 
   // Relevance pip: 1-5 dots filled left-to-right, mapped from 0-10 score
   const getPips = (score: number): string => {
@@ -228,7 +232,7 @@ export function WeeklyDigestTemplate(props: {
           <p style="margin: 0 0 8px 0;">Level 1, 123 Business Street, Sydney NSW 2000 AU</p>
           ${smsEnabled ? '<p style="margin: 0 0 8px 0;">Reply STOP to any SMS to unsubscribe.</p>' : ""}
           <p style="margin: 0;">
-            <a href="https://pi-au.example.com/unsubscribe" style="color: #1E3A5F; text-decoration: underline;">Manage Email Preferences</a>
+            <a href="${unsubHref}" style="color: #1E3A5F; text-decoration: underline;">Unsubscribe from these emails</a>
           </p>
         </td>
       </tr>
