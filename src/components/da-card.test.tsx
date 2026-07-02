@@ -35,6 +35,24 @@ describe("DACard", () => {
     expect(screen.getByText(/AUD 180,000/i)).toBeTruthy();
   });
 
+  // Future-proofs records from feeds with no cost-of-work $ field — e.g. the
+  // PlanSA (SA) jurisdiction adapter, and NSW records that lack a value. The
+  // card must render cleanly with no dollar amount, never a broken/empty chip.
+  it("renders without a value when estimatedValue is null", () => {
+    render(<DACard {...PROPS} estimatedValue={null} />);
+    expect(screen.getByText(/value not disclosed/i)).toBeTruthy();
+    expect(screen.queryByText(/AUD/i)).toBeNull();
+    // Core content still renders.
+    expect(screen.getByText(PROPS.address)).toBeTruthy();
+  });
+
+  it("renders without a value when estimatedValue is undefined", () => {
+    const { estimatedValue: _omit, ...noValue } = PROPS;
+    render(<DACard {...noValue} />);
+    expect(screen.getByText(/value not disclosed/i)).toBeTruthy();
+    expect(screen.queryByText(/AUD/i)).toBeNull();
+  });
+
   it("renders the whyMatched text", () => {
     render(<DACard {...PROPS} />);
     expect(screen.getByText(/Colorbond replacement/i)).toBeTruthy();

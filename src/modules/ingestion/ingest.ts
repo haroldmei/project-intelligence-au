@@ -13,6 +13,8 @@ import pino from "pino";
 import * as Sentry from "@sentry/nextjs";
 import { fetchCouncilDAs } from "./sources";
 import type { RawDaRecord } from "./sources";
+import { getEnabledJurisdictionAdapters } from "./jurisdictions/registry";
+import type { JurisdictionAdapter } from "./jurisdictions/types";
 
 const log = pino({ name: "ingestion" });
 
@@ -71,11 +73,56 @@ export async function runIngest(sinceDaysBack = 1): Promise<RunIngestResult> {
     }
   }
 
+  // Additional statewide jurisdictions (docs/25 §2/§4), each gated behind its
+  // own env flag. With every flag off `getEnabledJurisdictionAdapters()` is
+  // empty, so this loop never runs and NSW ingestion is byte-identical.
+  for (const adapter of getEnabledJurisdictionAdapters()) {
+    results.push(await ingestJurisdiction(adapter, sinceDaysBack));
+  }
+
   const totalIngested = results.reduce((s, r) => s + r.ingested, 0);
   const totalFailed = results.filter((r) => r.failed).length;
 
   log.info({ totalIngested, totalFailed }, "[ingest] run complete");
   return { results, totalIngested, totalFailed };
+}
+
+/**
+ * Ingest one statewide jurisdiction adapter (e.g. PlanSA). Mirrors
+ * `ingestCouncil`: one failure is isolated and logged, never blocking the run.
+ * `council` on the log/result carries the jurisdiction slug.
+ */
+async function ingestJurisdiction(
+  adapter: JurisdictionAdapter,
+  sinceDaysBack: number,
+): Promise<IngestResult> {
+  const jurisdiction = adapter.jurisdiction;
+  try {
+    const records = await adapter.fetchApplications({ sinceDaysBack });
+    let ingested = 0;
+    for (const r of records) {
+      await upsertDa(r);
+      ingested++;
+    }
+    await db.ingestionLog.create({
+      data: {
+        council: jurisdiction,
+        sourceApi: records[0]?.sourceApi ?? "none",
+        daCount: ingested,
+        success: true,
+      },
+    });
+    log.info({ jurisdiction, ingested }, "[ingest] jurisdiction done");
+    return { council: jurisdiction, ingested, failed: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ jurisdiction, err: msg }, "[ingest] jurisdiction failed");
+    Sentry.captureException(err, { tags: { jurisdiction, phase: "ingestion" } });
+    await db.ingestionLog.create({
+      data: { council: jurisdiction, sourceApi: "error", daCount: 0, success: false, errorMessage: msg },
+    });
+    return { council: jurisdiction, ingested: 0, failed: true, errorMessage: msg };
+  }
 }
 
 async function ingestCouncil(council: string, sinceDaysBack: number): Promise<IngestResult> {
