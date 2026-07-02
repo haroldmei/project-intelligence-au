@@ -7,6 +7,7 @@
 // AUD 0.13 triggers a Sentry alert (FR-006).
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { getJurisdictionConfig, weekStartInZone } from "@/modules/ingestion/jurisdictions/config";
 
 export type AiCostPhase = "embedding" | "rerank";
 
@@ -74,26 +75,15 @@ export function priceFor(
 }
 
 /**
- * Anchor a Date to the Monday 00:00 of its AEST week. Used as the
- * `weekStart` partition key for cost aggregation.
- *
- * AEST is UTC+10 (Sydney does not observe DST in winter; AEDT in summer
- * shifts to UTC+11). For ledger anchoring we use a fixed UTC+10 offset —
- * the digest cron fires Sunday 17:00 AEST and the week boundary moves
- * by ≤ 1 hour at DST transitions, which has no effect on weekly aggregation.
+ * Anchor a Date to Monday 00:00 of its Sydney week — the `weekStart` partition
+ * key for cost aggregation. Reads the NSW jurisdiction's timezone from the
+ * registry config (Australia/Sydney) and computes the boundary DST-correct,
+ * replacing the old fixed-UTC+10 assumption that drifted by an hour every
+ * summer (AEDT). The function name is kept for its call sites; it now handles
+ * both AEST and AEDT.
  */
 export function weekStartAEST(d: Date = new Date()): Date {
-  const utcMs = d.getTime();
-  const aestMs = utcMs + 10 * 60 * 60 * 1000;
-  const aest = new Date(aestMs);
-  // JS getUTCDay: 0=Sun, 1=Mon, ... — back up to Monday
-  const dow = aest.getUTCDay();
-  const daysFromMonday = (dow + 6) % 7;
-  const mondayAest = new Date(aest);
-  mondayAest.setUTCDate(aest.getUTCDate() - daysFromMonday);
-  mondayAest.setUTCHours(0, 0, 0, 0);
-  // Convert back to UTC date for storage
-  return new Date(mondayAest.getTime() - 10 * 60 * 60 * 1000);
+  return weekStartInZone(getJurisdictionConfig("nsw").timezone, d);
 }
 
 /**

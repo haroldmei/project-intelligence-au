@@ -115,6 +115,9 @@ model Lga {
   id       String @id // council slug
   bundleId String @map("bundle_id")
   name     String
+  // Statewide jurisdiction this LGA belongs to (nsw|sa|…). The multi-jurisdiction
+  // seam (#28); defaults 'nsw' so pre-existing reference rows backfill in place.
+  jurisdiction String @default("nsw")
 
   bundle              LgaBundle              @relation(fields: [bundleId], references: [id])
   developmentApps     DevelopmentApplication[]
@@ -151,7 +154,11 @@ model DevelopmentApplication {
   applicantName  String?  @map("applicant_name")
   portalUrl      String   @map("portal_url")
   rawScopeText   String?  @map("raw_scope_text")
-  sourceApi      String   @map("source_api")  // nsw_planning|da_leads|council_da
+  sourceApi      String   @map("source_api")  // nsw_planning|da_leads|council_da|da_exhibitions|plansa
+  // Statewide jurisdiction this DA belongs to (nsw|sa|…). The multi-jurisdiction
+  // seam (#28); defaults 'nsw' so pre-existing rows backfill in place and NSW
+  // output is byte-identical.
+  jurisdiction   String   @default("nsw")
   ruleFilteredOut Boolean @default(false) @map("rule_filtered_out")
   ingestedAt     DateTime @default(now()) @map("ingested_at")
 

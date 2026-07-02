@@ -23,9 +23,12 @@ import {
   type ArcgisQueryResponse,
   type PlanSaAttributes,
 } from "./sa";
-import { getEnabledJurisdictionAdapters, isFlagEnabled } from "./registry";
+import { getEnabledJurisdictionIds, isFlagEnabled } from "./config";
 
 const mockFetch = fetchWithRetry as unknown as ReturnType<typeof vi.fn>;
+
+// A fixed incremental low-water mark for adapter/where-clause tests.
+const SINCE = new Date("2026-06-01T00:00:00Z");
 
 // A representative feature from the live FeatureServer shape. lodgementdate is
 // ArcGIS epoch-ms (2026-06-15T00:00:00Z).
@@ -142,8 +145,8 @@ describe("mapFeatures — council filtering", () => {
 
 describe("buildWhereClause / buildQueryUrl", () => {
   it("filters incrementally on lodgementdate and by metro councils", () => {
-    const where = buildWhereClause(7);
-    expect(where).toMatch(/lodgementdate >= DATE '\d{4}-\d{2}-\d{2}'/);
+    const where = buildWhereClause(SINCE);
+    expect(where).toContain("lodgementdate >= DATE '2026-06-01'");
     expect(where).toContain("locationcouncil IN (");
     expect(where).toContain("'City of Adelaide'");
   });
@@ -172,7 +175,7 @@ describe("saAdapter.fetchApplications — paging", () => {
     };
     mockFetch.mockResolvedValueOnce(page0).mockResolvedValueOnce(page1);
 
-    const records = await saAdapter.fetchApplications({ pageSize, maxPages: 10 });
+    const records = await saAdapter.fetchApplications({ since: SINCE, regions: [], pageSize, maxPages: 10 });
 
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(records.map((r) => r.daId)).toEqual(["1", "2", "3"]);
@@ -183,34 +186,39 @@ describe("saAdapter.fetchApplications — paging", () => {
 
   it("stops after a single partial page (no second request)", async () => {
     mockFetch.mockResolvedValueOnce({ features: [feature({ appid: "1" })] } as ArcgisQueryResponse);
-    const records = await saAdapter.fetchApplications({ pageSize: 10 });
+    const records = await saAdapter.fetchApplications({ since: SINCE, regions: [], pageSize: 10 });
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(records).toHaveLength(1);
   });
 
   it("stops on an empty first page", async () => {
     mockFetch.mockResolvedValueOnce({ features: [] } as ArcgisQueryResponse);
-    const records = await saAdapter.fetchApplications({ pageSize: 10 });
+    const records = await saAdapter.fetchApplications({ since: SINCE, regions: [], pageSize: 10 });
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(records).toHaveLength(0);
   });
 });
 
+describe("saAdapter — formal interface", () => {
+  it("declares its id and capabilities (no value, pathways supported)", () => {
+    expect(saAdapter.id).toBe("sa");
+    expect(saAdapter.capabilities).toEqual({ hasValue: false, pathwaysSupported: true });
+  });
+});
+
 describe("registry — flag gating (dormant by default)", () => {
-  it("excludes SA when the flag is unset (byte-identical no-op)", () => {
+  it("enables only NSW when the SA flag is unset (byte-identical no-op)", () => {
     expect(isFlagEnabled("SA_INGEST_ENABLED")).toBe(false);
-    expect(getEnabledJurisdictionAdapters()).toHaveLength(0);
+    expect(getEnabledJurisdictionIds()).toEqual(["nsw"]);
   });
 
-  it("includes the SA adapter only when SA_INGEST_ENABLED is truthy", () => {
+  it("includes SA only when SA_INGEST_ENABLED is truthy", () => {
     process.env.SA_INGEST_ENABLED = "true";
-    const adapters = getEnabledJurisdictionAdapters();
-    expect(adapters).toHaveLength(1);
-    expect(adapters[0]!.jurisdiction).toBe("sa");
+    expect(getEnabledJurisdictionIds()).toEqual(["nsw", "sa"]);
   });
 
   it("treats non-strict values (e.g. 'false') as off", () => {
     process.env.SA_INGEST_ENABLED = "false";
-    expect(getEnabledJurisdictionAdapters()).toHaveLength(0);
+    expect(getEnabledJurisdictionIds()).toEqual(["nsw"]);
   });
 });

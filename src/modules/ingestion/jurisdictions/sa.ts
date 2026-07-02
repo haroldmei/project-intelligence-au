@@ -31,7 +31,6 @@ const PLANSA_FEATURESERVER =
  */
 const PLANSA_PORTAL_BASE = "https://plan.sa.gov.au/development_application_register";
 
-const DEFAULT_SINCE_DAYS = 7;
 const DEFAULT_PAGE_SIZE = 1000;
 const DEFAULT_MAX_PAGES = 20;
 
@@ -170,9 +169,7 @@ export function mapFeatures(features: ArcgisFeature[]): NormalisedApplication[] 
 }
 
 /** Build the ArcGIS `where` clause: incremental on lodgementdate + metro councils. */
-export function buildWhereClause(sinceDaysBack: number): string {
-  const since = new Date();
-  since.setUTCDate(since.getUTCDate() - sinceDaysBack);
+export function buildWhereClause(since: Date): string {
   const sinceStr = since.toISOString().slice(0, 10);
   const councilList = SA_ADELAIDE_METRO_COUNCILS.map((c) => `'${c.replace(/'/g, "''")}'`).join(", ");
   return `lodgementdate >= DATE '${sinceStr}' AND locationcouncil IN (${councilList})`;
@@ -196,15 +193,19 @@ export function buildQueryUrl(where: string, resultOffset: number, resultRecordC
  * The SA jurisdiction adapter. Flag-agnostic by design — the registry is the
  * single gate (docs/25 §6). Callers get an empty array only when the feed is
  * genuinely empty for the window, never as a covert kill-switch.
+ *
+ * PlanSA is statewide with its own Adelaide-metro council filter, so it ignores
+ * the `regions` option (which the formal interface passes for NSW's per-council
+ * fan-out). It exposes an assessment pathway but no cost-of-work value.
  */
 export const saAdapter: JurisdictionAdapter = {
-  jurisdiction: "sa",
+  id: "sa",
+  capabilities: { hasValue: false, pathwaysSupported: true },
 
-  async fetchApplications(opts: JurisdictionFetchOptions = {}): Promise<NormalisedApplication[]> {
-    const sinceDaysBack = opts.sinceDaysBack ?? DEFAULT_SINCE_DAYS;
+  async fetchApplications(opts: JurisdictionFetchOptions): Promise<NormalisedApplication[]> {
     const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
     const maxPages = opts.maxPages ?? DEFAULT_MAX_PAGES;
-    const where = buildWhereClause(sinceDaysBack);
+    const where = buildWhereClause(opts.since);
 
     const records: NormalisedApplication[] = [];
     for (let page = 0; page < maxPages; page++) {
