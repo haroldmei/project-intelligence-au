@@ -65,14 +65,20 @@ const baseShape = {
     CRON_SECRET: z.string().min(8),
 
     // ── Data sources ────────────────────────────────────────────────────────
-    NSW_PLANNING_API_BASE: z.string().url().default("https://api.planningportal.nsw.gov.au/v1"),
+    // NSW ePlanning Online DA Data API (planningportal.nsw.gov.au/opendata —
+    // every DA lodged since Jan 2019, all NSW councils since 01/07/2021, daily,
+    // CC-BY). Served on the NSW Azure APIM gateway; the subscription key is
+    // requested by email from the ePlanning team (human-owned) and sent via the
+    // Ocp-Apim-Subscription-Key header. The base is overridden per environment
+    // when the key is provisioned; the default points at the NSW ePlanning
+    // gateway host. The adapter no-ops without NSW_PLANNING_API_KEY. This one
+    // subscription also covers the CDC + PCC feeds.
+    NSW_PLANNING_API_BASE: z.string().url().default("https://api.apps1.nsw.gov.au/eplanning/data/v0"),
     NSW_PLANNING_API_KEY: z.string().optional(),
-    DA_LEADS_API_BASE: z.string().url().default("https://api.daleads.com.au/v1"),
-    DA_LEADS_API_KEY: z.string().optional(),
-    // DA Exhibitions HTML scrape (planningportal.nsw.gov.au/daexhibitions). When
-    // "true", takes precedence over NSW Planning + DA Leads adapters for any
-    // LGA in DAEX_LGA_VALUES. Default off so existing tests/code paths are
-    // unchanged. Flip to "true" in Vercel env to enable in production.
+    // DA Exhibitions HTML scrape (planningportal.nsw.gov.au/daexhibitions). The
+    // no-key fallback for the DA feed: covers all 15 LGAs from the public
+    // register when NSW_PLANNING_API_KEY is absent. Default off so existing
+    // tests/code paths are unchanged. Flip to "true" in Vercel env to enable.
     DAEX_INGEST_ENABLED: z.coerce.boolean().default(false),
     // State Significant Development register (planningportal.nsw.gov.au/major-projects).
     // Public infrastructure, schools, hospitals, large mixed-use. Targeted at

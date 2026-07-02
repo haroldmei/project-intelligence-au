@@ -152,7 +152,7 @@ async function ensureSampleDAs() {
         applicantName: da.applicantName,
         portalUrl: `https://da.example.gov.au/${da.lgaId}/${encodeURIComponent(da.daId)}`,
         rawScopeText: da.description,
-        sourceApi: "council_da",
+        sourceApi: "nsw_planning",
         ruleFilteredOut: false,
       },
     });

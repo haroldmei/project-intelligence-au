@@ -20,6 +20,7 @@
 // CDC number + council); the ingest runner (pcc-ingest.ts) links each CC back to
 // its `DevelopmentApplication` and stamps `constructionCertifiedAt`.
 import { fetchWithRetry, politeDelay } from "./fetch";
+import { eplanningAuthHeaders } from "./eplanning";
 import { env } from "@/lib/env";
 
 /** Normalised Construction Certificate after adapting from the PCC feed. */
@@ -114,7 +115,7 @@ export function mapPccCertificate(
 
 /**
  * Fetch Construction Certificates issued for a single council in the last
- * `sinceDaysBack` days. Mirrors `fetchNswPlanningDAs`: `x-api-key` auth, a
+ * `sinceDaysBack` days. Mirrors `fetchNswPlanningDAs`: ePlanning subscription-key auth, a
  * council + `since` filter, and incremental fetch — but paginates over the
  * `page` param (the DA feed single-shots at limit=200; the PCC feed can return
  * more CCs than that on a busy day for a populous LGA).
@@ -134,7 +135,7 @@ export async function fetchCouncilPccs(
   since.setDate(since.getDate() - sinceDaysBack);
   const sinceStr = since.toISOString().slice(0, 10);
 
-  const headers: Record<string, string> = { "x-api-key": apiKey };
+  const headers = eplanningAuthHeaders(apiKey);
   const records: RawPccRecord[] = [];
   const seen = new Set<string>();
 

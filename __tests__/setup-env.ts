@@ -16,4 +16,3 @@ process.env.RESEND_API_KEY ??= "";
 // API key to make the dispatcher route to fetchNswPlanningDAs (otherwise
 // it short-circuits to return [] when DAEX_INGEST_ENABLED is false).
 process.env.NSW_PLANNING_API_KEY ??= "test-nsw-key";
-process.env.DA_LEADS_API_KEY ??= "test-leads-key";

@@ -23,6 +23,7 @@
 // with a `CDC-` prefix so a CDC number can never collide with a DA of the same
 // council-issued reference under the (daId, council) uniqueness.
 import { fetchWithRetry, politeDelay } from "./fetch";
+import { eplanningAuthHeaders } from "./eplanning";
 import type { RawDaRecord } from "./sources";
 import { env } from "@/lib/env";
 
@@ -139,7 +140,7 @@ export function mapCdcApplication(
 
 /**
  * Fetch Complying Development Certificates lodged for a single council in the
- * last `sinceDaysBack` days. Mirrors `fetchNswPlanningDAs`: `x-api-key` auth, a
+ * last `sinceDaysBack` days. Mirrors `fetchNswPlanningDAs`: ePlanning subscription-key auth, a
  * council + `since` filter, and incremental fetch — but paginates over the
  * `page` param (a busy LGA can issue more CDCs than a single page holds).
  *
@@ -159,7 +160,7 @@ export async function fetchCouncilCdcs(
   since.setDate(since.getDate() - sinceDaysBack);
   const sinceStr = since.toISOString().slice(0, 10);
 
-  const headers: Record<string, string> = { "x-api-key": apiKey };
+  const headers = eplanningAuthHeaders(apiKey);
   const records: RawDaRecord[] = [];
   const seen = new Set<string>();
 

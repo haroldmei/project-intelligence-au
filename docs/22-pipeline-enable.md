@@ -242,14 +242,14 @@ To enable in production:
 
 **Politeness:** every list+detail fetch goes through `fetchTextWithRetry` with a `User-Agent: ProjectIntelligence-AU/1.0` header and a 500ms `politeDelay` between requests. ~150 requests per ingest run, ~2.5 minutes of wall-time at the polite cadence. Well within sane scraping bounds.
 
-### Path B — NSW Planning Portal API (best long-term, blocked on email approval)
+### Path B — NSW ePlanning Online DA Data API (best long-term, blocked on email approval)
 
-The official state-level API at `api.planningportal.nsw.gov.au` covers 11 of the 15 LGAs (those submitting through NSW Planning Portal e-services). Approval process is email-based and takes 2–6 weeks.
+The authoritative Online DA Data API covers every DA lodged on the NSW Planning Portal since Jan 2019 (all NSW councils since 01/07/2021), including all 15 of our LGAs, updated daily, CC-BY licensed. Approval process is email-based and takes 2–6 weeks.
 
-1. Email `[email protected]` with org details (ABN, registered address, contact, use case). The Open DA Data API at `https://www.planningportal.nsw.gov.au/opendata/dataset/online-da-data-api` is the right product for read-only feed access.
-2. When the key arrives, set `NSW_PLANNING_API_KEY` and `NSW_PLANNING_API_BASE` in Vercel env. The existing `fetchNswPlanningDAs` adapter handles the rest.
+1. Email `[email protected]` with org details (ABN, registered address, contact, use case). The Online DA Data API at `https://www.planningportal.nsw.gov.au/opendata/dataset/online-da-data-api` is the right product for read-only feed access; the same subscription key covers the CDC + PCC feeds.
+2. When the key arrives, set `NSW_PLANNING_API_KEY` (and, if the gateway base differs from the default, `NSW_PLANNING_API_BASE`) in Vercel env. The `fetchNswPlanningDAs` adapter (`src/modules/ingestion/sources.ts`) handles pagination, incremental fetch, the 15-LGA filter, and field mapping. Reconcile the response field names against the DA Open APIs Data Dictionary the first time real data flows.
 
-The dispatcher prefers Path A (DA Exhibitions) when `DAEX_INGEST_ENABLED=true`. To make Path B primary, flip `DAEX_INGEST_ENABLED=false` and the existing NSW Planning + DA Leads dispatch resumes.
+The dispatcher now prefers Path B automatically: whenever `NSW_PLANNING_API_KEY` is set, the Online DA Data API is used for our subscribed LGAs and the DAEX scrape (Path A) becomes the no-key fallback.
 
 ### Path C — Manual import (always available)
 
