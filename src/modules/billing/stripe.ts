@@ -254,6 +254,20 @@ export async function cancelSubscriptionAtPeriodEnd(
   });
 }
 
+/**
+ * Reactivate a subscription that is pending cancellation by clearing
+ * cancel_at_period_end. Reverses cancelSubscriptionAtPeriodEnd — the
+ * subscription stays active/trialing and renews as normal.
+ * FR-021 | system-design §2 billing
+ */
+export async function reactivateSubscription(
+  subscriptionId: string,
+): Promise<StripeSubscription> {
+  return stripePost<StripeSubscription>(`/subscriptions/${subscriptionId}`, {
+    cancel_at_period_end: "false",
+  });
+}
+
 /** Validate a Stripe webhook signature. Returns null on success, error message on failure. */
 export function validateStripeWebhook(
   rawBody: string,

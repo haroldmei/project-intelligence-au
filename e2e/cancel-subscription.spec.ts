@@ -25,7 +25,7 @@ const FORMATTED_DATE = /24 May 2026/;
 
 test.describe("Cancel Subscription Flow", () => {
   test.beforeEach(async ({ page }) => {
-    test.skip(!DB_AVAILABLE, "Requires PLAYWRIGHT_DB=1 — portal layout needs DB auth (BUG-002). DELETE /api/billing/subscription also not implemented (BUG-003).");
+    test.skip(!DB_AVAILABLE, "Requires PLAYWRIGHT_DB=1 — portal layout needs DB auth (BUG-002).");
 
     // Account page uses hardcoded stub — no auth needed for UI test
     await page.route("**/api/billing/subscription", async (route) => {
@@ -142,6 +142,59 @@ test.describe("Cancel Subscription Flow", () => {
     const toast = page.getByRole("alert");
     await expect(toast).toBeVisible({ timeout: 5_000 });
     await expect(toast).toContainText(FORMATTED_DATE);
+  });
+
+  test("undo toast action reactivates via POST /api/billing/subscription", async ({ page }) => {
+    let postCallMade = false;
+    await page.route("**/api/billing/subscription", async (route) => {
+      const method = route.request().method();
+      if (method === "DELETE") {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, accessUntil: _STUB_PERIOD_END }) });
+      } else if (method === "POST") {
+        postCallMade = true;
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, accessUntil: _STUB_PERIOD_END }) });
+      } else {
+        await route.continue();
+      }
+    });
+
+    await page.goto("/account");
+    await page.getByRole("button", { name: /cancel subscription/i }).click();
+    await page.getByRole("dialog").getByRole("button", { name: /cancel subscription/i }).click();
+
+    const toast = page.getByRole("alert");
+    await expect(toast).toBeVisible({ timeout: 5_000 });
+
+    await toast.getByRole("button", { name: /undo/i }).click();
+
+    expect(postCallMade).toBe(true);
+    await expect(page.getByRole("alert")).toContainText(/resumed/i);
+  });
+
+  test("Resume subscription button on account page clears pending cancellation", async ({ page }) => {
+    await page.route("**/api/billing/subscription", async (route) => {
+      const method = route.request().method();
+      if (method === "DELETE") {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, accessUntil: _STUB_PERIOD_END }) });
+      } else if (method === "POST") {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, accessUntil: _STUB_PERIOD_END }) });
+      } else {
+        await route.continue();
+      }
+    });
+
+    await page.goto("/account");
+    // Cancel first to reach the pending-cancellation state.
+    await page.getByRole("button", { name: /cancel subscription/i }).click();
+    await page.getByRole("dialog").getByRole("button", { name: /cancel subscription/i }).click();
+
+    // The account page now shows the pending-cancellation branch with a resume CTA.
+    const resume = page.getByRole("button", { name: /resume subscription/i });
+    await expect(resume).toBeVisible({ timeout: 5_000 });
+    await resume.click();
+
+    // After resuming, the cancel CTA returns (no longer pending).
+    await expect(page.getByRole("button", { name: /^cancel subscription$/i })).toBeVisible();
   });
 
   test("cancellation API error shows error toast", async ({ page }) => {

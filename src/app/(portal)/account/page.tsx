@@ -32,6 +32,8 @@ export default function AccountPage() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isPortalLoading, setIsPortalLoading] = useState(false);
   const [isResubLoading, setIsResubLoading] = useState(false);
+  const [isResumeLoading, setIsResumeLoading] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,6 +66,25 @@ export default function AccountPage() {
       window.location.href = json.portal_url;
     } catch {
       setIsPortalLoading(false);
+    }
+  }
+
+  async function handleResume() {
+    setIsResumeLoading(true);
+    setResumeError(null);
+    try {
+      const res = await fetch("/api/billing/subscription", { method: "POST" });
+      const json = (await res.json().catch(() => ({}))) as { accessUntil?: string };
+      if (!res.ok) throw new Error("resume failed");
+      setAccount((prev) =>
+        prev
+          ? { ...prev, cancelAtPeriodEnd: false, accessUntil: json.accessUntil ?? prev.accessUntil }
+          : prev,
+      );
+    } catch {
+      setResumeError("Couldn't resume your subscription. Please try again.");
+    } finally {
+      setIsResumeLoading(false);
     }
   }
 
@@ -186,9 +207,27 @@ export default function AccountPage() {
                 </Button>
               </>
             ) : isPendingCancellation ? (
-              <p className="text-sm text-[#A3A3A3]">
-                Cancellation scheduled. You&apos;re good until {formatDate(account.accessUntil)}.
-              </p>
+              <>
+                <p className="text-sm text-[#A3A3A3]">
+                  Cancellation scheduled. You&apos;re good until {formatDate(account.accessUntil)}.
+                </p>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="lg"
+                  className="w-full"
+                  onClick={handleResume}
+                  disabled={isResumeLoading}
+                  aria-busy={isResumeLoading}
+                >
+                  {isResumeLoading ? "Resuming…" : "Resume subscription"}
+                </Button>
+                {resumeError && (
+                  <p role="alert" className="text-sm text-[#DC2626]">
+                    {resumeError}
+                  </p>
+                )}
+              </>
             ) : (
               <button
                 type="button"
@@ -234,6 +273,9 @@ export default function AccountPage() {
         periodEnd={account.accessUntil ?? new Date().toISOString()}
         onCancelled={(newAccessUntil) => {
           setAccount((prev) => prev ? { ...prev, cancelAtPeriodEnd: true, accessUntil: newAccessUntil } : prev);
+        }}
+        onReactivated={(newAccessUntil) => {
+          setAccount((prev) => prev ? { ...prev, cancelAtPeriodEnd: false, accessUntil: newAccessUntil } : prev);
         }}
       />
     </div>
