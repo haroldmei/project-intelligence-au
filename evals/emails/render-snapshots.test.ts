@@ -10,6 +10,7 @@ import { PasswordResetTemplate } from "@/emails/password-reset";
 import { WeeklyDigestTemplate } from "@/emails/weekly-digest";
 import { DigestFallbackNoticeTemplate } from "@/emails/digest-fallback-notice";
 import { WelcomeAfterVerifyTemplate } from "@/emails/welcome-after-verify";
+import { StormBriefTemplate } from "@/emails/storm-brief";
 
 const templates = [
   {
@@ -72,6 +73,19 @@ const templates = [
       WelcomeAfterVerifyTemplate({
         firstName: "Eli",
         lgaSetupUrl: "https://pi-au.example.com/onboarding/lga-select",
+      }),
+  },
+  {
+    name: "storm-brief",
+    fn: () =>
+      StormBriefTemplate({
+        warningTitle: "Severe Thunderstorm Warning",
+        areasLabel: "Sydney Metropolitan",
+        lgaNames: ["Blacktown", "Parramatta"],
+        issuedAtLabel: "Wed, 15 Jan, 3:35 pm",
+        warningUrl: "http://www.bom.gov.au/products/IDN21031.html",
+        manageUrl: "https://pi-au.example.com/account/storm-brief",
+        unsubscribeUrl: "https://pi-au.example.com/api/unsubscribe/tok123",
       }),
   },
 ];

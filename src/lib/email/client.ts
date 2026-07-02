@@ -11,6 +11,7 @@ import { WeeklyDigestTemplate } from "@/emails/weekly-digest";
 import { DigestFallbackNoticeTemplate } from "@/emails/digest-fallback-notice";
 import { WelcomeAfterVerifyTemplate } from "@/emails/welcome-after-verify";
 import { TrialReminderTemplate } from "@/emails/trial-reminder";
+import { StormBriefTemplate } from "@/emails/storm-brief";
 
 const logger = pino({ name: "email" });
 
@@ -23,6 +24,7 @@ const TEMPLATES: Record<string, TemplateFn> = {
   "digest-fallback-notice": DigestFallbackNoticeTemplate as TemplateFn,
   "welcome-after-verify": WelcomeAfterVerifyTemplate as TemplateFn,
   "trial-reminder": TrialReminderTemplate as TemplateFn,
+  "storm-brief": StormBriefTemplate as TemplateFn,
 };
 
 const resend = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
@@ -44,7 +46,7 @@ const fromAddress = `${fromName} <noreply@resend.dev>`;
 
 export interface EmailProps {
   to: string;
-  template: "verify-email" | "password-reset" | "weekly-digest" | "digest-fallback-notice" | "welcome-after-verify" | "trial-reminder";
+  template: "verify-email" | "password-reset" | "weekly-digest" | "digest-fallback-notice" | "welcome-after-verify" | "trial-reminder" | "storm-brief";
   props: Record<string, unknown>;
 }
 
