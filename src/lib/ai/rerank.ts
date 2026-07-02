@@ -10,6 +10,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { env } from "@/lib/env";
+import { composeRerankSystemPrompt, getPack } from "@/verticals";
 import {
   priceFor,
   recordAiCost,
@@ -52,7 +53,7 @@ export interface RerankInput {
 
 export interface RerankResult {
   daId: string;
-  /** 0–5 integer per rubric in src/prompts/rerank.system.md */
+  /** 0–5 integer per the trade rubric (src/verticals/roofing/prompt-fragment.md). */
   score: number;
   /** ≤ 140 chars, one sentence. */
   why: string;
@@ -74,11 +75,27 @@ function getClient(): Anthropic {
  * don't require a re-deploy in dev — and so the version header stays
  * inspectable on disk. In production, Next.js will include them in the
  * function bundle via the standard file-tracing.
+ *
+ * The SYSTEM prompt is no longer read directly: it is composed from the shared
+ * base template + the active trade's rerank fragment (see `systemPrompt` below
+ * and src/verticals/rerank-prompt.ts). This loader now serves the user template.
  */
-function loadPrompt(name: "rerank.system.md" | "rerank.user.md"): string {
+function loadPrompt(name: "rerank.user.md"): string {
   // process.cwd() is the project root in Next.js serverless functions
   const p = path.join(process.cwd(), "src", "prompts", name);
   return readFileSync(p, "utf-8");
+}
+
+/**
+ * The rerank system prompt for the active (single-trade) digest. Composed from
+ * the base template + the roofing pack's fragment (#27). Byte-identical to the
+ * pre-extraction src/prompts/rerank.system.md — locked by
+ * src/verticals/roofing/rerank-prompt.test.ts.
+ */
+function buildSystemPrompt(): string {
+  const pack = getPack("roofing");
+  if (!pack) throw new Error("[rerank] roofing vertical pack is not registered");
+  return composeRerankSystemPrompt(pack);
 }
 
 /**
@@ -198,7 +215,7 @@ export async function rerankCandidates(
 ): Promise<RerankResult[]> {
   if (input.candidates.length === 0) return [];
 
-  const systemPrompt = loadPrompt("rerank.system.md");
+  const systemPrompt = buildSystemPrompt();
   const userPrompt = renderUserPrompt(input);
   const weekStart = input.weekStart ?? weekStartAEST();
 

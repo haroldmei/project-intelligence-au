@@ -2,7 +2,7 @@
 version: 1.0.0
 last_updated: 2026-04-28
 template_vars:
-  - saved_query_text       # the user's roofing query string (free text)
+  - saved_query_text       # the user's saved query string (free text)
   - user_lga_slugs         # array of council slugs the user subscribes to
   - thumbs_examples        # optional: array of {da_text, feedback} from past digests
   - candidates             # array of {da_id, council, address, description, raw_scope_text, estimated_value, lodgement_date}

@@ -7,9 +7,9 @@
 // and no network. The pipeline's Stage-3 rerank (renderUserPrompt +
 // parseModelOutput) is the REAL code path — only the model call is stubbed.
 //
-// NOTE: the live rerank still loads the roofing system prompt from
-// src/prompts/rerank.system.md; wiring the pack's own prompt fragment into the
-// runtime is the #27 extraction. This test validates that a second trade's DA
+// NOTE: as of #27 the rerank system prompt is composed from the shared base
+// template + the active trade's fragment (composeRerankSystemPrompt). The live
+// runtime composes it for roofing; this test validates that a second trade's DA
 // flows end-to-end through the shared machinery — i.e. the pack architecture
 // supports trade #2 — which is the acceptance bar for a "built + dormant" pack.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

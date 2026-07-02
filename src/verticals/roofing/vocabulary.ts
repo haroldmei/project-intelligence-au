@@ -1,0 +1,56 @@
+// Roofing rule-pass vocabulary — V1 baseline trade. Extracted verbatim from the
+// live rule pass (#27): this is the former ROOFING_KEYWORDS array from
+// src/modules/relevance/filters.ts, now owned by the pack. filters.ts derives
+// its tsquery from this list, so the ORDER and CONTENT here are load-bearing —
+// packTsQuery(roofingPack) must reproduce the original tsquery byte-for-byte.
+//
+// Two tiers (FR-004):
+//   - explicit: DAs that literally call out roofing scope (re-roof, colorbond…).
+//   - implicit: construction terms where roofing is implied but not named
+//     (every new dwelling needs a roof; alterations to a roof line probably
+//     do too). Recall-oriented — the Stage-3 LLM rerank demotes the false
+//     positives, so Stage 1 only has to surface plausible candidates.
+//
+// If precision drops below the 0.85 target, narrow the list back down.
+import type { VerticalVocabulary } from "../types";
+
+export const ROOFING_VOCABULARY: VerticalVocabulary = {
+  // Tier 1 — explicit roofing
+  explicit: [
+    "roof",
+    "roofing",
+    "re-roof",
+    "reroof",
+    "metal roof",
+    "colorbond",
+    "colour bond",
+    "membrane",
+    "gutters",
+    "downpipes",
+    "skylights",
+    "roof tiles",
+    "roof replacement",
+    "roof restoration",
+    "roof repair",
+    "insulation",
+    "fascia",
+    "barge",
+    "ridge cap",
+    "hip and ridge",
+    "sarking",
+    "rooflight",
+  ],
+  // Tier 2 — roofing-implicit construction (new builds, alterations)
+  implicit: [
+    "dwelling",
+    "residential",
+    "alterations",
+    "additions",
+    "alterations and additions",
+    "construction of",
+    "single storey",
+    "two storey",
+    "dual occupancy",
+    "secondary dwelling",
+  ],
+};
