@@ -1,11 +1,17 @@
-import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DACard } from "./da-card";
 
 // Mock fetch
 global.fetch = vi.fn(() =>
   Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) })
 ) as unknown as typeof fetch;
+
+beforeEach(() => {
+  (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(() =>
+    Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) })
+  );
+});
 
 const PROPS = {
   daId: "test-da-1",
@@ -90,5 +96,55 @@ describe("DACard", () => {
     expect(thumbUp.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(thumbUp);
     expect(thumbUp.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  // Issue #59: a failed feedback POST must surface a *visible* error, not only
+  // an sr-only announcement. Mock a rejected fetch and assert a visible
+  // role="alert" affordance appears and the thumb reverts to neutral.
+  it("shows a visible error alert when the feedback POST rejects", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("network down")
+    );
+    render(<DACard {...PROPS} />);
+    const thumbUp = screen.getByRole("button", { name: /thumb up for/i });
+    fireEvent.click(thumbUp);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/tap again to retry/i);
+    // The alert is a real visible element, not an sr-only-only region.
+    expect(alert.className).not.toMatch(/sr-only/);
+    // Optimistic thumb reverted to neutral after the failure.
+    await waitFor(() =>
+      expect(thumbUp.getAttribute("aria-pressed")).toBe("false")
+    );
+  });
+
+  // A non-OK HTTP response (fetch does not reject on 4xx/5xx) must also be
+  // treated as a failure and surface the visible error.
+  it("shows a visible error alert when the feedback POST returns a non-OK status", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({ ok: false }),
+    });
+    render(<DACard {...PROPS} />);
+    fireEvent.click(screen.getByRole("button", { name: /thumb down for/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/tap again to retry/i);
+  });
+
+  it("clears the error alert when a subsequent feedback POST succeeds", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("network down")
+    );
+    render(<DACard {...PROPS} />);
+    const thumbUp = screen.getByRole("button", { name: /thumb up for/i });
+    fireEvent.click(thumbUp);
+    await screen.findByRole("alert");
+
+    // Retry — fetch now succeeds (default mock), error should clear.
+    fireEvent.click(thumbUp);
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 });

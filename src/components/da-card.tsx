@@ -46,6 +46,9 @@ export function DACard({
   const [undoQueue, setUndoQueue] = useState<Feedback>(null);
   const [isPending, startTransition] = useTransition();
   const [liveMessage, setLiveMessage] = useState("");
+  // Visible error affordance (issue #59): a failed feedback POST must show a
+  // sighted tradie something, not just announce to a screen reader.
+  const [errorMessage, setErrorMessage] = useState("");
 
   const formattedValue = estimatedValue
     ? `Est. AUD ${Number(estimatedValue).toLocaleString("en-AU")}`
@@ -57,6 +60,7 @@ export function DACard({
 
     // Optimistic update
     setFeedback(next);
+    setErrorMessage("");
     setLiveMessage(
       next === "up"
         ? `Thumbs up recorded for ${address}`
@@ -71,7 +75,7 @@ export function DACard({
 
     startTransition(async () => {
       try {
-        await fetch("/api/feedback", {
+        const res = await fetch("/api/feedback", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -79,10 +83,17 @@ export function DACard({
             feedback: next === null ? "remove" : next,
           }),
         });
+        // fetch only rejects on network failure, not on 4xx/5xx — treat a
+        // non-OK response as a failure too so the error affordance shows.
+        if (!res.ok) throw new Error(`feedback POST failed: ${res.status}`);
       } catch {
-        // Revert on failure
+        // Revert on failure and surface a visible error (issue #59). role="alert"
+        // announces to screen readers, so we clear the polite live region to
+        // avoid a double announcement.
         setFeedback(prev);
-        setLiveMessage(`Error saving feedback for ${address}. Please try again.`);
+        setUndoQueue(null);
+        setLiveMessage("");
+        setErrorMessage("Couldn't save that — tap again to retry");
       }
     });
   }
@@ -209,6 +220,18 @@ export function DACard({
           </button>
         </div>
       </div>
+
+      {/* Visible error affordance when a feedback POST fails (issue #59).
+          role="alert" is both visible here and announced assertively to
+          screen readers, replacing the sr-only-only error. */}
+      {errorMessage && (
+        <p
+          role="alert"
+          className="mt-1 text-sm font-medium text-[#B91C1C]"
+        >
+          {errorMessage}
+        </p>
+      )}
 
       {/* Screen-reader live region for feedback state */}
       <span aria-live="polite" className="sr-only">
