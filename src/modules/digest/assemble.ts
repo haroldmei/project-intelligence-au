@@ -2,6 +2,7 @@
 // WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 // FR-009, FR-010, FR-011, FR-012 | system-design §2 digest component
+import { createHash } from "node:crypto";
 import * as Sentry from "@sentry/nextjs";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email/client";
@@ -308,12 +309,18 @@ function formatValue(n: number): string {
 }
 
 /**
- * Deterministic 8-char base64url slug from the portal URL — for SMS short
- * links (system-design §9.2 self-hosted shortener). Caller persists a
- * `ShortUrl` row keyed on this slug before sending the SMS so the
- * /api/s/[slug] redirect can resolve. 8 base64url chars = 48 bits of
- * entropy, more than enough for per-DA uniqueness.
+ * Deterministic slug from the portal URL — for SMS short links
+ * (system-design §9.2 self-hosted shortener). Caller persists a `ShortUrl`
+ * row keyed on this slug before sending the SMS so the /api/s/[slug] redirect
+ * can resolve.
+ *
+ * Must be a HASH of the URL, not a prefix: base64-encoding the raw bytes and
+ * slicing keeps only the first ~6 bytes, which is the scheme ("https:") for
+ * every council portal URL — every DA would collide onto one shared ShortUrl
+ * row and all SMS links would redirect to whichever DA was upserted last
+ * (issue #53). A sha256 hash gives real per-DA entropy. 10 base64url chars =
+ * 60 bits, ample to keep distinct portal URLs from colliding.
  */
-function shortSlug(url: string): string {
-  return Buffer.from(url).toString("base64url").slice(0, 8);
+export function shortSlug(url: string): string {
+  return createHash("sha256").update(url).digest("base64url").slice(0, 10);
 }
