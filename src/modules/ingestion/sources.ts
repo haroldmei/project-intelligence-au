@@ -31,6 +31,12 @@ export interface RawDaRecord {
   applicantName: string | null;
   portalUrl: string;
   rawScopeText: string | null;
+  // The portal's categorical "Type of development" (e.g. DAEX "Alterations and
+  // additions to residential development"; SSD "HDA Housing"). Distinct from the
+  // free-text scope in rawScopeText — this is the coarse enum the expansion
+  // trade-pick audit filters on (#26, docs/25 §1.1). Null for feeds with no
+  // category field (NSW Planning API, DA Leads, PlanSA).
+  developmentType: string | null;
   sourceApi: SourceApi;
 }
 
@@ -140,6 +146,7 @@ async function fetchNswPlanningDAs(
     applicantName: da.applicant ?? null,
     portalUrl: da.url,
     rawScopeText: da.scopeDescription ?? null,
+    developmentType: null, // NSW Planning API exposes no categorical dev-type field
     sourceApi: "nsw_planning",
   }));
 }
@@ -181,6 +188,7 @@ async function fetchDaLeadsDAs(
     applicantName: da.applicant ?? null,
     portalUrl: da.daUrl,
     rawScopeText: da.scopeNotes ?? null,
+    developmentType: null, // DA Leads / council feed exposes no categorical dev-type field
     sourceApi: "council_da",
   }));
 }
@@ -504,42 +512,7 @@ async function fetchDaExhibitionsByStatus(
         continue;
       }
 
-      // description: prefer the listing title (most readable), fall back to
-      // the free-text project description if the title was empty (some
-      // councils render only an address — see The Hills Shire).
-      // rawScopeText: fold the richer free-text scope onto the categorical
-      // type-of-development so the LLM rerank sees both. Stage-1 ts_vector
-      // and the LLM both consume this field.
-      const description = row.title?.trim() || detail.projectDescription || "";
-      const scopeParts = [detail.developmentTypeText, detail.projectDescription, row.title]
-        .filter((s): s is string => Boolean(s?.trim()))
-        // Dedupe — sometimes the title equals the project description.
-        .filter((s, i, arr) => arr.indexOf(s) === i);
-      const rawScopeText = scopeParts.join(". ") || null;
-
-      // lodgementDate: prefer the determination date for Determined DAs (it's
-      // the most recent meaningful event we have); otherwise the exhibition
-      // start date. The today-fallback is the floor — only used when neither
-      // signal is available, which after the freshness gate above only
-      // happens for Under Consideration records the listing exposes without
-      // any date at all (rare but valid).
-      const lodgementDate =
-        (status === "Determined" ? detail.determinationDate : detail.exhibitionStart) ??
-        today;
-
-      records.push({
-        daId,
-        council: slug,
-        address: detail.propertyAddress ?? row.title ?? "",
-        description,
-        estimatedValue: null, // not exposed by DA Exhibitions
-        lodgementDate,
-        determinationDate: detail.determinationDate,
-        applicantName: null, // not exposed by DA Exhibitions
-        portalUrl: detailUrl,
-        rawScopeText,
-        sourceApi: "da_exhibitions",
-      });
+      records.push(buildDaexRecord({ slug, daId, detailUrl, row, detail, status, today }));
 
       await politeDelay();
     }
@@ -549,6 +522,62 @@ async function fetchDaExhibitionsByStatus(
   }
 
   return records;
+}
+
+/**
+ * Assemble a normalised RawDaRecord from a DAEX listing row + its enriched
+ * detail page. Pure — the caller has already applied the decision/freshness
+ * gates. Extracted so the field mapping (notably `developmentType`, #26) is
+ * fixture-testable without driving the whole paginated fetch.
+ */
+export function buildDaexRecord(args: {
+  slug: string;
+  daId: string;
+  detailUrl: string;
+  row: Pick<DaexListingRow, "title">;
+  detail: DaexDetailFields;
+  status: string;
+  today: string;
+}): RawDaRecord {
+  const { slug, daId, detailUrl, row, detail, status, today } = args;
+
+  // description: prefer the listing title (most readable), fall back to the
+  // free-text project description if the title was empty (some councils render
+  // only an address — see The Hills Shire).
+  const description = row.title?.trim() || detail.projectDescription || "";
+  // rawScopeText: fold the richer free-text scope onto the categorical
+  // type-of-development so the LLM rerank sees both. Stage-1 ts_vector and the
+  // LLM both consume this field.
+  const scopeParts = [detail.developmentTypeText, detail.projectDescription, row.title]
+    .filter((s): s is string => Boolean(s?.trim()))
+    // Dedupe — sometimes the title equals the project description.
+    .filter((s, i, arr) => arr.indexOf(s) === i);
+  const rawScopeText = scopeParts.join(". ") || null;
+
+  // lodgementDate: prefer the determination date for Determined DAs (it's the
+  // most recent meaningful event we have); otherwise the exhibition start date.
+  // The today-fallback is the floor — only used when neither signal is available,
+  // which after the freshness gate only happens for Under Consideration records
+  // the listing exposes without any date at all (rare but valid).
+  const lodgementDate =
+    (status === "Determined" ? detail.determinationDate : detail.exhibitionStart) ?? today;
+
+  return {
+    daId,
+    council: slug,
+    address: detail.propertyAddress ?? row.title ?? "",
+    description,
+    estimatedValue: null, // not exposed by DA Exhibitions
+    lodgementDate,
+    determinationDate: detail.determinationDate,
+    // The categorical "Type of development" — now persisted as a first-class
+    // column (#26), not just folded into rawScopeText above.
+    developmentType: detail.developmentTypeText,
+    applicantName: null, // not exposed by DA Exhibitions
+    portalUrl: detailUrl,
+    rawScopeText,
+    sourceApi: "da_exhibitions",
+  };
 }
 
 // ─── Helpers (DA Exhibitions parsing) ───────────────────────────────────────
@@ -764,6 +793,7 @@ export async function fetchSsdProjects(
         estimatedValue: null, // not exposed by SSD register
         lodgementDate: detail?.exhibitionStart ?? today,
         determinationDate: null, // SSD register doesn't expose a determination date
+        developmentType: detail?.developmentType ?? null, // e.g. "HDA Housing"
         applicantName: detail?.contactPlannerName ?? null,
         portalUrl: detailUrl,
         rawScopeText: scopeParts.join(". ") || null,

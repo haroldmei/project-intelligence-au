@@ -119,7 +119,13 @@ async function ingestRegion(
   }
 }
 
-async function upsertDa(r: NormalisedApplication): Promise<void> {
+/**
+ * Upsert one normalised record into development_applications, keyed on
+ * (daId, council). Exported so the integration suite can exercise the write
+ * mapping directly — notably that `developmentType` (#26) round-trips through
+ * the new column — without driving a full paginated fetch.
+ */
+export async function upsertDa(r: NormalisedApplication): Promise<void> {
   const determinationDate = r.determinationDate ? new Date(r.determinationDate) : null;
   await db.developmentApplication.upsert({
     where: { daId_council: { daId: r.daId, council: r.council } },
@@ -135,6 +141,7 @@ async function upsertDa(r: NormalisedApplication): Promise<void> {
       applicantName: r.applicantName,
       portalUrl: r.portalUrl,
       rawScopeText: r.rawScopeText,
+      developmentType: r.developmentType,
       sourceApi: r.sourceApi,
       ruleFilteredOut: false,
     },
@@ -147,6 +154,7 @@ async function upsertDa(r: NormalisedApplication): Promise<void> {
       applicantName: r.applicantName,
       portalUrl: r.portalUrl,
       rawScopeText: r.rawScopeText,
+      developmentType: r.developmentType,
       sourceApi: r.sourceApi,
     },
   });

@@ -157,6 +157,10 @@ export function mapFeatures(features: ArcgisFeature[]): NormalisedApplication[] 
       estimatedValue: null,
       lodgementDate: toIsoDate(a.lodgementdate) ?? todayIso(),
       determinationDate: null,
+      // PlanSA has no categorical dev-type enum — `natureofdevelopment` is the
+      // free-text scope (already the description). value = null, same as
+      // estimatedValue for this value-less feed (#26).
+      developmentType: null,
       applicantName: null, // not exposed by the PlanSA register
       portalUrl: `${PLANSA_PORTAL_BASE}?appid=${encodeURIComponent(appid)}`,
       rawScopeText: nature || null,

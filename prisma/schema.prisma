@@ -154,6 +154,14 @@ model DevelopmentApplication {
   applicantName  String?  @map("applicant_name")
   portalUrl      String   @map("portal_url")
   rawScopeText   String?  @map("raw_scope_text")
+  // Categorical "Type of development" the portal assigns (e.g. NSW DAEX
+  // "Alterations and additions to residential development"; SSD "HDA Housing").
+  // The expansion trade-pick (docs/25 §1.1) needs to know whether demolition /
+  // pool / subdivision are cleanly category-filterable — so we persist the raw
+  // category verbatim rather than fold it only into raw_scope_text (#26). Null
+  // for feeds that expose no category (NSW Planning API, DA Leads, PlanSA), the
+  // same way estimated_value is null for value-less feeds.
+  developmentType String? @map("development_type")
   sourceApi      String   @map("source_api")  // nsw_planning|da_leads|council_da|da_exhibitions|plansa
   // Statewide jurisdiction this DA belongs to (nsw|sa|…). The multi-jurisdiction
   // seam (#28); defaults 'nsw' so pre-existing rows backfill in place and NSW

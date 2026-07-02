@@ -20,7 +20,8 @@ vi.mock("@sentry/nextjs", () => ({
 
 import { fetchWithRetry } from "@/modules/ingestion/fetch";
 import { truncateAll, seedLgaBundles, testDb } from "../setup-test-db";
-import { runIngest } from "@/modules/ingestion/ingest";
+import { runIngest, upsertDa } from "@/modules/ingestion/ingest";
+import type { NormalisedApplication } from "@/modules/ingestion/jurisdictions/types";
 
 beforeEach(async () => {
   await truncateAll();
@@ -138,6 +139,54 @@ describe("runIngest", () => {
     // on how many councils match the configured adapter — but it MUST equal
     // countAfterSecondRun for upsert idempotency.
     expect(countAfterSecondRun).toBe(countAfterFirstRun);
+  });
+});
+
+describe("development-type persistence (#26)", () => {
+  function normalised(overrides: Partial<NormalisedApplication>): NormalisedApplication {
+    return {
+      daId: "DA-DT-1",
+      council: "blacktown",
+      jurisdiction: "nsw",
+      address: "1 Category St",
+      description: "Demolition of existing dwelling",
+      estimatedValue: null,
+      lodgementDate: "2026-07-01",
+      determinationDate: null,
+      developmentType: "Demolition",
+      applicantName: null,
+      portalUrl: "https://example.com/da-dt-1",
+      rawScopeText: "Full demolition. Site to be left clear.",
+      assessmentPathway: null,
+      sourceApi: "da_exhibitions",
+      ...overrides,
+    };
+  }
+
+  it("round-trips a persisted development_type through the new column", async () => {
+    await upsertDa(normalised({ daId: "DA-DT-1", developmentType: "Demolition" }));
+    const da = await testDb.developmentApplication.findFirst({
+      where: { daId: "DA-DT-1", council: "blacktown" },
+    });
+    expect(da?.developmentType).toBe("Demolition");
+  });
+
+  it("persists null for feeds that expose no category", async () => {
+    await upsertDa(normalised({ daId: "DA-DT-2", developmentType: null }));
+    const da = await testDb.developmentApplication.findFirst({
+      where: { daId: "DA-DT-2", council: "blacktown" },
+    });
+    expect(da).not.toBeNull();
+    expect(da?.developmentType).toBeNull();
+  });
+
+  it("updates the category on re-ingest of the same DA", async () => {
+    await upsertDa(normalised({ daId: "DA-DT-3", developmentType: null }));
+    await upsertDa(normalised({ daId: "DA-DT-3", developmentType: "Swimming Pool" }));
+    const da = await testDb.developmentApplication.findFirst({
+      where: { daId: "DA-DT-3", council: "blacktown" },
+    });
+    expect(da?.developmentType).toBe("Swimming Pool");
   });
 });
 
