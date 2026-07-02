@@ -10,7 +10,6 @@ import { ALL_COUNCIL_SLUGS } from "@/modules/ingestion/ingest";
 async function main(): Promise<void> {
   console.log("DAEX_INGEST_ENABLED =", env.DAEX_INGEST_ENABLED);
   console.log("NSW_PLANNING_API_KEY set =", Boolean(env.NSW_PLANNING_API_KEY));
-  console.log("DA_LEADS_API_KEY set =", Boolean(env.DA_LEADS_API_KEY));
   console.log();
 
   const totals: Record<string, number> = {};

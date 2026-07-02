@@ -1,3 +1,11 @@
+import {
+  toLeadClass,
+  LEAD_CLASS_META,
+  LEAD_CLASS_GROUP_ORDER,
+  type LeadClass,
+} from "@/modules/relevance/lead-class";
+import { DA_SOURCE_ATTRIBUTION, DA_SOURCE_LICENCE } from "@/lib/attribution";
+
 interface DACard {
   id: string;
   address: string;
@@ -7,9 +15,71 @@ interface DACard {
   scope: string;
   applicant: string;
   relevanceScore: number; // 0-10
+  // Honest lead class (issue #14). Optional so pre-#14 callers still typecheck;
+  // absent → the ambiguous fallback (builder pipeline).
+  leadClass?: LeadClass;
+  // ISO yyyy-mm-dd a Construction Certificate was issued against this DA (issue
+  // #13), or absent. Present → the "CC issued — work starting" badge renders.
+  constructionCertifiedAt?: string | null;
   portalUrl: string;
   thumbUpUrl: string;
   thumbDownUrl: string;
+}
+
+// Inline badge palette per class — email clients strip <style>, so the hues
+// are inlined here. Mirrors the Tailwind variants in src/components/ui/badge.tsx.
+const LEAD_CLASS_EMAIL_STYLE: Record<
+  LeadClass,
+  { bg: string; fg: string; border: string }
+> = {
+  fast_track: { bg: "#E0F2FE", fg: "#0C4A6E", border: "#BAE6FD" },
+  strata_heritage: { bg: "#F3E8FF", fg: "#6B21A8", border: "#E9D5FF" },
+  builder_pipeline: { bg: "#E2E8F0", fg: "#334155", border: "#CBD5E1" },
+};
+
+function leadClassBadgeHtml(leadClass: LeadClass): string {
+  const s = LEAD_CLASS_EMAIL_STYLE[leadClass];
+  const label = escapeHtml(LEAD_CLASS_META[leadClass].label);
+  return `<span style="display: inline-block; padding: 4px 8px; margin-left: 6px; background-color: ${s.bg}; color: ${s.fg}; border: 1px solid ${s.border}; border-radius: 4px; font-weight: 500;">${label}</span>`;
+}
+
+const CC_MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/**
+ * Format a yyyy-mm-dd date as "1 Jun 2026" without `Date` (a bare
+ * `new Date("2026-06-01")` is UTC midnight and can shift a day in AEST). Mirrors
+ * the portal ConstructionCertBadge so the email and portal read identically.
+ */
+function formatCcDate(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  const [, year, month, day] = m;
+  return `${Number(day)} ${CC_MONTHS[Number(month) - 1] ?? month} ${year}`;
+}
+
+/**
+ * The "CC issued — work starting" badge (issue #13), inlined green ("go") so it
+ * survives email clients that strip <style>. Mirrors the `success` Badge variant.
+ */
+function ccBadgeHtml(isoDate: string): string {
+  const label = escapeHtml(`CC issued ${formatCcDate(isoDate)} — work starting`);
+  return `<span style="display: inline-block; padding: 4px 8px; margin-left: 6px; background-color: #DCFCE7; color: #14532D; border-radius: 4px; font-weight: 500;">${label}</span>`;
+}
+
+function leadClassGroupHeaderHtml(leadClass: LeadClass): string {
+  const meta = LEAD_CLASS_META[leadClass];
+  const s = LEAD_CLASS_EMAIL_STYLE[leadClass];
+  return `
+  <tr>
+    <td style="padding: 4px 0 8px 0;">
+      <p style="margin: 0; font-size: 13px; font-weight: 700; color: ${s.fg}; text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(meta.label)}</p>
+      <p style="margin: 2px 0 0 0; font-size: 12px; color: #829AB1;">${escapeHtml(meta.blurb)}</p>
+    </td>
+  </tr>
+`;
 }
 
 /**
@@ -33,15 +103,28 @@ export function WeeklyDigestTemplate(props: {
   leadCount: number;
   lgas: string[];
   cards: DACard[];
+  // FR-010 quiet week (issue #58): count of DAs the pipeline actually scanned
+  // this week. Rendered in the reassurance message when leadCount === 0 so a
+  // no-lead week reads as "we looked, nothing strong" rather than a broken
+  // "0 leads" email. Optional so pre-#58 callers still typecheck; absent → 0.
+  dasChecked?: number;
   precisionBadge?: { precision: number; weeks: number };
   smsEnabled: boolean;
   fallbackUsed?: boolean;
   unsubscribeUrl?: string;
 }): { subject: string; html: string } {
-  const { weekStart, leadCount, lgas, cards, precisionBadge, smsEnabled, fallbackUsed, unsubscribeUrl } = props;
+  const { weekStart, leadCount, lgas, cards, dasChecked, precisionBadge, smsEnabled, fallbackUsed, unsubscribeUrl } = props;
   // Spam Act 2003: a functional, no-login unsubscribe in every commercial email.
   // Falls back to the account page if a caller omits the token URL.
   const unsubHref = unsubscribeUrl ?? "/account";
+
+  // FR-010 quiet-week branch (issue #58): a week where nothing scored into the
+  // digest must still reassure — "we checked N DAs across your areas" — instead
+  // of the trust-eroding empty "0 leads" digest. leadCount === 0 ⟺ no cards.
+  const isQuietWeek = leadCount === 0;
+  const areasLabel = lgas.join(" + ");
+  const checkedCount = dasChecked ?? 0;
+  const daWord = checkedCount === 1 ? "DA" : "DAs";
 
   // Relevance pip: 1-5 dots filled left-to-right, mapped from 0-10 score
   const getPips = (score: number): string => {
@@ -52,9 +135,7 @@ export function WeeklyDigestTemplate(props: {
       .join("");
   };
 
-  const cardHtml = cards
-    .map(
-      (card) => `
+  const renderCard = (card: DACard): string => `
   <tr>
     <td style="padding: 0;">
       <table style="width: 100%; border: 1px solid #E5E5E5; border-radius: 6px; overflow: hidden;">
@@ -65,7 +146,7 @@ export function WeeklyDigestTemplate(props: {
               <table style="width: 100%;">
                 <tr>
                   <td style="font-size: 12px; color: #627D98;">
-                    <span style="display: inline-block; padding: 4px 8px; background-color: #FEF3C7; color: #78350F; border-radius: 4px; font-weight: 500;">${escapeHtml(card.lga)}</span>
+                    <span style="display: inline-block; padding: 4px 8px; background-color: #FEF3C7; color: #78350F; border-radius: 4px; font-weight: 500;">${escapeHtml(card.lga)}</span>${leadClassBadgeHtml(toLeadClass(card.leadClass))}${card.constructionCertifiedAt ? ccBadgeHtml(card.constructionCertifiedAt) : ""}
                   </td>
                   <td style="text-align: right; font-size: 12px; color: #627D98; letter-spacing: 2px;">${getPips(card.relevanceScore)}</td>
                 </tr>
@@ -143,9 +224,18 @@ export function WeeklyDigestTemplate(props: {
     </td>
   </tr>
   <tr><td style="height: 12px;"></td></tr>
-`
-    )
-    .join("");
+`;
+
+  // Group cards by lead class (issue #14): fast-track, then strata & heritage,
+  // then builder pipeline — rank order preserved within each group. A subtle
+  // section header introduces each non-empty group.
+  const coerced = cards.map((c) => ({ ...c, leadClass: toLeadClass(c.leadClass) }));
+  const cardHtml = LEAD_CLASS_GROUP_ORDER.map((leadClass) => {
+    // Cards arrive in rank order; filtering preserves it within each group.
+    const group = coerced.filter((c) => c.leadClass === leadClass);
+    if (group.length === 0) return "";
+    return leadClassGroupHeaderHtml(leadClass) + group.map(renderCard).join("");
+  }).join("");
 
   const html = `<!DOCTYPE html>
 <html>
@@ -168,7 +258,7 @@ export function WeeklyDigestTemplate(props: {
         <td style="padding: 24px 16px; background-color: #FFFFFF; border-bottom: 1px solid #E5E5E5;">
           <h2 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 600; color: #1E3A5F;">Your Sydney Roofing Digest</h2>
           <p style="margin: 0 0 4px 0; font-size: 14px; color: #627D98;">Week of ${weekStart}</p>
-          <p style="margin: 0; font-size: 14px; color: #627D98; font-weight: 600;">${leadCount} leads · ${lgas.join(" + ")}</p>
+          <p style="margin: 0; font-size: 14px; color: #627D98; font-weight: 600;">${isQuietWeek ? escapeHtml(areasLabel) : `${leadCount} leads · ${escapeHtml(areasLabel)}`}</p>
         </td>
       </tr>
 
@@ -207,6 +297,26 @@ export function WeeklyDigestTemplate(props: {
           : ""
       }
 
+      ${
+        isQuietWeek
+          ? `
+      <!-- FR-010 quiet week (issue #58): reassurance instead of an empty card table -->
+      <tr>
+        <td style="padding: 16px;">
+          <table style="width: 100%; border: 1px solid #E5E5E5; border-radius: 6px;">
+            <tbody>
+              <tr>
+                <td style="padding: 24px 16px; background-color: #FFFFFF;">
+                  <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1E3A5F;">No strong re-roof leads this week</p>
+                  <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #627D98;">We checked ${checkedCount} ${daWord} across your ${escapeHtml(areasLabel)} and none scored high enough to be worth your time. We'll keep watching — your next digest lands Sunday.</p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </td>
+      </tr>
+      `
+          : `
       <!-- DA cards -->
       <tr>
         <td style="padding: 16px;">
@@ -217,11 +327,13 @@ export function WeeklyDigestTemplate(props: {
           </table>
         </td>
       </tr>
+      `
+      }
 
       <!-- End of digest divider -->
       <tr>
         <td style="padding: 24px 16px; text-align: center; color: #829AB1; font-size: 12px;">
-          — End of digest · ${leadCount} leads —
+          ${isQuietWeek ? `— We checked ${checkedCount} ${daWord} · no strong leads this week —` : `— End of digest · ${leadCount} leads —`}
         </td>
       </tr>
 
@@ -231,9 +343,11 @@ export function WeeklyDigestTemplate(props: {
           <p style="margin: 0 0 8px 0;">ProjectIntelligence AU Pty Ltd</p>
           <p style="margin: 0 0 8px 0;">Level 1, 123 Business Street, Sydney NSW 2000 AU</p>
           ${smsEnabled ? '<p style="margin: 0 0 8px 0;">Reply STOP to any SMS to unsubscribe.</p>' : ""}
-          <p style="margin: 0;">
+          <p style="margin: 0 0 8px 0;">
             <a href="${unsubHref}" style="color: #1E3A5F; text-decoration: underline;">Unsubscribe from these emails</a>
           </p>
+          <!-- CC-BY attribution: required wherever NSW DA source data is surfaced. -->
+          <p style="margin: 0; font-size: 11px; color: #829AB1;">DA data: ${escapeHtml(DA_SOURCE_ATTRIBUTION)}, licensed ${escapeHtml(DA_SOURCE_LICENCE)}.</p>
         </td>
       </tr>
     </tbody>
@@ -242,7 +356,9 @@ export function WeeklyDigestTemplate(props: {
 </html>`;
 
   return {
-    subject: `Your Sydney Roofing Digest — ${leadCount} leads this week`,
+    subject: isQuietWeek
+      ? `Your Sydney Roofing Digest — we checked ${checkedCount} ${daWord}, no strong leads this week`
+      : `Your Sydney Roofing Digest — ${leadCount} leads this week`,
     html,
   };
 }

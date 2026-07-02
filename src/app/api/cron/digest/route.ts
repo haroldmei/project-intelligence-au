@@ -1,9 +1,13 @@
 // Vercel Cron handler — Sunday weekly digest
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 //
-// Cron schedule (vercel.json entry):
-//   "0 7 * * 0"  — every Sunday 07:00 UTC = 17:00 AEST (UTC+10, non-DST).
+// Cron schedule (vercel.json entries):
+//   "0 7 * * 0"   — primary, every Sunday 07:00 UTC = 17:00 AEST (UTC+10, non-DST).
+//   "0 10 * * 0"  — retry, ~3h later (Sunday 10:00 UTC). Same handler, same auth.
+//                   runDigestCron() is idempotent-resumable (issue #12): the retry
+//                   only re-processes users the primary left unserved, and is a
+//                   no-op after a fully-successful primary run.
 //
 // AEST offset note:
 //   Australia/Sydney observes AEST (UTC+10) in winter and AEDT (UTC+11) in summer (Oct–Apr).
@@ -25,13 +29,17 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   try {
     // No in-process retry — the previous 15-min sleep would always be killed
-    // by Vercel's 5-min function timeout. Failed runs surface as 500 to
-    // Vercel logs + Sentry. Retry on the next scheduled tick.
+    // by Vercel's 5-min function timeout. Recovery is at the cron-tick level
+    // instead: a second scheduled tick (Sun 10:00 UTC) re-invokes this handler,
+    // and runDigestCron() resumes the same run, processing only the users the
+    // primary left unserved (issue #12).
     const result = await runDigestCron();
     return NextResponse.json({
+      resumed: result.resumed,
       users_processed: result.usersProcessed,
       sent: result.sent,
       failed: result.failed,
+      unserved: result.unserved,
       run_id: result.runId,
       duration_ms: result.durationMs,
     });

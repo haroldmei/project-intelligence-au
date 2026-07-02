@@ -65,14 +65,20 @@ const baseShape = {
     CRON_SECRET: z.string().min(8),
 
     // ── Data sources ────────────────────────────────────────────────────────
-    NSW_PLANNING_API_BASE: z.string().url().default("https://api.planningportal.nsw.gov.au/v1"),
+    // NSW ePlanning Online DA Data API (planningportal.nsw.gov.au/opendata —
+    // every DA lodged since Jan 2019, all NSW councils since 01/07/2021, daily,
+    // CC-BY). Served on the NSW Azure APIM gateway; the subscription key is
+    // requested by email from the ePlanning team (human-owned) and sent via the
+    // Ocp-Apim-Subscription-Key header. The base is overridden per environment
+    // when the key is provisioned; the default points at the NSW ePlanning
+    // gateway host. The adapter no-ops without NSW_PLANNING_API_KEY. This one
+    // subscription also covers the CDC + PCC feeds.
+    NSW_PLANNING_API_BASE: z.string().url().default("https://api.apps1.nsw.gov.au/eplanning/data/v0"),
     NSW_PLANNING_API_KEY: z.string().optional(),
-    DA_LEADS_API_BASE: z.string().url().default("https://api.daleads.com.au/v1"),
-    DA_LEADS_API_KEY: z.string().optional(),
-    // DA Exhibitions HTML scrape (planningportal.nsw.gov.au/daexhibitions). When
-    // "true", takes precedence over NSW Planning + DA Leads adapters for any
-    // LGA in DAEX_LGA_VALUES. Default off so existing tests/code paths are
-    // unchanged. Flip to "true" in Vercel env to enable in production.
+    // DA Exhibitions HTML scrape (planningportal.nsw.gov.au/daexhibitions). The
+    // no-key fallback for the DA feed: covers all 15 LGAs from the public
+    // register when NSW_PLANNING_API_KEY is absent. Default off so existing
+    // tests/code paths are unchanged. Flip to "true" in Vercel env to enable.
     DAEX_INGEST_ENABLED: z.coerce.boolean().default(false),
     // State Significant Development register (planningportal.nsw.gov.au/major-projects).
     // Public infrastructure, schools, hospitals, large mixed-use. Targeted at
@@ -81,6 +87,53 @@ const baseShape = {
     // wired into the standard fetchCouncilDAs() dispatcher. Flip on for
     // Teams-only crons when that tier ships.
     SSD_INGEST_ENABLED: z.coerce.boolean().default(false),
+    // PlanSA (South Australia) statewide ArcGIS FeatureServer — Expansion Wave 2
+    // (docs/25 §1.2/§2), the only other NSW-grade per-application statewide feed.
+    // The `sa` jurisdiction adapter is built + fixture-tested but DORMANT: the
+    // jurisdiction registry only includes SA when this flag is truthy.
+    // DO NOT enable until the PlanSA commercial-use license question
+    // (docs/25 §6, human-owned) is closed. Default off; declared here for prod-
+    // config validation + .env.example, but the registry reads the RAW env at
+    // CALL TIME (src/modules/ingestion/jurisdictions/registry.ts), not this
+    // frozen snapshot, so a single process/test can toggle it.
+    SA_INGEST_ENABLED: z.coerce.boolean().default(false),
+    // Online PCC Data API (planningportal.nsw.gov.au/opendata — Construction /
+    // Occupation / Subdivision Certificates, statewide, daily, CC-BY). Same
+    // subscription-key model as the DA feed (reuses NSW_PLANNING_API_KEY). A
+    // Construction Certificate means work is about to START — the "work starting
+    // now" timing signal (issue #13, docs/24 G11). Default off; the adapter
+    // no-ops without both this flag AND NSW_PLANNING_API_KEY. v1 ingests
+    // Construction Certificates only (OC/SC ignored).
+    PCC_INGEST_ENABLED: z.coerce.boolean().default(false),
+    // Online CDC Data API (planningportal.nsw.gov.au/opendata/dataset/online-cdc-data-api
+    // — Complying Development Certificates, statewide, daily, CC-BY). Same
+    // subscription-key model as the DA feed (reuses NSW_PLANNING_API_KEY: a single
+    // ePlanning subscription covers both). CDC is the pathway that actually carries
+    // material-change re-roofs (tile→metal), which never generate a DA (#10,
+    // docs/24 G1) — so unlike the other expansion feeds this defaults ON. Declared
+    // here as a raw string (NOT z.coerce.boolean, which treats "false" as truthy)
+    // for prod-config validation + .env.example; the adapter interprets it at CALL
+    // TIME via `isCdcIngestEnabled()` (src/modules/ingestion/cdc.ts) with default-on
+    // semantics, so a single process/test can toggle it and an explicit "false"/"0"
+    // disables it. The feed still no-ops without NSW_PLANNING_API_KEY.
+    CDC_INGEST_ENABLED: z.string().optional(),
+
+    // ── Vertical packs (multi-trade expansion, docs/25 §2) ──────────────────
+    // Each trade beyond roofing (V1) ships behind its own flag, default off,
+    // so the pack + eval seed can merge while the launch decision stays human-
+    // owned. Declared here for prod-config validation + .env.example; the
+    // vertical registry (src/verticals/registry.ts) reads the raw env at
+    // CALL TIME (not this frozen snapshot) so a single process/test can toggle.
+    VERTICAL_DEMOLITION_ENABLED: z.coerce.boolean().default(false),
+
+    // ── Storm brief (mid-week BOM severe-weather brief, #20) ────────────────
+    // Master switch for the storm-brief feature. Default off until dogfooded
+    // (docs/24 §4 August item 5). Declared here for prod-config validation +
+    // .env.example, but the cron reads the RAW env at CALL TIME via
+    // `isStormBriefEnabled()` (src/modules/weather/feed.ts), not this frozen
+    // snapshot, so a single process/test can toggle it. When off, the cron is a
+    // no-op (no feed fetch, no send).
+    STORM_BRIEF_ENABLED: z.coerce.boolean().default(false),
 
     // ── Observability (optional Month 1) ────────────────────────────────────
     SENTRY_DSN: z.string().url().optional(),

@@ -1,5 +1,5 @@
 // 3-stage relevance pipeline: rule → pgvector → LLM rerank.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2 | Phase: ai-features
 //
 // Pure orchestration — DB queries are injected via the `deps` parameter
@@ -29,6 +29,13 @@ export interface CandidateDA {
   lodgementDate: string; // yyyy-mm-dd
   applicantName: string | null;
   portalUrl: string;
+  /** ISO yyyy-mm-dd a Construction Certificate was issued against this DA (#13),
+   *  or null. A recency/timing signal fed to the rerank ("work starting now"). */
+  constructionCertifiedAt: string | null;
+  /** NSW approval pathway this record arrived on (#10): "da" | "cdc" | "ssd".
+   *  Surfaced to the rerank so a "CDC re-roof" scores as a strong positive, and
+   *  fed to the lead-class classifier (CDC → fast-track). Defaults to "da". */
+  approvalPathway: string;
   /** Cosine similarity from stage 2 — used for tie-break and logging. */
   cosineSimilarity?: number;
 }
@@ -92,10 +99,11 @@ export interface PipelineInput {
    */
   minScoreForDigest?: number;
   /**
-   * Hard ceiling on digest size. Default 3 — entry-tier framing favours
-   * a tight "top 3" rather than the wedge doc's 5–15 range. Over-large
-   * digests dilute the "best of the week" feel, especially when the LLM
-   * is non-deterministic on borderline scores.
+   * Hard ceiling on digest size. Default 15 — the top of the wedge doc's
+   * "5–15 curated leads" range (docs/01c-wedge.md §1.5b). The digest caller
+   * passes DIGEST_EMAIL_MAX_CARDS explicitly; this default mirrors it (lib
+   * code can't import a modules/ constant). Issue #11 raised this from the
+   * old top-3 cap that was starving the thumbs feedback moat.
    */
   maxDigestSize?: number;
   /**
@@ -141,7 +149,7 @@ export async function runRelevancePipeline(
   const sinceIsoDate = input.sinceIsoDate ?? defaultSinceIso();
   const topKForRerank = input.topKForRerank ?? 30;
   const minScoreForDigest = input.minScoreForDigest ?? 0;
-  const maxDigestSize = input.maxDigestSize ?? 3;
+  const maxDigestSize = input.maxDigestSize ?? 15;
 
   // Stage 1 — rule pass
   const ruleFiltered = await deps.ruleFilter({
@@ -196,6 +204,8 @@ export async function runRelevancePipeline(
     rawScopeText: c.rawScopeText,
     estimatedValue: c.estimatedValue,
     lodgementDate: c.lodgementDate,
+    constructionCertifiedAt: c.constructionCertifiedAt,
+    approvalPathway: c.approvalPathway,
   }));
 
   const rerankResults = await rerankCandidates(

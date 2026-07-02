@@ -11,6 +11,7 @@ import { rateLimitByIp } from "@/lib/auth/rate-limit";
 import { serializeLuciaCookie } from "@/lib/auth/session";
 import { SignupSchema } from "@/lib/auth/schemas";
 import { sendEmail } from "@/lib/email/client";
+import { captureServer } from "@/lib/analytics/server";
 
 // E2E auto-verification bypass: test-mode Stripe + emails on the .test
 // reserved-TLD subdomain we own. Disappears the moment STRIPE_SECRET_KEY
@@ -80,6 +81,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       emailVerified: autoVerify,
     },
   });
+
+  // Analytics: account created + 28-day trial begins at signup (issue #17).
+  captureServer(user.id, "signup_started", {});
+  captureServer(user.id, "trial_started", { source: "signup" });
 
   // ── Create Lucia session ──────────────────────────────────────────────────
   const session = await lucia.createSession(user.id, {});

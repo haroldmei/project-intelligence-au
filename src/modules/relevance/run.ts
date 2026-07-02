@@ -1,5 +1,5 @@
 // Relevance module orchestrator — wires PipelineDeps to real Prisma queries.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 // FR-004, FR-005, FR-006, FR-007, FR-025 | dev-plan §A.5 (cost-cap kill switch)
 //
@@ -15,6 +15,7 @@ import { parseVector } from "@/lib/ai/embeddings";
 import { ruleFilter } from "./filters";
 import { vectorRank } from "./vector";
 import { loadThumbsExamples } from "./thumbs";
+import { DIGEST_EMAIL_MAX_CARDS } from "@/modules/digest/constants";
 import pino from "pino";
 
 const log = pino({ name: "relevance-run" });
@@ -100,6 +101,9 @@ export async function runRelevanceForUser(userId: string): Promise<RelevanceRunR
       savedQueryEmbedding,
       userLgaCouncilSlugs: councilSlugs,
       excludeDaIds,
+      // Restore the wedge's 5–15 email range (issue #11). SMS is re-trimmed to
+      // top-3 downstream in assembleAndSendDigest.
+      maxDigestSize: DIGEST_EMAIL_MAX_CARDS,
     },
     {
       ruleFilter,

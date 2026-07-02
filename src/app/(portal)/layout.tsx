@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Newspaper, Clock, MapPin, User } from "lucide-react";
 import { validateRequest } from "@/lib/auth/session";
+import { AnalyticsProvider } from "@/components/analytics-provider";
 
 const TABS = [
   { href: "/digest", label: "Digest", Icon: Newspaper, ariaLabel: "Current digest" },
@@ -23,6 +24,8 @@ export default async function PortalLayout({
 
   return (
     <div className="min-h-screen bg-[#F0F4F8] flex flex-col">
+      {/* Identify the authenticated browser by internal user id (consent-gated). */}
+      <AnalyticsProvider userId={auth.user.id} />
       {/* Top app bar (mobile) / sticky header */}
       <header className="sticky top-0 z-20 bg-[#1E3A5F] text-white px-4 h-14 flex items-center justify-between">
         <span className="font-bold text-sm tracking-tight">ProjectIntelligence</span>

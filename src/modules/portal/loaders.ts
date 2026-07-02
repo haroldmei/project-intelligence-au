@@ -1,10 +1,41 @@
 // Portal data loaders — server-component data for portal pages.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 // FR-024, FR-026, FR-027 | system-design §2 portal component + §4 API
 //
 // Called by frontend-developer's server components — pure data loaders, no UI here.
 import { db } from "@/lib/db";
+import {
+  toLeadClass,
+  type LeadClass,
+} from "@/modules/relevance/lead-class";
+
+export type LeadClassCounts = Record<LeadClass, number>;
+
+function emptyLeadClassCounts(): LeadClassCounts {
+  return { fast_track: 0, strata_heritage: 0, builder_pipeline: 0 };
+}
+
+function tallyLeadClasses(rows: Array<{ leadClass: string }>): LeadClassCounts {
+  const counts = emptyLeadClassCounts();
+  for (const row of rows) counts[toLeadClass(row.leadClass)] += 1;
+  return counts;
+}
+
+/**
+ * Human label for a DA's approval pathway (#10), shown in the CSV export. The
+ * stored enum is da|cdc|ssd; surface it as the pathway names a tradie recognises.
+ */
+function pathwayLabel(pathway: string): string {
+  switch (pathway) {
+    case "cdc":
+      return "CDC";
+    case "ssd":
+      return "State significant";
+    default:
+      return "DA";
+  }
+}
 
 export interface DigestSummary {
   id: string;
@@ -14,6 +45,8 @@ export interface DigestSummary {
   smsStatus: string | null;
   fallbackUsed: boolean;
   runDate: string;
+  // Per-class breakdown (issue #14) — powers the history list's class chips.
+  leadClassCounts: LeadClassCounts;
 }
 
 export interface DigestCard {
@@ -27,6 +60,11 @@ export interface DigestCard {
   // DevelopmentApplication schema, so undefined for now — the CSV export emits
   // it "(if present)" and picks it up automatically once ingestion populates it.
   approvalPathway?: string | null;
+  // Honest lead class (issue #14) — persisted on DigestDa at assembly time.
+  leadClass: LeadClass;
+  // ISO yyyy-mm-dd a Construction Certificate was issued against this DA (issue
+  // #13), or null. Drives the "CC issued — work starting" badge on the portal.
+  constructionCertifiedAt: string | null;
   estimatedValue: number | null;
   portalUrl: string;
   applicantName: string | null;
@@ -69,6 +107,8 @@ export async function getCurrentDigest(userId: string): Promise<DigestDetail | n
               applicantName: true,
               description: true,
               lodgementDate: true,
+              constructionCertifiedAt: true,
+              approvalPathway: true,
             },
           },
         },
@@ -87,11 +127,16 @@ export async function getCurrentDigest(userId: string): Promise<DigestDetail | n
     smsStatus: digest.smsStatus,
     fallbackUsed: digest.fallbackUsed,
     runDate: digest.run.runDate.toISOString().slice(0, 10),
+    leadClassCounts: tallyLeadClasses(digest.digestDas),
     cards: digest.digestDas.map((dd) => ({
       daId: dd.daId,
       rank: dd.rank,
       relevanceScore: dd.relevanceScore,
       whyMatched: dd.whyMatched,
+      leadClass: toLeadClass(dd.leadClass),
+      approvalPathway: pathwayLabel(dd.da.approvalPathway),
+      constructionCertifiedAt:
+        dd.da.constructionCertifiedAt?.toISOString().slice(0, 10) ?? null,
       address: dd.da.address,
       council: dd.da.council,
       estimatedValue: dd.da.estimatedValue ? Number(dd.da.estimatedValue) : null,
@@ -116,7 +161,10 @@ export async function getDigestHistory(
     where: { userId },
     orderBy: { sentAt: "desc" },
     take: limit,
-    include: { run: { select: { runDate: true } } },
+    include: {
+      run: { select: { runDate: true } },
+      digestDas: { select: { leadClass: true } },
+    },
   });
 
   return digests.map((d) => ({
@@ -127,6 +175,7 @@ export async function getDigestHistory(
     smsStatus: d.smsStatus,
     fallbackUsed: d.fallbackUsed,
     runDate: d.run.runDate.toISOString().slice(0, 10),
+    leadClassCounts: tallyLeadClasses(d.digestDas),
   }));
 }
 
@@ -152,6 +201,8 @@ export async function getDigestById(userId: string, digestId: string): Promise<D
               applicantName: true,
               description: true,
               lodgementDate: true,
+              constructionCertifiedAt: true,
+              approvalPathway: true,
             },
           },
         },
@@ -170,11 +221,16 @@ export async function getDigestById(userId: string, digestId: string): Promise<D
     smsStatus: digest.smsStatus,
     fallbackUsed: digest.fallbackUsed,
     runDate: digest.run.runDate.toISOString().slice(0, 10),
+    leadClassCounts: tallyLeadClasses(digest.digestDas),
     cards: digest.digestDas.map((dd) => ({
       daId: dd.daId,
       rank: dd.rank,
       relevanceScore: dd.relevanceScore,
       whyMatched: dd.whyMatched,
+      leadClass: toLeadClass(dd.leadClass),
+      approvalPathway: pathwayLabel(dd.da.approvalPathway),
+      constructionCertifiedAt:
+        dd.da.constructionCertifiedAt?.toISOString().slice(0, 10) ?? null,
       address: dd.da.address,
       council: dd.da.council,
       estimatedValue: dd.da.estimatedValue ? Number(dd.da.estimatedValue) : null,

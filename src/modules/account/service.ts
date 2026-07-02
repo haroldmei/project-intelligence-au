@@ -1,9 +1,10 @@
 // Account service — profile, LGA bundle CRUD, saved query re-embed, GDPR erasure.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 // FR-020, FR-022 | system-design §2 portal + §4 API
 import { db } from "@/lib/db";
 import { embed } from "@/lib/ai/embeddings";
+import { captureServer } from "@/lib/analytics/server";
 import {
   getActiveSubscription,
   cancelSubscriptionAtPeriodEnd,
@@ -19,6 +20,7 @@ export interface AccountDTO {
   mobile_e164: string | null;
   emailVerified: boolean;
   smsOptIn: boolean;
+  stormBriefOptIn: boolean;
   trade: string;
   subscriptionStatus: string;
   accessUntil: string | null;
@@ -63,6 +65,10 @@ export async function updateLgaBundles(userId: string, bundleIds: string[]): Pro
     where: { id: userId },
     include: { lgaBundles: true },
   });
+  // Activation signal (FR-031): which users picked their lead coverage, and how
+  // wide. bundleCount only — bundle *ids* aren't PII but the count is the funnel
+  // metric that matters; keeps the shape minimal.
+  captureServer(userId, "lga_bundle_selected", { bundleCount: bundleIds.length });
   return toDTO(user);
 }
 
@@ -114,6 +120,21 @@ export async function smsOptOut(userId: string): Promise<AccountDTO> {
   const updated = await db.user.update({
     where: { id: userId },
     data: { smsOptIn: false },
+    include: { lgaBundles: true },
+  });
+  return toDTO(updated);
+}
+
+/**
+ * Set the per-user storm-brief opt-in (#20). Default is opted-in while the
+ * feature stays globally gated behind STORM_BRIEF_ENABLED; this lets a user opt
+ * out ahead of the global launch. Independent of the Spam Act email opt-out —
+ * the cron ANDs both.
+ */
+export async function setStormBriefOptIn(userId: string, optIn: boolean): Promise<AccountDTO> {
+  const updated = await db.user.update({
+    where: { id: userId },
+    data: { stormBriefOptIn: optIn },
     include: { lgaBundles: true },
   });
   return toDTO(updated);
@@ -197,6 +218,7 @@ type UserWithBundles = {
   mobile_e164: string | null;
   emailVerified: boolean;
   smsOptIn: boolean;
+  stormBriefOptIn: boolean;
   trade: string;
   subscriptionStatus: string;
   accessUntil: Date | null;
@@ -214,6 +236,7 @@ function toDTO(user: UserWithBundles): AccountDTO {
     mobile_e164: user.mobile_e164,
     emailVerified: user.emailVerified,
     smsOptIn: user.smsOptIn,
+    stormBriefOptIn: user.stormBriefOptIn,
     trade: user.trade,
     subscriptionStatus: user.subscriptionStatus,
     accessUntil: user.accessUntil?.toISOString() ?? null,

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>NSW Warnings Summary</title>
+    <link>http://www.bom.gov.au/nsw/warnings/</link>
+    <description>Current warnings for New South Wales. Data © Bureau of Meteorology.</description>
+    <item>
+      <title>Severe Thunderstorm Warning for Sydney Metropolitan, Illawarra and parts of the Hunter district</title>
+      <link>http://www.bom.gov.au/products/IDN21031.html</link>
+      <description>Severe thunderstorms are likely to produce damaging winds, large hailstones and heavy rainfall. Locations which may be affected include the Sydney Metropolitan area.</description>
+      <pubDate>Wed, 15 Jan 2026 04:35:00 GMT</pubDate>
+      <guid>http://www.bom.gov.au/products/IDN21031.html</guid>
+    </item>
+    <item>
+      <title>Severe Weather Warning for parts of Sutherland and the Illawarra</title>
+      <link>http://www.bom.gov.au/products/IDN21033.html</link>
+      <description>Damaging winds averaging 60 to 70 km/h are possible. Locations affected include Cronulla and the Sutherland Shire.</description>
+      <pubDate>Wed, 15 Jan 2026 05:10:00 GMT</pubDate>
+      <guid>http://www.bom.gov.au/products/IDN21033.html</guid>
+    </item>
+    <item>
+      <title>Minor Flood Warning for the Nepean River</title>
+      <link>http://www.bom.gov.au/products/IDN10500.html</link>
+      <description>Minor flooding is occurring along the Nepean River.</description>
+      <pubDate>Wed, 15 Jan 2026 03:00:00 GMT</pubDate>
+      <guid>http://www.bom.gov.au/products/IDN10500.html</guid>
+    </item>
+    <item>
+      <title>Severe Thunderstorm Warning for Penrith and Blacktown</title>
+      <link>http://www.bom.gov.au/products/IDN21040.html</link>
+      <description>Severe thunderstorms detected on radar near Penrith and Blacktown.</description>
+      <guid>http://www.bom.gov.au/products/IDN21040.html</guid>
+    </item>
+  </channel>
+</rss>

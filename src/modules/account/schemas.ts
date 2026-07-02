@@ -1,5 +1,5 @@
 // Account module Zod schemas.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 import { z } from "zod";
 
 export const UpdateProfileInput = z.object({
@@ -20,3 +20,9 @@ export const UpdateSavedQueryInput = z.object({
   saved_query_text: z.string().min(5).max(500),
 });
 export type UpdateSavedQueryInput = z.infer<typeof UpdateSavedQueryInput>;
+
+// Per-user storm-brief opt-out toggle (#20).
+export const StormBriefOptInInput = z.object({
+  optIn: z.boolean(),
+});
+export type StormBriefOptInInput = z.infer<typeof StormBriefOptInInput>;

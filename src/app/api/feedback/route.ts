@@ -1,5 +1,5 @@
 // POST /api/feedback — authenticated portal thumb up/down
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 // FR-024 | system-design §4 API design — POST /api/portal/feedback (Lucia auth, 100/user/hr)
 import { NextResponse } from "next/server";

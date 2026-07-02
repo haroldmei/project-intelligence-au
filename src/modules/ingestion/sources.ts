@@ -1,5 +1,5 @@
 // Data source adapters for the DA ingestion pipeline.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 // contract: security.public_data_only = true
 //
@@ -7,14 +7,27 @@
 // DO NOT add Cordell, LeadManager, or EstimateOne (contract.security.public_data_only).
 import * as cheerio from "cheerio";
 import { fetchWithRetry, fetchTextWithRetry, politeDelay } from "./fetch";
+import { fetchCouncilCdcs, isCdcIngestEnabled } from "./cdc";
+import { eplanningAuthHeaders } from "./eplanning";
 import { env } from "@/lib/env";
 
 export type SourceApi =
-  | "nsw_planning"
-  | "da_leads"
-  | "council_da"
+  | "nsw_planning" // NSW ePlanning Online DA Data API (the authoritative DA feed)
   | "da_exhibitions"
-  | "ssd_register"; // State Significant Development register (Teams-tier — dormant for now)
+  | "nsw_cdc" // Online CDC Data API — Complying Development Certificates (#10)
+  | "ssd_register" // State Significant Development register (Teams-tier — dormant for now)
+  | "plansa"; // South Australia PlanSA ArcGIS register (Wave 2 — dormant behind SA_INGEST_ENABLED)
+
+/**
+ * Which NSW planning approval pathway a record arrived on (#10). Persisted on
+ * `development_applications.approval_pathway` and surfaced to the reranker /
+ * lead-class so a CDC re-roof ranks as a strong positive:
+ *   - `da`  — a Development Application (the incumbent feeds; the default).
+ *   - `cdc` — a Complying Development Certificate (the pathway that carries
+ *             material-change re-roofs — tile→metal — which never file a DA).
+ *   - `ssd` — State Significant Development (dormant Teams-tier feed).
+ */
+export type ApprovalPathway = "da" | "cdc" | "ssd";
 
 /** Normalised DA record after adapting from any source. */
 export interface RawDaRecord {
@@ -30,7 +43,16 @@ export interface RawDaRecord {
   applicantName: string | null;
   portalUrl: string;
   rawScopeText: string | null;
+  // The portal's categorical "Type of development" (e.g. DAEX "Alterations and
+  // additions to residential development"; SSD "HDA Housing"). Distinct from the
+  // free-text scope in rawScopeText — this is the coarse enum the expansion
+  // trade-pick audit filters on (#26, docs/25 §1.1). Null for feeds with no
+  // category field (CDC/PCC APIs, PlanSA).
+  developmentType: string | null;
   sourceApi: SourceApi;
+  // Which approval pathway carried this record (#10). Every DA-shaped feed sets
+  // "da"; the SSD register sets "ssd"; the CDC adapter (cdc.ts) sets "cdc".
+  approvalPathway: ApprovalPathway;
 }
 
 /**
@@ -41,64 +63,113 @@ export interface RawDaRecord {
  */
 const FRESHNESS_WINDOW_DAYS = 180;
 
-/** NSW Planning Portal API base URL */
+/** NSW ePlanning Online DA Data API base URL (Azure APIM gateway). */
 const NSW_PLANNING_BASE = env.NSW_PLANNING_API_BASE;
 
-/** DA Leads API base URL */
-const DA_LEADS_BASE = env.DA_LEADS_API_BASE;
+/** Records requested per page from the paginated Online DA Data API. */
+const NSW_PLANNING_PAGE_SIZE = 200;
 
-// LGAs served by the NSW Planning Portal (majority)
-const NSW_PLANNING_COUNCILS = new Set([
-  "blacktown",
-  "blue_mountains",
-  "camden",
-  "campbelltown_nsw",
-  "fairfield",
-  "hawkesbury",
-  "hills_shire",
-  "liverpool",
-  "parramatta",
-  "penrith",
-  "wollondilly",
-]);
+/**
+ * Cap on pages fetched per council per run. Incremental fetch (`sinceDaysBack`)
+ * keeps the daily delta small, so 10 × 200 = 2000 DAs is comfortably more than
+ * any single council lodges in a day; the cap just bounds a pathological page.
+ */
+const MAX_NSW_PLANNING_PAGES = 10;
+
+/**
+ * Our 15 subscribed LGAs → the council name the Online DA Data API filters on.
+ * The feed is statewide (every NSW council since 01/07/2021); we only pull the
+ * councils we sell into, so this map both (a) supplies the API's `council`
+ * filter value and (b) restricts the adapter to our subscribed LGAs — a slug
+ * absent here is never fetched. Slug keys MUST match ALL_COUNCIL_SLUGS
+ * (jurisdictions/config.ts NSW_REGIONS) and the LGAS seed in prisma/seed.ts.
+ */
+const NSW_PLANNING_LGA_NAMES: Record<string, string> = {
+  // Western Sydney
+  blacktown: "Blacktown City Council",
+  cumberland: "Cumberland City Council",
+  parramatta: "City of Parramatta Council",
+  penrith: "Penrith City Council",
+  the_hills: "The Hills Shire Council",
+  // Inner West & City
+  burwood: "Burwood Council",
+  canada_bay: "City of Canada Bay Council",
+  city_of_sydney: "Council of the City of Sydney",
+  inner_west: "Inner West Council",
+  // Northern Sydney
+  hornsby: "Hornsby Shire Council",
+  ku_ring_gai: "Ku-ring-gai Council",
+  northern_beaches: "Northern Beaches Council",
+  // Southern Sydney
+  bayside: "Bayside Council",
+  georges_river: "Georges River Council",
+  sutherland: "Sutherland Shire Council",
+};
 
 /**
  * Fetch DAs for a single council in the last `sinceDaysBack` days.
  *
  * Adapter precedence:
- *   1. DA Exhibitions HTML scrape (when DAEX_INGEST_ENABLED=true) — covers all
- *      15 LGAs from the public NSW Planning Portal register. No API key, eager
- *      enrichment from detail pages.
- *   2. NSW Planning Portal API — only when NSW_PLANNING_API_KEY is set, for
- *      councils in NSW_PLANNING_COUNCILS. Authoritative source (FR-001).
- *   3. DA Leads / council DA API — only when DA_LEADS_API_KEY is set.
- *   4. No-op (returns []) when no source is configured for this slug. Avoids
- *      DNS-resolving the placeholder URLs (api.planningportal.nsw.gov.au/v1
- *      and api.daleads.com.au) which don't exist as real endpoints — each
- *      4-attempt retry burns ~14s and 15 councils × that = 524 timeout.
+ *   1. NSW ePlanning Online DA Data API — the authoritative feed (FR-001).
+ *      Used first whenever NSW_PLANNING_API_KEY is set, for any of our 15
+ *      subscribed LGAs (NSW_PLANNING_LGA_NAMES).
+ *   2. DA Exhibitions HTML scrape (when DAEX_INGEST_ENABLED=true) — the
+ *      no-key fallback that covers all 15 LGAs from the public register with
+ *      eager detail-page enrichment. Runs when no API key is configured.
+ *   3. No-op (returns []) when neither source is configured for this slug —
+ *      avoids issuing HTTP to an endpoint that isn't wired up yet.
  *
  * The pipeline accepts records from any source via the `source_api` column,
- * so swapping order (e.g. once an NSW Planning key arrives, demote scraping)
- * needs no DB migration.
+ * so swapping order (e.g. demoting the scrape once a key arrives) needs no DB
+ * migration.
  */
 export async function fetchCouncilDAs(
   councilSlug: string,
   sinceDaysBack: number,
 ): Promise<RawDaRecord[]> {
   await politeDelay();
-  if (env.DAEX_INGEST_ENABLED && DAEX_LGA_VALUES[councilSlug]) {
-    return fetchDaExhibitionsByLga(councilSlug, sinceDaysBack);
+
+  // DA-pathway records — pick exactly one source via the precedence above.
+  const records: RawDaRecord[] = [];
+  if (env.NSW_PLANNING_API_KEY && NSW_PLANNING_LGA_NAMES[councilSlug]) {
+    records.push(...(await fetchNswPlanningDAs(councilSlug, sinceDaysBack)));
+  } else if (env.DAEX_INGEST_ENABLED && DAEX_LGA_VALUES[councilSlug]) {
+    records.push(...(await fetchDaExhibitionsByLga(councilSlug, sinceDaysBack)));
   }
-  if (env.NSW_PLANNING_API_KEY && NSW_PLANNING_COUNCILS.has(councilSlug)) {
-    return fetchNswPlanningDAs(councilSlug, sinceDaysBack);
+
+  // CDC-pathway records — ADDITIVE, not an alternative source (#10). A DA-only
+  // feed structurally misses the ICP's core re-roof work, which files as a
+  // Complying Development Certificate. The Online CDC Data API is statewide, so
+  // it runs for every council alongside whichever DA source ran; it shares the
+  // ePlanning subscription key and is gated by its own default-on flag. Both
+  // gates are checked inside fetchCouncilCdcs too, but short-circuiting here
+  // avoids the politeDelay + no-op call when the feed is dark.
+  if (isCdcIngestEnabled() && env.NSW_PLANNING_API_KEY) {
+    records.push(...(await fetchCouncilCdcs(councilSlug, sinceDaysBack)));
   }
-  if (env.DA_LEADS_API_KEY) {
-    return fetchDaLeadsDAs(councilSlug, sinceDaysBack);
-  }
-  return [];
+
+  return records;
 }
 
-// ─── NSW Planning Portal adapter ────────────────────────────────────────────
+// ─── NSW ePlanning Online DA Data API adapter ───────────────────────────────
+//
+// The real Online DA Data API (planningportal.nsw.gov.au/opendata/dataset/
+// online-da-data-api): every DA lodged on the NSW Planning Portal since Jan
+// 2019, all NSW councils since 01/07/2021, updated daily, CC-BY licensed. The
+// authoritative source (FR-001) — it replaces the DAEX HTML scrape as the
+// primary feed the moment a subscription key lands, and drops the DAEX fetch's
+// per-detail-page enrichment cost entirely.
+//
+// Auth: the feed lives behind an ePlanning subscription key requested by email
+// from the ePlanning team (human-owned key provisioning), served on the NSW
+// Azure API Management gateway — so the key rides the Ocp-Apim-Subscription-Key
+// header (see eplanning.ts, shared with the CDC/PCC feeds on the same
+// subscription). No key → the adapter no-ops with [], matching CDC/PCC.
+//
+// The record field names below mirror the ePlanning DA schema family (shared
+// with cdc.ts / pcc.ts). The exact envelope + field casing should be reconciled
+// against the "DA Open APIs Data Dictionary" once the key is provisioned; the
+// pure mapNswPlanningApplication() keeps that reconciliation to one place.
 
 interface NswPlanningDA {
   applicationNumber: string;
@@ -107,81 +178,125 @@ interface NswPlanningDA {
   proposedDevelopment: string;
   estimatedCost: number | null;
   lodgedDate: string;
+  // Present only once a DA is determined; drives the stale-Determined filter
+  // (a determination older than the freshness window is a dead lead).
+  determinedDate?: string | null;
+  // The determination outcome (Approved / Refused / Withdrawn / …) — only on
+  // determined DAs. Refusals/withdrawals are dropped by isApprovedDecision.
+  decision?: string | null;
+  // The categorical "Type of development" (#26). Unlike the DAEX scrape, the
+  // Data API exposes this as a structured field rather than detail-page text.
+  developmentType?: string | null;
   applicant: string | null;
   url: string;
   scopeDescription: string | null;
 }
 
-async function fetchNswPlanningDAs(
+/**
+ * Map one raw Online DA Data API record to a normalised `RawDaRecord`, or `null`
+ * when it lacks the application number we key on. Pure — fixture-tested — so the
+ * field mapping is verifiable without an HTTP call. Stamps `sourceApi:
+ * "nsw_planning"` and `approvalPathway: "da"`; folds the categorical
+ * development type + free-text scope into rawScopeText for the Stage-1 tsvector
+ * and the LLM rerank, exactly like the DAEX builder.
+ */
+export function mapNswPlanningApplication(
+  raw: NswPlanningDA,
   council: string,
+): RawDaRecord | null {
+  const daId = raw.applicationNumber?.trim();
+  if (!daId) return null;
+
+  const developmentType = raw.developmentType?.trim() || null;
+  const scopeParts = [developmentType, raw.scopeDescription, raw.proposedDevelopment]
+    .filter((s): s is string => Boolean(s?.trim()))
+    // Dedupe — the scope description and proposed development often coincide.
+    .filter((s, i, arr) => arr.indexOf(s) === i);
+
+  return {
+    daId,
+    council,
+    address: raw.address ?? "",
+    description: raw.proposedDevelopment ?? "",
+    estimatedValue: raw.estimatedCost ?? null,
+    lodgementDate: raw.lodgedDate?.slice(0, 10) ?? isoDate(0),
+    determinationDate: raw.determinedDate?.slice(0, 10) ?? null,
+    applicantName: raw.applicant ?? null,
+    portalUrl: raw.url,
+    rawScopeText: scopeParts.join(". ") || null,
+    developmentType,
+    sourceApi: "nsw_planning",
+    approvalPathway: "da",
+  };
+}
+
+/**
+ * Fetch DAs lodged/modified for one of our 15 subscribed LGAs in the last
+ * `sinceDaysBack` days from the Online DA Data API. Paginates over the `page`
+ * param (a populous LGA lodges more DAs than a single page holds), does an
+ * incremental fetch by last-modified date, and reuses the DAEX path's
+ * freshness / stale-Determined filters so a years-old or refused determination
+ * never enters the pipeline.
+ *
+ * Returns [] (no throw) when the API key is unset or the slug isn't one of our
+ * subscribed LGAs — the caller (`fetchCouncilDAs`) already gates on the key +
+ * the LGA map, but this keeps the adapter safe to call directly. Dedupes by
+ * daId across page boundaries.
+ */
+export async function fetchNswPlanningDAs(
+  councilSlug: string,
   sinceDaysBack: number,
 ): Promise<RawDaRecord[]> {
+  const apiKey = env.NSW_PLANNING_API_KEY;
+  if (!apiKey) return [];
+  const councilName = NSW_PLANNING_LGA_NAMES[councilSlug];
+  if (!councilName) return []; // only our 15 subscribed LGAs
+
   const since = new Date();
   since.setDate(since.getDate() - sinceDaysBack);
   const sinceStr = since.toISOString().slice(0, 10);
 
-  const url = `${NSW_PLANNING_BASE}/development-applications?council=${encodeURIComponent(council)}&since=${sinceStr}&limit=200`;
-  const apiKey = env.NSW_PLANNING_API_KEY;
-  const headers: Record<string, string> = {};
-  if (apiKey) headers["x-api-key"] = apiKey;
+  const headers = eplanningAuthHeaders(apiKey);
+  const records: RawDaRecord[] = [];
+  const seen = new Set<string>();
 
-  const data = await fetchWithRetry<{ applications: NswPlanningDA[] }>(url, { headers });
-  const apps = data?.applications ?? [];
+  for (let page = 0; page < MAX_NSW_PLANNING_PAGES; page++) {
+    const url =
+      `${NSW_PLANNING_BASE}/development-applications` +
+      `?council=${encodeURIComponent(councilName)}` +
+      `&modifiedSince=${sinceStr}` +
+      `&limit=${NSW_PLANNING_PAGE_SIZE}` +
+      `&page=${page}`;
 
-  return apps.map((da): RawDaRecord => ({
-    daId: da.applicationNumber,
-    council,
-    address: da.address,
-    description: da.proposedDevelopment,
-    estimatedValue: da.estimatedCost ?? null,
-    lodgementDate: da.lodgedDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-    determinationDate: null,
-    applicantName: da.applicant ?? null,
-    portalUrl: da.url,
-    rawScopeText: da.scopeDescription ?? null,
-    sourceApi: "nsw_planning",
-  }));
-}
+    const data = await fetchWithRetry<{ applications: NswPlanningDA[] }>(url, { headers });
+    const apps = data?.applications ?? [];
+    if (apps.length === 0) break;
 
-// ─── DA Leads / Council DA adapter ──────────────────────────────────────────
+    for (const raw of apps) {
+      const record = mapNswPlanningApplication(raw, councilSlug);
+      if (!record) continue;
+      // A DA can appear on the boundary of two pages; dedupe by daId.
+      if (seen.has(record.daId)) continue;
+      seen.add(record.daId);
 
-interface DaLeadsDA {
-  ref: string;
-  council: string;
-  siteAddress: string;
-  description: string;
-  estimatedValue: number | null;
-  lodgementDate: string;
-  applicant: string | null;
-  daUrl: string;
-  scopeNotes: string | null;
-}
+      // Reuse the DAEX freshness / stale-Determined filters (shared helpers
+      // below): once a DA is determined, drop refusals/withdrawals (dead leads)
+      // and determinations older than the roofer-actionable window. Undetermined
+      // DAs (no determinationDate) always pass — they're in-flight.
+      if (record.determinationDate) {
+        if (!isApprovedDecision(raw.decision)) continue;
+        if (isOlderThan(record.determinationDate, FRESHNESS_WINDOW_DAYS)) continue;
+      }
 
-async function fetchDaLeadsDAs(
-  council: string,
-  sinceDaysBack: number,
-): Promise<RawDaRecord[]> {
-  const url = `${DA_LEADS_BASE}/das?council=${encodeURIComponent(council)}&days=${sinceDaysBack}`;
-  const apiKey = env.DA_LEADS_API_KEY;
-  const headers: Record<string, string> = {};
-  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+      records.push(record);
+    }
 
-  const data = await fetchWithRetry<{ das: DaLeadsDA[] }>(url, { headers });
-  const das = data?.das ?? [];
+    // Partial page → the feed has no more results for this council.
+    if (apps.length < NSW_PLANNING_PAGE_SIZE) break;
+    await politeDelay();
+  }
 
-  return das.map((da): RawDaRecord => ({
-    daId: da.ref,
-    council,
-    address: da.siteAddress,
-    description: da.description,
-    estimatedValue: da.estimatedValue ?? null,
-    lodgementDate: da.lodgementDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-    determinationDate: null,
-    applicantName: da.applicant ?? null,
-    portalUrl: da.daUrl,
-    rawScopeText: da.scopeNotes ?? null,
-    sourceApi: "council_da",
-  }));
+  return records;
 }
 
 // ─── DA Exhibitions adapter (HTML scrape) ───────────────────────────────────
@@ -503,42 +618,7 @@ async function fetchDaExhibitionsByStatus(
         continue;
       }
 
-      // description: prefer the listing title (most readable), fall back to
-      // the free-text project description if the title was empty (some
-      // councils render only an address — see The Hills Shire).
-      // rawScopeText: fold the richer free-text scope onto the categorical
-      // type-of-development so the LLM rerank sees both. Stage-1 ts_vector
-      // and the LLM both consume this field.
-      const description = row.title?.trim() || detail.projectDescription || "";
-      const scopeParts = [detail.developmentTypeText, detail.projectDescription, row.title]
-        .filter((s): s is string => Boolean(s?.trim()))
-        // Dedupe — sometimes the title equals the project description.
-        .filter((s, i, arr) => arr.indexOf(s) === i);
-      const rawScopeText = scopeParts.join(". ") || null;
-
-      // lodgementDate: prefer the determination date for Determined DAs (it's
-      // the most recent meaningful event we have); otherwise the exhibition
-      // start date. The today-fallback is the floor — only used when neither
-      // signal is available, which after the freshness gate above only
-      // happens for Under Consideration records the listing exposes without
-      // any date at all (rare but valid).
-      const lodgementDate =
-        (status === "Determined" ? detail.determinationDate : detail.exhibitionStart) ??
-        today;
-
-      records.push({
-        daId,
-        council: slug,
-        address: detail.propertyAddress ?? row.title ?? "",
-        description,
-        estimatedValue: null, // not exposed by DA Exhibitions
-        lodgementDate,
-        determinationDate: detail.determinationDate,
-        applicantName: null, // not exposed by DA Exhibitions
-        portalUrl: detailUrl,
-        rawScopeText,
-        sourceApi: "da_exhibitions",
-      });
+      records.push(buildDaexRecord({ slug, daId, detailUrl, row, detail, status, today }));
 
       await politeDelay();
     }
@@ -548,6 +628,63 @@ async function fetchDaExhibitionsByStatus(
   }
 
   return records;
+}
+
+/**
+ * Assemble a normalised RawDaRecord from a DAEX listing row + its enriched
+ * detail page. Pure — the caller has already applied the decision/freshness
+ * gates. Extracted so the field mapping (notably `developmentType`, #26) is
+ * fixture-testable without driving the whole paginated fetch.
+ */
+export function buildDaexRecord(args: {
+  slug: string;
+  daId: string;
+  detailUrl: string;
+  row: Pick<DaexListingRow, "title">;
+  detail: DaexDetailFields;
+  status: string;
+  today: string;
+}): RawDaRecord {
+  const { slug, daId, detailUrl, row, detail, status, today } = args;
+
+  // description: prefer the listing title (most readable), fall back to the
+  // free-text project description if the title was empty (some councils render
+  // only an address — see The Hills Shire).
+  const description = row.title?.trim() || detail.projectDescription || "";
+  // rawScopeText: fold the richer free-text scope onto the categorical
+  // type-of-development so the LLM rerank sees both. Stage-1 ts_vector and the
+  // LLM both consume this field.
+  const scopeParts = [detail.developmentTypeText, detail.projectDescription, row.title]
+    .filter((s): s is string => Boolean(s?.trim()))
+    // Dedupe — sometimes the title equals the project description.
+    .filter((s, i, arr) => arr.indexOf(s) === i);
+  const rawScopeText = scopeParts.join(". ") || null;
+
+  // lodgementDate: prefer the determination date for Determined DAs (it's the
+  // most recent meaningful event we have); otherwise the exhibition start date.
+  // The today-fallback is the floor — only used when neither signal is available,
+  // which after the freshness gate only happens for Under Consideration records
+  // the listing exposes without any date at all (rare but valid).
+  const lodgementDate =
+    (status === "Determined" ? detail.determinationDate : detail.exhibitionStart) ?? today;
+
+  return {
+    daId,
+    council: slug,
+    address: detail.propertyAddress ?? row.title ?? "",
+    description,
+    estimatedValue: null, // not exposed by DA Exhibitions
+    lodgementDate,
+    determinationDate: detail.determinationDate,
+    // The categorical "Type of development" — now persisted as a first-class
+    // column (#26), not just folded into rawScopeText above.
+    developmentType: detail.developmentTypeText,
+    applicantName: null, // not exposed by DA Exhibitions
+    portalUrl: detailUrl,
+    rawScopeText,
+    sourceApi: "da_exhibitions",
+    approvalPathway: "da",
+  };
 }
 
 // ─── Helpers (DA Exhibitions parsing) ───────────────────────────────────────
@@ -763,10 +900,12 @@ export async function fetchSsdProjects(
         estimatedValue: null, // not exposed by SSD register
         lodgementDate: detail?.exhibitionStart ?? today,
         determinationDate: null, // SSD register doesn't expose a determination date
+        developmentType: detail?.developmentType ?? null, // e.g. "HDA Housing"
         applicantName: detail?.contactPlannerName ?? null,
         portalUrl: detailUrl,
         rawScopeText: scopeParts.join(". ") || null,
         sourceApi: "ssd_register",
+        approvalPathway: "ssd",
       });
 
       await politeDelay();

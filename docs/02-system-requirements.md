@@ -729,6 +729,29 @@ The system SHALL instrument key user actions with PostHog events.
 - PostHog loaded with consent-before-load: PostHog initialisation deferred until user consents (cookie banner on first visit; consent stored in `user_consent` table).
 - Feature flags via PostHog flags (no separate vendor per R-01).
 
+**Implementation status `[issue #17 + #57]`** — the canonical event catalogue is
+`src/lib/analytics/events.ts` (the *documented* names; typed so a PII property is
+a compile error). Server-side capture (`captureServer`) is cookieless and keyed by
+internal user id; the one client-side event (`da_card_clicked`) is gated on the
+cookie banner via `captureClient`. Mapping of the minimum list above → shipped events:
+
+| FR-031 minimum event | Shipped event (events.ts) | Touchpoint |
+|---|---|---|
+| `signup_started` / `signup_completed` | `signup_started` | signup is atomic server-side (`/api/auth/signup`) — account row created = form completed; `email_verified` marks OTP activation |
+| `lga_bundle_selected` | `lga_bundle_selected` | `updateLgaBundles` (`PUT /api/account/lga-bundles`) — carries `bundleCount` only |
+| `trial_activated` | `trial_started` | signup (`source: "signup"`) and trial-granting checkout |
+| `digest_email_opened` | — (Resend open tracking) | out of PostHog scope; Resend open pixel, "if available" per this criterion |
+| `da_card_clicked` | `da_card_clicked` | portal "View DA →" click-out (`source: "portal"`); consent-gated client event |
+| `thumbs_submitted` | `da_feedback` | `recordFeedback` — single choke point for email + portal (`vote`, `source`) |
+| `subscription_upgraded` | `trial_converted` | Stripe webhook — transition into `active` from any non-active state |
+| `subscription_cancelled` | `subscription_cancelled` | Stripe `customer.subscription.deleted` webhook |
+
+The three renamed events (`trial_started`, `da_feedback`, `trial_converted`) are the
+canonical documented names and are already flowing to production dashboards; they are
+not re-emitted under the SRS's illustrative names (renaming deployed events would break
+existing funnels). `onboarding_completed`, `digest_sent`, and `portal_clickthrough`
+extend the funnel beyond this minimum.
+
 *Priority:* Should-have
 *Effort:* M
 
@@ -746,6 +769,22 @@ The system SHALL report unhandled exceptions and defined alert conditions to Sen
 - Sentry alert rules configured to notify the operator on-call (email or Slack in V1).
 
 *Priority:* Must-have
+*Effort:* S
+
+---
+
+**FR-033** `[wedge-supporting]` `[Iteration 10]`
+**In-product cancel Undo / reactivate**
+
+The system SHALL let a subscriber reverse a scheduled cancellation from inside the product, without visiting the Stripe billing portal (ux-design §7.10b; product-spec SF-3.1 — avoid Cordell-style exit friction).
+
+*Acceptance criteria:*
+- `POST /api/billing/subscription` clears `cancel_at_period_end` on the active/trialing Stripe subscription and returns `{ ok, accessUntil }` (auth-gated, rate-limited, 404 when no customer/subscription).
+- The post-cancel confirmation toast includes an `[Undo]` action (within its 8s window) that calls the reactivate route and confirms "Subscription resumed."
+- The `/account` pending-cancellation state ("Cancellation scheduled…") shows a "Resume subscription" button that calls the reactivate route and returns the account to the active (cancel CTA) state.
+- After reactivating via either path, `cancel_at_period_end` is false end-to-end (verified by the `customer.subscription.updated` webhook persisting `cancelAtPeriodEnd=false`).
+
+*Priority:* Should-have
 *Effort:* S
 
 ---

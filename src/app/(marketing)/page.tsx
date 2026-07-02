@@ -1,6 +1,17 @@
-// <!-- WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, top-3 leads, AUD 99/mo (GST included), signup in 60 seconds. -->
+// <!-- WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo (GST included), signup in 60 seconds. -->
 
 import Link from "next/link";
+import { WaitlistForm } from "./waitlist-form";
+import {
+  PRICING,
+  priceDollars,
+  gstComponentDollars,
+  PRICE_AMOUNT,
+  PRICE_MONTHLY,
+  PRICE_MONTHLY_WITH_GST,
+  PRICE_MONTHLY_INC_GST,
+  GST_SUFFIX,
+} from "@/lib/pricing";
 
 // ── JSON-LD Product schema for pricing tiers ──────────────────────────────
 const jsonLd = {
@@ -16,16 +27,16 @@ const jsonLd = {
   offers: [
     {
       "@type": "Offer",
-      name: "Solo",
-      price: "99",
-      priceCurrency: "AUD",
+      name: PRICING.planName,
+      price: String(priceDollars),
+      priceCurrency: PRICING.currency,
       priceSpecification: {
         "@type": "UnitPriceSpecification",
-        price: "99",
-        priceCurrency: "AUD",
+        price: String(priceDollars),
+        priceCurrency: PRICING.currency,
         billingDuration: "P1M",
         unitCode: "MON",
-        valueAddedTaxIncluded: true,
+        valueAddedTaxIncluded: PRICING.gstInclusive,
       },
       eligibleQuantity: {
         "@type": "QuantitativeValue",
@@ -49,7 +60,7 @@ const FEATURES = [
     withUs:
       "One email at 6 pm Sunday covers all 15 Greater Sydney LGAs — Western Sydney, Inner West, Northern, Southern — in a single scan.",
     detail:
-      "Cordell Connect sends a state-wide fire-hose of 47 alerts; you manually triage 6 hours to find 3 real re-roofs. We cover the 15 LGAs in your service area, ranked to the top 5–15 jobs you'd actually quote.",
+      "Cordell Connect sends a state-wide fire-hose of 47 alerts; you manually triage 6 hours to find 3 real roofing leads. We cover the 15 LGAs in your service area, sorted into the three lead classes the data supports — builder pipeline, fast-track CDC, and strata & heritage — and ranked to the top 5–15 jobs you'd actually quote.",
   },
   {
     id: "vocab",
@@ -60,7 +71,7 @@ const FEATURES = [
     withUs:
       "Our relevance layer is trained on roofing language — re-roof, membrane replacement, Colorbond, asbestos roof removal, guttering — not generic construction categories.",
     detail:
-      "We score every DA against the vocabulary a roofer actually uses. Before launch we tested on 500 labelled Sydney DA records. The target: 70% of the leads in your digest are genuine re-roof jobs you could quote. Cordell's current precision on the same set is around 6%.",
+      "We score every DA against the vocabulary a roofer actually uses. Before launch we tested on 500 labelled Sydney DA records. The target: 70% of the leads in your digest are genuine roofing jobs you could quote — new-build and alterations pipeline, fast-track CDC re-roofs, and strata & heritage work. Cordell's current precision on the same set is around 6%.",
   },
   {
     id: "signup",
@@ -79,21 +90,21 @@ const FEATURES = [
 const PLANS = [
   {
     id: "solo",
-    name: "Solo",
+    name: PRICING.planName,
     tagline: "For owner-operators who quote their own work.",
-    price: 99,
+    price: priceDollars,
     seats: "1 seat",
     highlight: true,
     includes: [
       "1 seat — your Sunday digest, your phone",
       "All 15 Greater Sydney LGAs (Western Sydney, Inner West, Northern, Southern)",
-      "Weekly email digest: top-3 roofing DAs, ranked by relevance",
-      "Sunday SMS: same top-3 leads to your +61 mobile",
+      "Weekly email digest: 5–15 roofing DAs, ranked by relevance",
+      "Sunday SMS: top-3 leads to your +61 mobile",
       "Trained on roofing vocabulary (not keyword soup)",
       "Thumbs feedback — your digest gets smarter each week",
       "Cancel anytime from your account — no support call",
     ],
-    finePrint: "AUD 99/mo, GST included. Card required. No charge for 28 days. Cancel anytime.",
+    finePrint: `${PRICE_MONTHLY_WITH_GST}. Card required. No charge for ${PRICING.trialDays} days. Cancel anytime.`,
   },
   // Multi-seat (formerly "Team") not in scope yet. When it ships, add a new
   // PLANS entry here AND re-enable the picker in /plan, plus put the Schema.org
@@ -104,7 +115,7 @@ const PLANS = [
 const COMPARISON = [
   {
     label: "Price",
-    piSolo: "AUD 99/mo inc GST",
+    piSolo: PRICE_MONTHLY_INC_GST,
     cordell: "AUD 577.50/mo inc GST",
     estimateOne: "AUD 250/mo",
     leadManager: "~AUD 333/mo¹",
@@ -167,8 +178,8 @@ const FAQS = [
     a: "To reduce abuse. We reviewed 28 days of real DA data for your LGAs before you even open the first digest — that costs us money and time. The card is how we know you're serious. You won't be charged until day 29, and you can cancel in-app anytime before then.",
   },
   {
-    q: "Is the AUD 99 price inclusive or exclusive of GST?",
-    a: "Inclusive. AUD 99/mo is the all-in price you pay — GST is built in. Your invoice still itemises the GST component (~AUD 9) separately so you can claim it as a business expense.",
+    q: `Is the ${PRICE_AMOUNT} price inclusive or exclusive of GST?`,
+    a: `Inclusive. ${PRICE_MONTHLY} is the all-in price you pay — GST is built in. Your invoice still itemises the GST component (~${PRICING.currency} ${gstComponentDollars}) separately so you can claim it as a business expense.`,
   },
   {
     q: "What happens if I cancel?",
@@ -247,10 +258,16 @@ export default function MarketingPage() {
                   The Sunday roofing digest for Sydney subbies.
                 </h1>
 
-                {/* Sub-headline — docs/17-positioning.md §5 + §9 */}
+                {/* Sub-headline — docs/17-positioning.md §5 + §9. Honest
+                    three-class framing (issue #14): DA data structurally misses
+                    like-for-like re-roofs, so we name the lead classes the data
+                    genuinely supports rather than imply exhaustive re-roof
+                    coverage. */}
                 <p className="text-base md:text-lg text-[#334E68] leading-relaxed max-w-prose">
-                  Top 3 curated re-roof DAs, 15 Sydney LGAs, every Sunday at 6&nbsp;pm.
-                  AUD&nbsp;99/mo (GST included). No sales call.
+                  DA, CDC and strata signals across 15 Sydney LGAs — builder
+                  pipeline, fast-track CDC, and strata &amp; heritage leads,
+                  every Sunday at 6&nbsp;pm.
+                  {" "}{PRICE_MONTHLY} ({GST_SUFFIX}). No sales call.
                 </p>
 
                 {/* Primary CTA */}
@@ -287,17 +304,22 @@ export default function MarketingPage() {
                     Your digest · Sun 27 Apr · 12 leads
                   </p>
                   {[
-                    { lga: "Western Sydney", addr: "12 Acacia Ave, Penrith NSW 2750", val: "Est. AUD 180k", why: "Existing dwelling re-roof, Colorbond replacement" },
-                    { lga: "Hills District", addr: "4 Banksia Rd, Castle Hill NSW 2154", val: "Est. AUD 95k", why: "Membrane upgrade, commercial unit block" },
-                    { lga: "Inner West", addr: "88 Parramatta Rd, Leichhardt NSW 2040", val: "Est. AUD 210k", why: "Asbestos roof removal & Colorbond re-roof" },
+                    { lga: "Western Sydney", addr: "12 Acacia Ave, Penrith NSW 2750", val: "Est. AUD 180k", why: "Tile-to-metal re-roof, CDC pathway", cls: "Fast-track", clsClass: "bg-[#E0F2FE] text-[#0C4A6E]" },
+                    { lga: "Hills District", addr: "4 Banksia Rd, Castle Hill NSW 2154", val: "Est. AUD 95k", why: "Class-2 membrane remediation, strata block", cls: "Strata & heritage", clsClass: "bg-[#F3E8FF] text-[#6B21A8]" },
+                    { lga: "Inner West", addr: "88 Parramatta Rd, Leichhardt NSW 2040", val: "Est. AUD 210k", why: "Alterations & additions — head-contractor lead", cls: "Builder pipeline", clsClass: "bg-[#E2E8F0] text-[#334155]" },
                   ].map((card) => (
                     <div
                       key={card.addr}
                       className="bg-white rounded-md border border-[#E5E5E5] p-3 shadow-sm"
                     >
-                      <span className="inline-block text-xs font-semibold bg-[#FEF3C7] text-[#78350F] rounded px-2 py-0.5 mb-1">
-                        {card.lga}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1 mb-1">
+                        <span className="inline-block text-xs font-semibold bg-[#FEF3C7] text-[#78350F] rounded px-2 py-0.5">
+                          {card.lga}
+                        </span>
+                        <span className={`inline-block text-xs font-semibold rounded px-2 py-0.5 ${card.clsClass}`}>
+                          {card.cls}
+                        </span>
+                      </div>
                       <p className="text-sm font-medium text-[#102A43] leading-snug">
                         {card.addr}
                       </p>
@@ -383,8 +405,8 @@ export default function MarketingPage() {
 
           {/* ═══════════════════════════════════════════════════════════════
               PRICING SECTION
-              LOCKED: Solo AUD 99/mo (GST included)
-              28-day card-on-file trial · cancel in-app
+              Single Solo price + trial length come from src/lib/pricing.ts
+              (source of truth) — card-on-file trial · cancel in-app
           ═══════════════════════════════════════════════════════════════ */}
           <section
             id="pricing"
@@ -418,7 +440,7 @@ export default function MarketingPage() {
                   >
                     {plan.highlight && (
                       <span className="self-start text-xs font-semibold uppercase tracking-widest bg-[#D97706] text-white px-3 py-1 rounded-full">
-                        28-day free trial
+                        {PRICING.trialDays}-day free trial
                       </span>
                     )}
                     <div>
@@ -427,11 +449,11 @@ export default function MarketingPage() {
                     </div>
                     <div>
                       <p className="text-3xl font-extrabold text-[#1E3A5F]">
-                        AUD {plan.price}
+                        {PRICE_AMOUNT}
                         <span className="text-lg font-semibold">/mo</span>
                       </p>
                       <p className="text-xs text-[#627D98] mt-0.5">
-                        GST included · {plan.seats}
+                        {GST_SUFFIX} · {plan.seats}
                       </p>
                     </div>
                     <ul className="space-y-2" aria-label={`${plan.name} plan features`}>
@@ -461,7 +483,7 @@ export default function MarketingPage() {
                       href={`/signup?plan=${plan.id}`}
                       className="flex items-center justify-center w-full px-4 py-3 text-sm font-semibold bg-[#D97706] text-white rounded-md hover:bg-[#B45309] transition-colors duration-[150ms] min-h-[48px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] focus-visible:ring-offset-2"
                     >
-                      Start 28-day trial
+                      Start {PRICING.trialDays}-day trial
                     </Link>
                     <p className="text-xs text-[#A3A3A3] leading-relaxed">{plan.finePrint}</p>
                   </div>
@@ -549,7 +571,7 @@ export default function MarketingPage() {
                 Ready for your first Sunday digest?
               </h2>
               <p className="text-[#9FB3C8] text-sm leading-relaxed">
-                AUD&nbsp;99/mo, GST included. 28-day trial. First digest arrives this Sunday at 6&nbsp;pm. Cancel anytime — no ticket, no phone call.
+                {PRICE_MONTHLY_WITH_GST}. {PRICING.trialDays}-day trial. First digest arrives this Sunday at 6&nbsp;pm. Cancel anytime — no ticket, no phone call.
               </p>
               <Link
                 href="/signup"
@@ -558,6 +580,33 @@ export default function MarketingPage() {
                 Start free trial
               </Link>
               <p className="text-xs text-[#627D98]">No sales call. No lock-in.</p>
+            </div>
+          </section>
+
+          {/* ═══════════════════════════════════════════════════════════════
+              WAITLIST — out-of-scope demand capture (issue #25).
+              Not a product promise; measures who's asking so we know where to
+              go next. The wedge copy above is untouched.
+          ═══════════════════════════════════════════════════════════════ */}
+          <section
+            id="waitlist"
+            className="px-4 py-14 bg-[#F5F7FA] border-t border-[#E4E7EB]"
+            aria-labelledby="waitlist-heading"
+          >
+            <div className="max-w-xl mx-auto space-y-5">
+              <div className="space-y-2">
+                <h2
+                  id="waitlist-heading"
+                  className="text-2xl font-extrabold text-[#102A43] tracking-tight"
+                >
+                  Not a Sydney roofer?
+                </h2>
+                <p className="text-sm text-[#486581] leading-relaxed">
+                  We only cover roofing in Greater Sydney today. Tell us your trade and
+                  city and we&apos;ll email you when it opens — no spam, no sales call.
+                </p>
+              </div>
+              <WaitlistForm />
             </div>
           </section>
 

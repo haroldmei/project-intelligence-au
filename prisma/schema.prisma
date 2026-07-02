@@ -27,6 +27,11 @@ model User {
   // /api/unsubscribe/[token] link flips it false, gated in the digest +
   // trial-reminder send paths.
   emailOptIn    Boolean  @default(true) @map("email_opt_in")
+  // Per-user opt-out for the mid-week BOM storm brief (#20). Defaults true
+  // (opted-in) while the feature stays globally gated behind STORM_BRIEF_ENABLED;
+  // the /account toggle lets a user opt out ahead of the global launch. The
+  // storm-brief cron ANDs this with emailOptIn (Spam Act functional unsubscribe).
+  stormBriefOptIn Boolean @default(true) @map("storm_brief_opt_in")
   trade         String   @default("roofing")
 
   // Billing
@@ -59,6 +64,7 @@ model User {
   teamMemberships   TeamMembership[]
   ownedTeam         TeamAccount?
   digestCandidates  DigestCandidate[]
+  stormBriefs       StormBrief[]
 
   @@map("users")
 }
@@ -115,6 +121,9 @@ model Lga {
   id       String @id // council slug
   bundleId String @map("bundle_id")
   name     String
+  // Statewide jurisdiction this LGA belongs to (nsw|sa|…). The multi-jurisdiction
+  // seam (#28); defaults 'nsw' so pre-existing reference rows backfill in place.
+  jurisdiction String @default("nsw")
 
   bundle              LgaBundle              @relation(fields: [bundleId], references: [id])
   developmentApps     DevelopmentApplication[]
@@ -148,10 +157,43 @@ model DevelopmentApplication {
   // drop stale leads (>180 days old determined DAs are noise — the project
   // has either already built or been abandoned).
   determinationDate DateTime? @map("determination_date") @db.Date
+  // Date a Construction Certificate was issued against this DA/CDC (issue #13).
+  // A CC means work is about to START — the "work starting now" timing signal,
+  // distinct from lodgement (6–18mo out) and determination (approved, not yet
+  // begun). Populated by the Online PCC Data API adapter (src/modules/ingestion/
+  // pcc.ts) linking CC records back to their related application by (da_id,
+  // council). Null until a CC is issued — the vast majority of rows. Mirrors
+  // determination_date: a single nullable date, no separate table needed for the
+  // v1 "date + badge" signal.
+  constructionCertifiedAt DateTime? @map("construction_certified_at") @db.Date
   applicantName  String?  @map("applicant_name")
   portalUrl      String   @map("portal_url")
   rawScopeText   String?  @map("raw_scope_text")
-  sourceApi      String   @map("source_api")  // nsw_planning|da_leads|council_da
+  // Categorical "Type of development" the portal assigns (e.g. NSW DAEX
+  // "Alterations and additions to residential development"; SSD "HDA Housing").
+  // The expansion trade-pick (docs/25 §1.1) needs to know whether demolition /
+  // pool / subdivision are cleanly category-filterable — so we persist the raw
+  // category verbatim rather than fold it only into raw_scope_text (#26). Null
+  // for feeds that expose no category (NSW Planning API, DA Leads, PlanSA), the
+  // same way estimated_value is null for value-less feeds.
+  developmentType String? @map("development_type")
+  sourceApi      String   @map("source_api")  // nsw_planning|da_leads|council_da|da_exhibitions|nsw_cdc|plansa
+  // Which NSW planning approval pathway carried this record (#10):
+  //   da  — a Development Application (the incumbent feeds; the default).
+  //   cdc — a Complying Development Certificate from the Online CDC Data API.
+  //         The pathway that actually carries material-change re-roofs
+  //         (tile→metal), which never generate a DA (docs/24 G1). daId is
+  //         namespaced with a `CDC-` prefix at ingest so a CDC number can never
+  //         collide with a DA of the same council-issued reference.
+  //   ssd — State Significant Development (dormant Teams-tier feed).
+  // Persisted so the reranker/lead-class can treat "CDC re-roof" as a strong
+  // positive and the digest can group by pathway. Defaults 'da' so every
+  // pre-#10 row backfills in place and NSW DA output stays byte-identical.
+  approvalPathway String  @default("da") @map("approval_pathway")
+  // Statewide jurisdiction this DA belongs to (nsw|sa|…). The multi-jurisdiction
+  // seam (#28); defaults 'nsw' so pre-existing rows backfill in place and NSW
+  // output is byte-identical.
+  jurisdiction   String   @default("nsw")
   ruleFilteredOut Boolean @default(false) @map("rule_filtered_out")
   ingestedAt     DateTime @default(now()) @map("ingested_at")
 
@@ -186,10 +228,18 @@ model DaGroundTruth {
   council     String
   isRelevant  Boolean  @map("is_relevant")
   labelledBy  String   @map("labelled_by")
+  // Provenance of the label (#19): `manual` = a human labelled it in the
+  // scripts/label-das.ts CLI; `thumb` = imported from a DaFeedback thumbs-up/down
+  // as a *candidate* label pending human review before it counts toward the gate.
+  source      String   @default("manual")
   labelledAt  DateTime @default(now()) @map("labelled_at")
 
   da DevelopmentApplication @relation(fields: [daId], references: [id], onDelete: Cascade)
 
+  // One label per (DA, labeller) — lets multiple labellers score the same DA for
+  // inter-rater agreement (Cohen's κ, docs/01b §599) and makes the labelling CLI
+  // and thumb-import idempotent via upsert.
+  @@unique([daId, labelledBy])
   @@map("da_ground_truth")
 }
 
@@ -235,6 +285,12 @@ model DigestDa {
   relevanceScore Int    @map("relevance_score") // 0–10
   whyMatched     String @map("why_matched")
   rank           Int
+  // Honest lead class (issue #14): builder_pipeline | fast_track | strata_heritage.
+  // Computed deterministically at assembly time from the DA's approval pathway +
+  // scope keywords (src/modules/relevance/lead-class.ts) and PERSISTED here so a
+  // digest's classification never drifts when the classifier rules evolve.
+  // Defaults to the ambiguous fallback so pre-existing rows backfill in place.
+  leadClass      String @default("builder_pipeline") @map("lead_class")
 
   digest Digest                 @relation(fields: [digestId], references: [id], onDelete: Cascade)
   da     DevelopmentApplication @relation(fields: [daId], references: [id])
@@ -285,6 +341,11 @@ model IngestionLog {
   id           String   @id @default(cuid())
   council      String
   sourceApi    String   @map("source_api")
+  // Approval pathway this log row counts (#10): da|cdc|ssd. Rows are now written
+  // per (council, pathway) so drift detection can distinguish a DA-feed drop from
+  // a CDC-feed drop rather than averaging the two together. Historical rows are
+  // all DA (default 'da').
+  approvalPathway String @default("da") @map("approval_pathway")
   daCount      Int      @default(0) @map("da_count")
   runAt        DateTime @default(now()) @map("run_at")
   success      Boolean  @default(true)
@@ -344,6 +405,26 @@ model ShortUrl {
   @@map("short_urls")
 }
 
+// ─── Storm briefs (mid-week BOM severe-weather brief, #20) ────────────────────
+
+// One row per (BOM warning, user) actually emailed. The @@unique guarantees a
+// storm brief is sent at most once per user per warning id: the cron runs every
+// 3 hours and a severe-weather warning stays live across several ticks, so
+// without this the same user would be re-emailed on every tick. Rows are cheap
+// (one per delivered brief); prune old ones out of band if ever needed.
+model StormBrief {
+  id        String   @id @default(cuid())
+  warningId String   @map("warning_id") // BOM warning identifier (stable per warning)
+  userId    String   @map("user_id")
+  sentAt    DateTime @default(now()) @map("sent_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([warningId, userId])
+  @@index([userId])
+  @@map("storm_briefs")
+}
+
 // ─── Ingestion (Raw Data) ────────────────────────────────────────────────────
 
 model RawDA {
@@ -385,6 +466,28 @@ model DigestCandidate {
   @@unique([userId, rawDaId])
   @@index([userId, digestId])
   @@map("digest_candidate")
+}
+
+// ─── Waitlist (expansion Wave 0 — demand instrument) ─────────────────────────
+
+// Out-of-scope demand capture: a Melbourne roofer or a Sydney plumber lands on
+// the waitlist instead of falling off the funnel (docs/25 §2, docs/01c-wedge §3).
+// PURE MEASUREMENT — no product implication, no confirmation email (Spam Act:
+// v1 stores intent only). (email, trade, region) is unique so repeat submissions
+// are idempotent; email is citext in DB (case-insensitive), and the route also
+// lowercases trade/region so "Roofing"/"roofing" collapse to one row.
+model WaitlistEntry {
+  id        String   @id @default(cuid())
+  email     String   /// citext in DB (case-insensitive); enforced by the route via toLowerCase()
+  trade     String
+  region    String
+  note      String?
+  source    String   // landing | signup
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([email, trade, region])
+  @@index([createdAt])
+  @@map("waitlist_entries")
 }
 
 // ─── Rate Limiting ────────────────────────────────────────────────────────────

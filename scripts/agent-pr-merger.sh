@@ -74,7 +74,13 @@ LOCK="${PR_MERGER_LOCK:-/tmp/agent-pr-merger-$NS.lock}"
 LOGDIR="${PR_LOGDIR:-/tmp/agent-pr-review-$NS}"
 WORKTREE_BASE="${PR_WORKTREE_BASE:-/tmp/agent-pr-review-$NS/worktrees}"
 # Commit identity for the integration merge commits (works even on a bare systemd env).
-GIT_ID=( -c "user.name=${MERGER_GIT_NAME:-agent-pr-merger}" -c "user.email=${MERGER_GIT_EMAIL:-agent-pr-merger@projectintelligence.local}" )
+# The author email MUST resolve to a GitHub account with access to the Vercel project —
+# Vercel blocks auto-deploys for pushes whose head commit author it cannot map to a
+# collaborator ("Deployment Blocked: commit author email is not valid"). Default to the
+# repo owner's configured git email; keep the agent name for provenance in the log.
+MERGER_DEFAULT_EMAIL="$(git -C "$ROOT" config user.email 2>/dev/null || true)"
+[ -n "$MERGER_DEFAULT_EMAIL" ] || MERGER_DEFAULT_EMAIL="haroldmei.cn@gmail.com"
+GIT_ID=( -c "user.name=${MERGER_GIT_NAME:-agent-pr-merger}" -c "user.email=${MERGER_GIT_EMAIL:-$MERGER_DEFAULT_EMAIL}" )
 
 cd "$ROOT" || { echo "[pr-merger] cannot cd to $ROOT" >&2; exit 2; }
 mkdir -p "$LOGDIR" "$WORKTREE_BASE"

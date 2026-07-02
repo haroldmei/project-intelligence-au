@@ -6,12 +6,20 @@
       "schedule": "0 7 * * 0"
     },
     {
+      "path": "/api/cron/digest",
+      "schedule": "0 10 * * 0"
+    },
+    {
       "path": "/api/cron/ingest",
       "schedule": "0 13 * * *"
     },
     {
       "path": "/api/cron/trial-reminder",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/storm-brief",
+      "schedule": "0 */3 * * *"
     }
   ]
 }

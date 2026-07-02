@@ -1,7 +1,10 @@
 // Stripe billing service — subscription create/cancel/reactivate.
-// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+// WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
-// contract: payments.provider = stripe | payments.billing_region = au | payments.plans.solo = AUD 199/mo
+// contract: payments.provider = stripe | payments.billing_region = au | payments.plans.solo = AUD 99/mo inc GST
+// Price is the single source of truth in src/lib/pricing.ts — the actual amount
+// charged lives in the Stripe Price object (STRIPE_PRICE_ID_SOLO); the module
+// values are echoed into checkout metadata for reconciliation, never re-charged.
 // FR-018, FR-019, FR-021 | system-design §2 billing + §4 API
 //
 // ASSUMPTION: Stripe SDK is not yet in package.json. Using REST API via fetch.
@@ -9,6 +12,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import pino from "pino";
 import { env } from "@/lib/env";
+import { PRICING } from "@/lib/pricing";
 
 const log = pino({ name: "billing" });
 
@@ -96,6 +100,55 @@ export function planFromPriceId(priceId: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Upper bound for subscription access, in days from "now". 400 days covers an
+ * annual prepay (365d) with ~5 weeks of margin (proration, grace, clock skew).
+ * Guards adversarial finding G-007: a crafted/buggy webhook payload can carry
+ * an absurd `current_period_end` (→ year 33658) that would otherwise grant
+ * effectively unlimited access.
+ */
+export const MAX_ACCESS_DAYS = 400;
+const MS_PER_DAY = 86_400_000;
+
+export interface ClampedAccess {
+  /** The clamped access-until instant, safe to persist to `User.accessUntil`. */
+  accessUntil: Date;
+  /** Which bound fired — drives the log/Sentry warning at the call site. */
+  clamped: "none" | "floor" | "ceiling" | "invalid";
+}
+
+/**
+ * Clamp a Stripe `current_period_end` (unix seconds) to a sane accessUntil
+ * window: `[now, now + MAX_ACCESS_DAYS]` (adversarial G-007).
+ *
+ * Stripe values are trusted on the happy path, but a malformed or malicious
+ * webhook payload can carry `0` (→ 1970, instant access loss) or an absurd
+ * far-future value (→ year 33658, effectively unlimited access). We pin both
+ * ends so a bad payload can neither revoke a paid-up user early nor mint
+ * unbounded access.
+ *
+ * - missing / non-finite / ≤ 0 → floored to `now`, marked `"invalid"`
+ * - before now → floored to `now`, marked `"floor"`
+ * - after now + MAX_ACCESS_DAYS → capped at the ceiling, marked `"ceiling"`
+ * - within bounds → passed through, marked `"none"`
+ */
+export function clampAccessUntil(
+  periodEndSeconds: number | null | undefined,
+  now: Date = new Date(),
+): ClampedAccess {
+  const nowMs = now.getTime();
+  const ceilingMs = nowMs + MAX_ACCESS_DAYS * MS_PER_DAY;
+
+  if (periodEndSeconds == null || !Number.isFinite(periodEndSeconds) || periodEndSeconds <= 0) {
+    return { accessUntil: new Date(nowMs), clamped: "invalid" };
+  }
+
+  const endMs = periodEndSeconds * 1000;
+  if (endMs < nowMs) return { accessUntil: new Date(nowMs), clamped: "floor" };
+  if (endMs > ceilingMs) return { accessUntil: new Date(ceilingMs), clamped: "ceiling" };
+  return { accessUntil: new Date(endMs), clamped: "none" };
+}
+
 export interface CheckoutSession {
   url: string;
   id: string;
@@ -130,12 +183,19 @@ export async function createCheckoutSession(
     // which automatic_tax requires for the location lookup.
     "automatic_tax[enabled]": "true",
     "customer_update[address]": "auto",
-    currency: "aud",
+    currency: PRICING.currency.toLowerCase(),
     success_url: successUrl,
     cancel_url: cancelUrl,
+    // Reconciliation metadata — the price shown in-app (single source of truth:
+    // src/lib/pricing.ts) travels with the subscription so a mismatch between
+    // the Stripe Price object and the advertised price is auditable.
+    "subscription_data[metadata][plan]": plan,
+    "subscription_data[metadata][advertised_price_cents]": String(PRICING.priceCents),
+    "subscription_data[metadata][advertised_currency]": PRICING.currency,
+    "subscription_data[metadata][gst_inclusive]": String(PRICING.gstInclusive),
   };
   if (opts.withTrial !== false) {
-    params["subscription_data[trial_period_days]"] = "28";
+    params["subscription_data[trial_period_days]"] = String(PRICING.trialDays);
   }
   const session = await stripePost<{ url: string; id: string }>("/checkout/sessions", params);
   return { url: session.url, id: session.id };
@@ -191,6 +251,20 @@ export async function cancelSubscriptionAtPeriodEnd(
 ): Promise<StripeSubscription> {
   return stripePost<StripeSubscription>(`/subscriptions/${subscriptionId}`, {
     cancel_at_period_end: "true",
+  });
+}
+
+/**
+ * Reactivate a subscription that is pending cancellation by clearing
+ * cancel_at_period_end. Reverses cancelSubscriptionAtPeriodEnd — the
+ * subscription stays active/trialing and renews as normal.
+ * FR-021 | system-design §2 billing
+ */
+export async function reactivateSubscription(
+  subscriptionId: string,
+): Promise<StripeSubscription> {
+  return stripePost<StripeSubscription>(`/subscriptions/${subscriptionId}`, {
+    cancel_at_period_end: "false",
   });
 }
 

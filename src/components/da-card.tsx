@@ -3,13 +3,22 @@
 import React, { useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { LGABadge } from "@/components/lga-badge";
+import { LeadClassBadge } from "@/components/lead-class-badge";
+import { ConstructionCertBadge } from "@/components/construction-cert-badge";
 import { RelevanceDots } from "@/components/relevance-dots";
+import { captureClient } from "@/lib/analytics/browser";
+import type { LeadClass } from "@/modules/relevance/lead-class";
 
 export interface DACardProps {
   daId: string;
   address: string;
   lga: string;
   relevanceScore: number; // 0–10
+  leadClass?: LeadClass;
+  // ISO yyyy-mm-dd a Construction Certificate was issued against this DA (issue
+  // #13). Present → the "CC issued — work starting" badge renders. Null/undefined
+  // for the vast majority of leads (no CC yet, or the PCC feed is off).
+  constructionCertifiedAt?: string | null;
   estimatedValue?: number | null; // AUD; null = not disclosed
   whyMatched: string;
   scopeText: string;
@@ -25,6 +34,8 @@ export function DACard({
   address,
   lga,
   relevanceScore,
+  leadClass,
+  constructionCertifiedAt,
   estimatedValue,
   whyMatched,
   scopeText,
@@ -33,9 +44,18 @@ export function DACard({
   initialFeedback = null,
 }: DACardProps) {
   const [feedback, setFeedback] = useState<Feedback>(initialFeedback);
+  // The feedback state to restore when Undo is tapped.
   const [undoQueue, setUndoQueue] = useState<Feedback>(null);
+  // Explicit undo-toast visibility (issue #54). Toast visibility must be driven
+  // by a real user thumb action, never derived from state that is also seeded on
+  // mount by initialFeedback — otherwise an already-thumbed card renders a stuck
+  // 'Feedback saved / Undo' toast whose Undo silently deletes the saved thumb.
+  const [showUndo, setShowUndo] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [liveMessage, setLiveMessage] = useState("");
+  // Visible error affordance (issue #59): a failed feedback POST must show a
+  // sighted tradie something, not just announce to a screen reader.
+  const [errorMessage, setErrorMessage] = useState("");
 
   const formattedValue = estimatedValue
     ? `Est. AUD ${Number(estimatedValue).toLocaleString("en-AU")}`
@@ -47,6 +67,7 @@ export function DACard({
 
     // Optimistic update
     setFeedback(next);
+    setErrorMessage("");
     setLiveMessage(
       next === "up"
         ? `Thumbs up recorded for ${address}`
@@ -57,11 +78,12 @@ export function DACard({
 
     // Undo toast for 5 seconds
     setUndoQueue(prev);
-    setTimeout(() => setUndoQueue(null), 5000);
+    setShowUndo(true);
+    setTimeout(() => setShowUndo(false), 5000);
 
     startTransition(async () => {
       try {
-        await fetch("/api/feedback", {
+        const res = await fetch("/api/feedback", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -69,10 +91,18 @@ export function DACard({
             feedback: next === null ? "remove" : next,
           }),
         });
+        // fetch only rejects on network failure, not on 4xx/5xx — treat a
+        // non-OK response as a failure too so the error affordance shows.
+        if (!res.ok) throw new Error(`feedback POST failed: ${res.status}`);
       } catch {
-        // Revert on failure
+        // Revert on failure and surface a visible error (issue #59). role="alert"
+        // announces to screen readers, so we clear the polite live region to
+        // avoid a double announcement.
         setFeedback(prev);
-        setLiveMessage(`Error saving feedback for ${address}. Please try again.`);
+        setUndoQueue(null);
+        setShowUndo(false);
+        setLiveMessage("");
+        setErrorMessage("Couldn't save that — tap again to retry");
       }
     });
   }
@@ -81,6 +111,7 @@ export function DACard({
     const prev = undoQueue;
     setFeedback(prev);
     setUndoQueue(null);
+    setShowUndo(false);
     startTransition(async () => {
       await fetch("/api/feedback", {
         method: "POST",
@@ -104,7 +135,13 @@ export function DACard({
     >
       {/* Header row */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <LGABadge label={lga} />
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <LGABadge label={lga} />
+          {leadClass && <LeadClassBadge leadClass={leadClass} />}
+          {constructionCertifiedAt && (
+            <ConstructionCertBadge issuedDate={constructionCertifiedAt} />
+          )}
+        </div>
         <RelevanceDots score={relevanceScore} />
       </div>
 
@@ -135,6 +172,10 @@ export function DACard({
           href={portalUrl}
           target="_blank"
           rel="noopener noreferrer"
+          // FR-031 da_card_clicked: which leads a tradie actually pursues — the
+          // core wedge signal. Consent-gated inside captureClient (no-op before
+          // the cookie banner is accepted).
+          onClick={() => captureClient("da_card_clicked", { source: "portal" })}
           className="text-sm font-medium text-[#1E3A5F] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] focus-visible:ring-offset-1 rounded min-h-[44px] flex items-center pr-2"
           aria-label={`View DA application for ${address} on council portal`}
         >
@@ -194,13 +235,25 @@ export function DACard({
         </div>
       </div>
 
+      {/* Visible error affordance when a feedback POST fails (issue #59).
+          role="alert" is both visible here and announced assertively to
+          screen readers, replacing the sr-only-only error. */}
+      {errorMessage && (
+        <p
+          role="alert"
+          className="mt-1 text-sm font-medium text-[#B91C1C]"
+        >
+          {errorMessage}
+        </p>
+      )}
+
       {/* Screen-reader live region for feedback state */}
       <span aria-live="polite" className="sr-only">
         {liveMessage}
       </span>
 
-      {/* Undo toast */}
-      {undoQueue !== undefined && undoQueue !== feedback && (
+      {/* Undo toast — only after a real thumb action (issue #54), never on mount */}
+      {showUndo && (
         <div
           role="status"
           aria-live="polite"

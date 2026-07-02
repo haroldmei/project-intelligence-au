@@ -6,12 +6,14 @@ import { useRouter } from "next/navigation";
 import { CancelSubscriptionDialog } from "@/components/cancel-subscription-dialog";
 import { Button } from "@/components/ui/button";
 import type { AccountDTO } from "@/modules/account/service";
+import { SOLO_PLAN_LABEL } from "@/lib/pricing";
 
+// Solo is the only plan — multi-seat ("Team") is deferred until it ships, so
+// every current subscription maps to the single Solo label/seat count.
 const PLAN_LABELS: Record<string, string> = {
-  solo: "Solo — AUD 199/mo + GST",
-  team: "Team — AUD 499/mo + GST",
+  solo: SOLO_PLAN_LABEL,
 };
-const PLAN_SEATS: Record<string, number> = { solo: 1, team: 3 };
+const PLAN_SEATS: Record<string, number> = { solo: 1 };
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -30,6 +32,8 @@ export default function AccountPage() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isPortalLoading, setIsPortalLoading] = useState(false);
   const [isResubLoading, setIsResubLoading] = useState(false);
+  const [isResumeLoading, setIsResumeLoading] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,6 +66,25 @@ export default function AccountPage() {
       window.location.href = json.portal_url;
     } catch {
       setIsPortalLoading(false);
+    }
+  }
+
+  async function handleResume() {
+    setIsResumeLoading(true);
+    setResumeError(null);
+    try {
+      const res = await fetch("/api/billing/subscription", { method: "POST" });
+      const json = (await res.json().catch(() => ({}))) as { accessUntil?: string };
+      if (!res.ok) throw new Error("resume failed");
+      setAccount((prev) =>
+        prev
+          ? { ...prev, cancelAtPeriodEnd: false, accessUntil: json.accessUntil ?? prev.accessUntil }
+          : prev,
+      );
+    } catch {
+      setResumeError("Couldn't resume your subscription. Please try again.");
+    } finally {
+      setIsResumeLoading(false);
     }
   }
 
@@ -130,6 +153,7 @@ export default function AccountPage() {
             value={account.savedQueryText ? "Edit" : "Add a description"}
           />
           <RowLink label="Notifications" href="/account/sms" />
+          <RowLink label="Storm briefs" href="/account/storm-brief" />
           <RowLink label="My Service Area" href="/account/area" />
         </div>
       </section>
@@ -183,9 +207,27 @@ export default function AccountPage() {
                 </Button>
               </>
             ) : isPendingCancellation ? (
-              <p className="text-sm text-[#A3A3A3]">
-                Cancellation scheduled. You&apos;re good until {formatDate(account.accessUntil)}.
-              </p>
+              <>
+                <p className="text-sm text-[#A3A3A3]">
+                  Cancellation scheduled. You&apos;re good until {formatDate(account.accessUntil)}.
+                </p>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="lg"
+                  className="w-full"
+                  onClick={handleResume}
+                  disabled={isResumeLoading}
+                  aria-busy={isResumeLoading}
+                >
+                  {isResumeLoading ? "Resuming…" : "Resume subscription"}
+                </Button>
+                {resumeError && (
+                  <p role="alert" className="text-sm text-[#DC2626]">
+                    {resumeError}
+                  </p>
+                )}
+              </>
             ) : (
               <button
                 type="button"
@@ -231,6 +273,9 @@ export default function AccountPage() {
         periodEnd={account.accessUntil ?? new Date().toISOString()}
         onCancelled={(newAccessUntil) => {
           setAccount((prev) => prev ? { ...prev, cancelAtPeriodEnd: true, accessUntil: newAccessUntil } : prev);
+        }}
+        onReactivated={(newAccessUntil) => {
+          setAccount((prev) => prev ? { ...prev, cancelAtPeriodEnd: false, accessUntil: newAccessUntil } : prev);
         }}
       />
     </div>

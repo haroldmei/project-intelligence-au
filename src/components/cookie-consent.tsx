@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
-
-const COOKIE_CONSENT_KEY = "pi_cookie_consent";
+import { COOKIE_CONSENT_KEY, initAnalytics } from "@/lib/analytics/browser";
 
 export function CookieConsent() {
   const [showBanner, setShowBanner] = useState(false);
@@ -25,8 +24,9 @@ export function CookieConsent() {
     localStorage.setItem(COOKIE_CONSENT_KEY, "accepted");
     setPreference("accepted");
     setShowBanner(false);
-    // Enable PostHog
-    window.location.reload();
+    // Consent just granted — start PostHog now. No reload: initAnalytics()
+    // reads the freshly-written localStorage flag and initialises in place.
+    initAnalytics();
   };
 
   const handleReject = () => {

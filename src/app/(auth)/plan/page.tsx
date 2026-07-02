@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { PRICING, PRICE_MONTHLY_INC_GST, TRIAL_LENGTH_LABEL } from "@/lib/pricing";
 
 // Team plan is gated off until the multi-seat flow is built (no team-creation
 // UI, no invites, no per-seat digest fan-out). Re-add the team entry below to
@@ -10,8 +11,8 @@ import { cn } from "@/lib/utils";
 const PLANS = [
   {
     id: "solo",
-    name: "Solo",
-    price: "AUD 199/mo + GST",
+    name: PRICING.planName,
+    price: PRICE_MONTHLY_INC_GST,
     seats: "1 seat",
     features: "All 15 LGAs",
   },
@@ -56,7 +57,7 @@ export default function PlanPage() {
       <div>
         <h1 className="text-2xl font-bold text-[#102A43]">Choose your plan</h1>
         <p className="text-sm text-[#627D98] mt-1">
-          28-day free trial. Cancel anytime.
+          {TRIAL_LENGTH_LABEL} free trial. Cancel anytime.
         </p>
       </div>
 
@@ -123,11 +124,11 @@ export default function PlanPage() {
         disabled={isSubmitting}
         aria-busy={isSubmitting}
       >
-        {isSubmitting ? "Redirecting to checkout…" : "Start 28-day trial"}
+        {isSubmitting ? "Redirecting to checkout…" : `Start ${TRIAL_LENGTH_LABEL} trial`}
       </Button>
 
       <div className="text-center text-xs text-[#829AB1] space-y-1">
-        <p>Your card is not charged for 28 days.</p>
+        <p>Your card is not charged for {PRICING.trialDays} days.</p>
         <p>First digest arrives Sunday 6 pm AEST.</p>
       </div>
     </div>

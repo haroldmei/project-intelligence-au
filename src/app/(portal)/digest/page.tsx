@@ -19,9 +19,16 @@ function buildAreaLabel(area: MyArea | null): string {
   return area.lgaBundles.map((b) => b.label).join(" + ");
 }
 
-export default async function DigestPage() {
+export default async function DigestPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ feedback?: string }>;
+}) {
   const auth = await validateRequest();
   if (!auth) redirect("/login");
+
+  const { feedback } = await searchParams;
+  const showFeedbackToast = feedback === "recorded";
 
   const [digest, area, history] = await Promise.all([
     getCurrentDigest(auth.user.id),
@@ -29,14 +36,36 @@ export default async function DigestPage() {
     getDigestHistory(auth.user.id, 100),
   ]);
 
-  if (!digest) return <EmptyState />;
+  if (!digest) {
+    return (
+      <>
+        {showFeedbackToast && <FeedbackToast />}
+        <EmptyState />
+      </>
+    );
+  }
 
   return (
-    <DigestView
-      digest={digest}
-      areaLabel={buildAreaLabel(area)}
-      weeksOfHistory={history.filter((h) => h.sentAt).length}
-    />
+    <>
+      {showFeedbackToast && <FeedbackToast />}
+      <DigestView
+        digest={digest}
+        areaLabel={buildAreaLabel(area)}
+        weeksOfHistory={history.filter((h) => h.sentAt).length}
+      />
+    </>
+  );
+}
+
+function FeedbackToast() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="mx-4 mt-4 rounded-md bg-[#DCFCE7] text-[#14532D] text-sm px-4 py-3"
+    >
+      Thanks — your feedback was recorded. Your digest gets smarter every week.
+    </div>
   );
 }
 
