@@ -1665,6 +1665,7 @@ Nightly ETL of newly lodged DAs from NSW Planning Portal API and council aggrega
 2. Normalise and validate
 3. Upsert into `development_applications` table
 4. Log ingestion results and drift detection
+5. Link the day's Construction Certificates (PCCs) to their DAs (issue #13). Runs after the DA upsert so the referenced DAs already exist. No-op (returns `skipped: true`, all counts `0`) unless **both** `PCC_INGEST_ENABLED` and `NSW_PLANNING_API_KEY` are set — inert until the feed is switched on. A CC with no matching DA is counted as `unmatched` and skipped, not created as a new DA.
 
 **Not for client consumption.** Vercel Cron calls this endpoint.
 
@@ -1689,7 +1690,8 @@ No request body.
     "sydney": { "ingested": 50, "failed": 1 },
     "randwick": { "ingested": 45, "failed": 1 },
     "manly": { "ingested": 47, "failed": 1 }
-  }
+  },
+  "pcc": { "linked": 0, "unmatched": 0, "skipped": true }
 }
 ```
 
@@ -1698,6 +1700,10 @@ No request body.
 | `ingested` | integer | Total new DAs ingested across all LGAs |
 | `failed` | integer | Total DAs that failed to ingest |
 | `perCouncil` | object | Results keyed by council (LGA) |
+| `pcc` | object | CC→DA linking result (issue #13): `{ linked, unmatched, skipped }` |
+| `pcc.linked` | integer | CCs successfully linked to an existing DA |
+| `pcc.unmatched` | integer | CCs with no matching DA in our store (skipped, not created) |
+| `pcc.skipped` | boolean | `true` when the PCC step no-oped (`PCC_INGEST_ENABLED` / `NSW_PLANNING_API_KEY` unset) |
 
 #### Errors
 
