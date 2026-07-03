@@ -293,6 +293,78 @@ describe("Subscription lifecycle", () => {
       const { status } = await callCheckout("solo");
       expect(status).toBe(401);
     });
+
+    // ── Issue #109: never stack a second subscription / re-grant a trial ──────
+    // An active/past_due/trialing subscriber who re-hits checkout must be sent
+    // to the portal (409), NOT handed a fresh mode=subscription session that
+    // double-bills and mints another 28-day trial.
+    it("active subscriber re-hitting checkout → 409, no second subscription", async () => {
+      const userId = await seedUser({
+        status: "active",
+        stripeCustomerId: "cus_active",
+        plan: "solo",
+      });
+      setAuthedUser(userId);
+      const { status, body } = await callCheckout("solo");
+      expect(status).toBe(409);
+      expect(body.error).toMatch(/already have an active subscription/i);
+      expect(vi.mocked(createCheckoutSession)).not.toHaveBeenCalled();
+    });
+
+    it("past_due subscriber re-hitting checkout → 409, no second subscription", async () => {
+      const userId = await seedUser({
+        status: "past_due",
+        stripeCustomerId: "cus_pastdue",
+        plan: "solo",
+      });
+      setAuthedUser(userId);
+      const { status } = await callCheckout("solo");
+      expect(status).toBe(409);
+      expect(vi.mocked(createCheckoutSession)).not.toHaveBeenCalled();
+    });
+
+    it("trialing subscriber with a live Stripe sub → 409, no second subscription", async () => {
+      const userId = await seedUser({
+        status: "trial",
+        stripeCustomerId: "cus_trialing",
+        plan: "solo",
+        accessUntil: new Date(Date.now() + FOURTEEN_DAYS * 1000),
+      });
+      setAuthedUser(userId);
+      // Stripe reports a real trialing subscription for this customer.
+      vi.mocked(getActiveSubscription).mockResolvedValue({
+        id: "sub_trialing",
+        status: "trialing",
+        current_period_end: NOW_S() + FOURTEEN_DAYS,
+        cancel_at_period_end: false,
+      });
+      const { status } = await callCheckout("solo");
+      expect(status).toBe(409);
+      expect(vi.mocked(createCheckoutSession)).not.toHaveBeenCalled();
+    });
+
+    it("fresh self-signup trial (no Stripe sub) still reaches checkout with a trial", async () => {
+      // A user who has entered checkout once (customer cached) but never
+      // completed it has NO live subscription — Stripe returns null. They must
+      // still be able to subscribe, and are still trial-eligible.
+      const userId = await seedUser({
+        status: "trial",
+        stripeCustomerId: "cus_abandoned",
+        plan: null,
+        accessUntil: null,
+      });
+      setAuthedUser(userId);
+      vi.mocked(getActiveSubscription).mockResolvedValue(null);
+      const { status } = await callCheckout("solo");
+      expect(status).toBe(200);
+      expect(vi.mocked(createCheckoutSession)).toHaveBeenCalledWith(
+        "cus_abandoned",
+        "solo",
+        expect.any(String),
+        expect.any(String),
+        { withTrial: true },
+      );
+    });
   });
 
   // ── 3. Webhook: subscription.created (trial begins) ───────────────────────
