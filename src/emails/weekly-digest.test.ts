@@ -195,4 +195,44 @@ describe("WeeklyDigestTemplate — precision recap (CF-1.7, issue #51)", () => {
     expect(html).toContain("✓ Last 4 weeks: 88% precision");
     expect(html).toContain("No strong re-roof leads this week");
   });
+
+  it("shows the <4-week onboarding fallback when no precision stat is available yet", () => {
+    // A user before week 4 (or one who's rated nothing) gets no badge — instead
+    // the email nudges the thumbs behaviour that will populate the stat, mirroring
+    // the portal header so both surfaces stay in lockstep (CF-1.7 acceptance).
+    const { html } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 3,
+      lgas: ["Inner West"],
+      cards: [card("ft-1", "fast_track", "2 Fast Rd", 8)],
+      smsEnabled: false,
+    });
+    expect(html).toContain("Your precision stats unlock after 4 weeks");
+    expect(html).not.toContain("% precision");
+  });
+
+  it("does not show the onboarding fallback once the precision badge is present", () => {
+    const { html } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 3,
+      lgas: ["Inner West"],
+      cards: [card("ft-1", "fast_track", "2 Fast Rd", 8)],
+      precisionBadge: { precision: 93, weeks: 4 },
+      smsEnabled: false,
+    });
+    expect(html).not.toContain("unlock after 4 weeks");
+  });
+
+  it("does not nag with the onboarding fallback on a quiet (no-lead) week", () => {
+    const { html } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 0,
+      lgas: ["Inner West"],
+      cards: [],
+      dasChecked: 9,
+      smsEnabled: false,
+    });
+    expect(html).not.toContain("unlock after 4 weeks");
+    expect(html).toContain("No strong re-roof leads this week");
+  });
 });
