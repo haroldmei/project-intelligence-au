@@ -161,11 +161,15 @@ exec 9>"$LOCK"
 if ! flock -n 9; then log "another merger run in progress — exiting"; exit 0; fi
 
 # ── Select EVERY approved PR (head agent/*, not already merging/terminal) ─────────
-prs_json="$("$GH" pr list --state open --label review-approved \
+# (no server-side --label here: gh implements it via the SEARCH API, whose index can
+#  lag label churn by hours and hide the PR — the label is filtered client-side below
+#  from live data instead)
+prs_json="$("$GH" pr list --state open \
   --json number,headRefName,labels,title --limit 50 2>/dev/null || echo '[]')"
 [ -z "$prs_json" ] && prs_json='[]'
 selected="$(jq -c --arg pfx "$HEAD_GLOB" --argjson max "$MAX_PRS" 'map(select(
   (.headRefName | startswith($pfx)) and
+  ([.labels[]?.name] | index("review-approved")) and
   ([.labels[]?.name] | index("merge-wip")   | not) and
   ([.labels[]?.name] | index("merged")       | not) and
   ([.labels[]?.name] | index("merge-stuck")  | not)
