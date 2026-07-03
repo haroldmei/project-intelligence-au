@@ -262,7 +262,11 @@ export function WeeklyDigestTemplate(props: {
         </td>
       </tr>
 
-      <!-- Precision badge (week 4+) -->
+      <!-- Precision proof (week 4+), or the <4-week onboarding nudge before
+           there's enough signal to be honest (CF-1.7, design pillar P4). Mirrors
+           the portal header: the badge whenever we have a stat, otherwise the
+           same "tap 👍/👎" tip so both surfaces stay in lockstep. Suppressed on a
+           quiet week — the no-lead reassurance below carries that week instead. -->
       ${
         precisionBadge
           ? `
@@ -278,7 +282,17 @@ export function WeeklyDigestTemplate(props: {
         </td>
       </tr>
       `
-          : ""
+          : !isQuietWeek
+            ? `
+      <tr>
+        <td style="padding: 0 16px;">
+          <p style="margin: 12px 0 0 0; font-size: 13px; color: #829AB1;">
+            Your precision stats unlock after 4 weeks — tap 👍 or 👎 on each lead to teach your digest.
+          </p>
+        </td>
+      </tr>
+      `
+            : ""
       }
 
       ${
