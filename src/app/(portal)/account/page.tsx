@@ -230,6 +230,31 @@ export default function AccountPage() {
                   </p>
                 )}
               </>
+            ) : isPastDue ? (
+              <>
+                <p className="text-sm text-[#7C2D12]">
+                  Your last payment didn&apos;t go through. Update your card to
+                  keep your Sunday digest — access resumes as soon as it clears.
+                </p>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="lg"
+                  className="w-full"
+                  onClick={handleManageBilling}
+                  disabled={isPortalLoading}
+                  aria-busy={isPortalLoading}
+                >
+                  {isPortalLoading ? "Opening Stripe…" : "Update your card"}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setCancelOpen(true)}
+                  className="text-sm text-[#627D98] underline hover:text-[#DC2626] transition-colors duration-[150ms] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D97706] rounded min-h-[44px] flex items-center"
+                >
+                  Cancel subscription
+                </button>
+              </>
             ) : (
               <button
                 type="button"
@@ -240,7 +265,7 @@ export default function AccountPage() {
               </button>
             )}
 
-            {!needsCheckout && (
+            {!needsCheckout && !isPastDue && (
               <button
                 type="button"
                 onClick={handleManageBilling}
