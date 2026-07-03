@@ -99,6 +99,46 @@ describe("assembleAndSendDigest — personalisation note (A3)", () => {
     expect(mockDb.user.update).not.toHaveBeenCalled();
   });
 
+  it("first digest at the threshold carries the note; the next digest for the same user omits it", async () => {
+    // Acceptance criterion (#111): run assembly twice for one user. Week 1 the
+    // user has just crossed 25 feedback rows with personalisationNotifiedAt
+    // still null — the note fires and the timestamp is stamped. Week 2 re-reads
+    // that stamped timestamp, so the note must be suppressed and never re-query
+    // the feedback count. This chains the write-guard to the read-guard so they
+    // can't silently drift apart.
+    mockDb.user.findUniqueOrThrow.mockResolvedValue({ ...SNAPSHOT, personalisationNotifiedAt: null });
+    mockDb.daFeedback.count.mockResolvedValue(25);
+
+    await assembleAndSendDigest("user-1", "run-week-1", RELEVANCE);
+
+    expect(sendEmailMock.mock.calls[0][0].props.personalisationActivated).toBe(true);
+    expect(mockDb.user.update).toHaveBeenCalledWith({
+      where: { id: "user-1" },
+      data: { personalisationNotifiedAt: expect.any(Date) },
+    });
+    // Capture the timestamp week 1 actually stamped and feed it back in as the
+    // user's stored value for week 2 — modelling the same user a week later.
+    const stampedAt: Date = mockDb.user.update.mock.calls[0][0].data.personalisationNotifiedAt;
+
+    vi.clearAllMocks();
+    mockDb.user.findUnique.mockResolvedValue({ emailOptIn: true, smsOptIn: false, mobile_e164: null });
+    mockDb.digest.findFirst.mockResolvedValue(null);
+    mockDb.digest.create.mockResolvedValue({ id: "digest-2" });
+    mockDb.digest.count.mockResolvedValue(1);
+    mockDb.daFeedback.findMany.mockResolvedValue([]);
+    mockDb.digestDa.create.mockResolvedValue({});
+    mockDb.digest.update.mockResolvedValue({});
+    mockDb.user.update.mockResolvedValue({});
+    sendEmailMock.mockResolvedValue(undefined);
+    mockDb.user.findUniqueOrThrow.mockResolvedValue({ ...SNAPSHOT, personalisationNotifiedAt: stampedAt });
+
+    await assembleAndSendDigest("user-1", "run-week-2", RELEVANCE);
+
+    expect(sendEmailMock.mock.calls[0][0].props.personalisationActivated).toBe(false);
+    expect(mockDb.daFeedback.count).not.toHaveBeenCalled();
+    expect(mockDb.user.update).not.toHaveBeenCalled();
+  });
+
   it("does not stamp the timestamp when feedback is below the threshold", async () => {
     mockDb.user.findUniqueOrThrow.mockResolvedValue({ ...SNAPSHOT, personalisationNotifiedAt: null });
     mockDb.daFeedback.count.mockResolvedValue(24);
