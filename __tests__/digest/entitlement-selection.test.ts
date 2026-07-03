@@ -127,16 +127,62 @@ describe("digest selection — issue #87 entitlement window", () => {
     expect(emails).not.toContain("stripe-trial-lapsed@x.com");
   });
 
-  it("keeps excluding cancelled / past_due users (unchanged from prior behaviour)", async () => {
+  it("keeps EXCLUDING a cancelled user even with a future access window", async () => {
+    // A cancellation is terminal — accessUntil in the future must not save it.
     await seedUser({
       email: "cancelled@x.com",
       subscriptionStatus: "cancelled",
       accessUntil: new Date(Date.now() + 30 * DAY),
       createdAtDaysAgo: 1,
     });
+
+    const selected = await selectEntitled();
+
+    expect(selected).toHaveLength(0);
+  });
+
+  // Issue #106 — the acceptance criterion. A past_due subscriber is a paying
+  // user in Stripe's multi-day smart-retry (dunning) window, not a cancellation:
+  // include them through the already-paid window so the Sunday digest keeps
+  // arriving (the one weekly touchpoint that prompts a card fix), while a
+  // cancelled user past their window stays excluded.
+  it("INCLUDES a past_due subscriber whose accessUntil is in the future (dunning window)", async () => {
     await seedUser({
-      email: "pastdue@x.com",
+      email: "dunning-live@x.com",
       subscriptionStatus: "past_due",
+      accessUntil: new Date(Date.now() + 7 * DAY),
+      stripeCustomerId: "cus_dunning",
+      createdAtDaysAgo: 400,
+    });
+    await seedUser({
+      email: "cancelled-lapsed@x.com",
+      subscriptionStatus: "cancelled",
+      accessUntil: new Date(Date.now() - 2 * DAY),
+      createdAtDaysAgo: 1,
+    });
+
+    const selected = await selectEntitled();
+    const emails = selected.map((u) => u.email);
+
+    expect(emails).toContain("dunning-live@x.com");
+    expect(emails).not.toContain("cancelled-lapsed@x.com");
+  });
+
+  it("EXCLUDES a past_due subscriber whose paid window has lapsed (or is absent)", async () => {
+    // A lapsed access window means Stripe's retries have run past the period
+    // they paid for — no longer entitled. A null accessUntil is anomalous for
+    // past_due and is likewise excluded (defensive bound, not an unbounded grant).
+    await seedUser({
+      email: "dunning-lapsed@x.com",
+      subscriptionStatus: "past_due",
+      accessUntil: new Date(Date.now() - 1 * DAY),
+      stripeCustomerId: "cus_lapsed_pd",
+      createdAtDaysAgo: 400,
+    });
+    await seedUser({
+      email: "dunning-null@x.com",
+      subscriptionStatus: "past_due",
+      accessUntil: null,
       createdAtDaysAgo: 1,
     });
 
