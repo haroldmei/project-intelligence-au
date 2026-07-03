@@ -1234,68 +1234,17 @@ curl -X DELETE http://localhost:3000/api/billing/subscription \
 
 ## Module: Digests
 
-Digest endpoints provide read-only access to digest history and per-digest exports.
+Digest endpoints provide per-digest CSV export.
 
 | Method | Endpoint | Purpose | Wedge FR |
 |--------|----------|---------|----------|
-| `GET` | `/digests` | List digest history | FR-026 |
 | `GET` | `/export/digest/{id}.csv` | Download a digest's leads as CSV | FR-026 |
 
-### GET /digests
-
-**List digest history.**
-
-Retrieve the last 20 digests sent to the authenticated user.
-
-**Wedge FR-026:** Enable web portal digest browsing.
-
-#### Request
-
-No request body.
-
-#### Response
-
-**200 OK:**
-
-```json
-[
-  {
-    "id": "digest_123",
-    "sentAt": "2026-04-28T17:00:00.000Z",
-    "daCount": 7,
-    "email_sent": true,
-    "sms_sent": true
-  },
-  {
-    "id": "digest_122",
-    "sentAt": "2026-04-21T17:00:00.000Z",
-    "daCount": 12,
-    "email_sent": true,
-    "sms_sent": false
-  }
-]
-```
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `id` | string | Digest ID |
-| `sentAt` | ISO 8601 | Dispatch timestamp |
-| `daCount` | integer | Number of DAs in digest |
-| `email_sent` | boolean | Email delivery success |
-| `sms_sent` | boolean | SMS delivery success (if opted in) |
-
-#### Errors
-
-| Status | Code | Description |
-|--------|------|-------------|
-| `401` | — | Unauthorized (no active session) |
-
-#### Curl Example
-
-```bash
-curl -X GET http://localhost:3000/api/digests \
-  -b cookies.txt
-```
+Digest **history** is not exposed as a JSON API. The web portal reads it
+server-side via RSC loaders (`getDigestHistory` in
+`src/modules/portal/loaders.ts`), so there is no `GET /digests` endpoint — the
+route was removed as dead code (issue #96 A4). The only client-facing digest
+endpoint is the CSV export below.
 
 ---
 

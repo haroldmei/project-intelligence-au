@@ -111,9 +111,12 @@ export function WeeklyDigestTemplate(props: {
   precisionBadge?: { precision: number; weeks: number };
   smsEnabled: boolean;
   fallbackUsed?: boolean;
+  // One-time note the week a user's thumbs personalisation activates (FR-025,
+  // ≥25 feedback rows). Sent once, then suppressed via User.personalisationNotifiedAt.
+  personalisationActivated?: boolean;
   unsubscribeUrl?: string;
 }): { subject: string; html: string } {
-  const { weekStart, leadCount, lgas, cards, dasChecked, precisionBadge, smsEnabled, fallbackUsed, unsubscribeUrl } = props;
+  const { weekStart, leadCount, lgas, cards, dasChecked, precisionBadge, smsEnabled, fallbackUsed, personalisationActivated, unsubscribeUrl } = props;
   // Spam Act 2003: a functional, no-login unsubscribe in every commercial email.
   // Falls back to the account page if a caller omits the token URL.
   const unsubHref = unsubscribeUrl ?? "/account";
@@ -305,6 +308,26 @@ export function WeeklyDigestTemplate(props: {
             ⚠ Embedding-only ranking this week (AI cost cap reached).
             Cards may be less relevance-filtered than usual.
           </p>
+        </td>
+      </tr>
+      `
+          : ""
+      }
+
+      ${
+        personalisationActivated
+          ? `
+      <!-- One-time personalisation-on note (FR-025): the user has rated enough
+           leads that their 👍/👎 now shape the ranking. Sent once. -->
+      <tr>
+        <td style="padding: 0 16px;">
+          <table style="margin: 12px 0; width: 100%; border: 1px solid #C6F6D5; background-color: #F0FFF4; border-radius: 6px;">
+            <tr>
+              <td style="padding: 12px 16px; font-size: 14px; color: #22543D;">
+                🎯 <strong>Your digest is now personalised.</strong> You&apos;ve rated enough leads that we now tune each week&apos;s ranking to your 👍/👎. Keep rating to sharpen it further.
+              </td>
+            </tr>
+          </table>
         </td>
       </tr>
       `

@@ -24,6 +24,10 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-semibold text-white mt-8 mb-3">
               1. Introduction
             </h2>
+            {/* HUMAN INPUT REQUIRED (issue #96 B4): "00 000 000 000" is a
+                placeholder ABN. Replace with the real registered ABN before
+                launch — do not invent one. Also appears in the contact block
+                below and in terms/page.tsx. */}
             <p>
               ProjectIntelligence AU (ABN 00 000 000 000, &ldquo;we&rdquo;, &ldquo;us&rdquo;, &ldquo;our&rdquo;) is committed to protecting your privacy in accordance with the Privacy Act 1988 (Cth) and the Australian Privacy Principles (APPs).
             </p>
@@ -312,6 +316,7 @@ export default function PrivacyPage() {
                   privacy@projectintelligence.com.au
                 </a>
               </p>
+              {/* HUMAN INPUT REQUIRED (issue #96 B4): placeholder ABN — replace before launch. */}
               <p>ABN: 00 000 000 000</p>
               <p>Jurisdiction: New South Wales, Australia</p>
             </div>

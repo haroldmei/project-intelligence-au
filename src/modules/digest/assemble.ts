@@ -12,6 +12,7 @@ import { captureServer } from "@/lib/analytics/server";
 import { env } from "@/lib/env";
 import type { RelevanceRunResult } from "@/modules/relevance/run";
 import { classifyLeadClass, type LeadClass } from "@/modules/relevance/lead-class";
+import { MIN_FEEDBACK_FOR_PERSONALISATION } from "@/modules/relevance/thumbs";
 import { DIGEST_EMAIL_MAX_CARDS, DIGEST_SMS_MAX_CARDS } from "./constants";
 import {
   computePrecisionRecap,
@@ -158,6 +159,18 @@ export async function assembleAndSendDigest(
       ? { precision: recap.precision, weeks: recap.weeks }
       : undefined;
 
+  // One-time "your digest is now personalised" note (FR-025, issue #96 A3).
+  // Thumbs personalisation activates once a user has ≥ 25 all-time feedback
+  // rows (src/modules/relevance/thumbs.ts). Tell them — once — the week it
+  // kicks in, then never again (guarded by User.personalisationNotifiedAt).
+  // Skip the count query entirely for the already-notified common case.
+  const alreadyPersonalised = user.personalisationNotifiedAt != null;
+  const feedbackCount = alreadyPersonalised
+    ? 0
+    : await db.daFeedback.count({ where: { userId } });
+  const showPersonalisationNote =
+    !alreadyPersonalised && feedbackCount >= MIN_FEEDBACK_FOR_PERSONALISATION;
+
   // Send email (FR-010). On a retry, skip the send entirely if the primary
   // tick already delivered it — re-sending would double-mail the user.
   let emailStatus = existing?.emailStatus ?? "pending";
@@ -184,6 +197,7 @@ export async function assembleAndSendDigest(
           precisionBadge,
           smsEnabled: smsOptIn,
           fallbackUsed: relevance.fallbackUsed,
+          personalisationActivated: showPersonalisationNote,
           unsubscribeUrl: buildUnsubscribeUrl(userId),
         },
       });
@@ -248,6 +262,16 @@ export async function assembleAndSendDigest(
       cardCount: daCount,
       fallbackUsed: relevance.fallbackUsed,
     });
+
+    // Burn the one-time personalisation note only once it's actually gone out
+    // in a delivered email — a suppressed/failed send must not consume it.
+    if (showPersonalisationNote) {
+      await db.user.update({
+        where: { id: userId },
+        data: { personalisationNotifiedAt: new Date() },
+      });
+      captureServer(userId, "personalisation_activated", { feedbackCount });
+    }
   }
 
   return { digestId: digest.id, daCount, emailStatus, smsStatus };

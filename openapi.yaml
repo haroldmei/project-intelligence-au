@@ -713,7 +713,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /account:
+  /account/delete:
     delete:
       summary: Delete account (GDPR/Privacy Act erasure)
       operationId: accountDelete
@@ -747,6 +747,110 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /account/storm-brief:
+    post:
+      summary: Set storm-brief opt-in preference
+      operationId: accountStormBriefOptIn
+      tags:
+        - Account
+      description: |
+        Opt the authenticated user in or out of the mid-week storm-brief
+        (BOM severe-weather warnings). Requires active Lucia session.
+      security:
+        - LuciaSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StormBriefOptInRequest'
+      responses:
+        '200':
+          description: Storm-brief preference updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        '400':
+          description: Invalid JSON body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Export Routes
+  # ──────────────────────────────────────────────────────────────────────────────
+
+  /export/digest/{id}:
+    get:
+      summary: Export a digest's leads as CSV
+      operationId: exportDigestCsv
+      tags:
+        - Digests
+      description: |
+        Download a sent digest's leads as a CSV file.
+        Ownership is enforced — a digest belonging to another user returns 404
+        (no existence leak). Requires active Lucia session.
+        Rate limited to 30 requests per hour per user.
+        The public URL carries a cosmetic `.csv` suffix on the id segment
+        (e.g. `/api/export/digest/<id>.csv`), which is stripped server-side.
+      security:
+        - LuciaSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Digest id (optional cosmetic `.csv` suffix is stripped)
+      responses:
+        '200':
+          description: CSV file download of the digest's leads
+          content:
+            text/csv:
+              schema:
+                type: string
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="da-digest-2026-05-25.csv"
+        '401':
+          description: Unauthorized (no active session)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Digest not found (or not owned by this user)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded (30/hour per user)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
 
   # ──────────────────────────────────────────────────────────────────────────────
   # Feedback Routes
@@ -990,30 +1094,10 @@ paths:
   # Digests Routes
   # ──────────────────────────────────────────────────────────────────────────────
 
-  /digests:
-    get:
-      summary: List digest history
-      operationId: digestsList
-      tags:
-        - Digests
-      description: |
-        Retrieve the last 20 digests sent to the authenticated user.
-        **FR-026 (Digest history)**: Enable web portal digest browsing.
-      security:
-        - LuciaSession: []
-      responses:
-        '200':
-          description: List of digests
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestListResponse'
-        '401':
-          description: Unauthorized (no active session)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+  # Digest history is not exposed as a JSON API — the portal reads it via RSC
+  # loaders (getDigestHistory), so there is no GET /digests path (issue #96 A4,
+  # route removed as dead code). The only client-facing digest endpoint is the
+  # CSV export documented under /export/digest/{id} below.
 
   # ──────────────────────────────────────────────────────────────────────────────
   # Webhooks (internal — not for client consumption)
@@ -1201,6 +1285,144 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /cron/storm-brief:
+    get:
+      summary: '[Internal] Mid-week storm brief (Vercel Cron)'
+      operationId: cronStormBrief
+      tags:
+        - Cron
+      description: |
+        Vercel Cron handler — every 3 hours (UTC).
+        Polls BOM severe-weather warnings and dispatches storm briefs to
+        opted-in users. No-op when STORM_BRIEF_ENABLED is off.
+        **Not for client consumption.** Vercel Cron calls this endpoint.
+      security:
+        - CronSecret: []
+      responses:
+        '200':
+          description: Storm-brief cron completed
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Storm-brief run summary
+        '401':
+          description: Invalid or missing CRON_SECRET
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Cron execution failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Waitlist Routes
+  # ──────────────────────────────────────────────────────────────────────────────
+
+  /waitlist:
+    post:
+      summary: Join the out-of-scope waitlist
+      operationId: waitlistJoin
+      tags:
+        - Account
+      description: |
+        Public, unauthenticated demand-capture endpoint for trades/regions
+        that are out of V1 scope. Rate limited to 5 requests per minute per IP,
+        honeypot-guarded, and idempotent on (email, trade, region).
+        No confirmation email is sent (Spam Act 2003 — stores intent only).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WaitlistRequest'
+      responses:
+        '200':
+          description: Entry already existed (idempotent no-op)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+        '201':
+          description: Waitlist entry recorded (or honeypot tripped)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+        '400':
+          description: Invalid JSON body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '429':
+          description: Rate limit exceeded (5/min per IP)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Unsubscribe Routes
+  # ──────────────────────────────────────────────────────────────────────────────
+
+  /unsubscribe/{token}:
+    get:
+      summary: One-click email unsubscribe (HMAC token)
+      operationId: unsubscribe
+      tags:
+        - Account
+      description: |
+        Spam Act 2003 one-click email opt-out — no login and no fee.
+        The HMAC-signed token in the path carries the userId, so no session
+        is required. Sets User.emailOptIn = false and always returns an HTML page.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+          description: HMAC-signed unsubscribe token from an email link
+      responses:
+        '200':
+          description: Unsubscribed successfully; returns confirmation HTML page
+          content:
+            text/html:
+              schema:
+                type: string
+                example: "<html>...</html>"
+        '400':
+          description: Invalid or malformed unsubscribe token; returns HTML page
+          content:
+            text/html:
+              schema:
+                type: string
+                example: "<html>...</html>"
 
   # ──────────────────────────────────────────────────────────────────────────────
   # Short URL Routes
@@ -1498,6 +1720,52 @@ components:
       required:
         - saved_query_text
 
+    StormBriefOptInRequest:
+      type: object
+      properties:
+        optIn:
+          type: boolean
+          example: true
+          description: Whether the user wants to receive mid-week storm briefs
+      required:
+        - optIn
+
+    WaitlistRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          example: eli@roofing-co.com.au
+        trade:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: demolition
+          description: Free-text trade name (deliberately not an enum — measures demand)
+        region:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: Melbourne
+        note:
+          type: string
+          maxLength: 500
+          description: Optional free-text note
+        source:
+          type: string
+          enum: [landing, signup]
+          default: landing
+        company:
+          type: string
+          maxLength: 200
+          description: Honeypot field — must be empty for real users
+      required:
+        - email
+        - trade
+        - region
+
     # ────────────────────────────────────────────────────────────────────────────
     # Feedback Schemas
     # ────────────────────────────────────────────────────────────────────────────
@@ -1552,32 +1820,6 @@ components:
           example: 'https://billing.stripe.com/a/...'
       required:
         - portal_url
-
-    # ────────────────────────────────────────────────────────────────────────────
-    # Digest Schemas
-    # ────────────────────────────────────────────────────────────────────────────
-
-    DigestSummary:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        sentAt:
-          type: string
-          format: date-time
-        daCount:
-          type: integer
-          example: 7
-        email_sent:
-          type: boolean
-        sms_sent:
-          type: boolean
-
-    DigestListResponse:
-      type: array
-      items:
-        $ref: '#/components/schemas/DigestSummary'
 
     # ────────────────────────────────────────────────────────────────────────────
     # Cron Schemas

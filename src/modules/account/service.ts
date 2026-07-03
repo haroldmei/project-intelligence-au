@@ -42,7 +42,7 @@ export async function getAccount(userId: string): Promise<AccountDTO | null> {
 
 export async function updateProfile(
   userId: string,
-  data: { mobile_e164?: string; name?: string },
+  data: { mobile_e164?: string },
 ): Promise<AccountDTO> {
   const updated = await db.user.update({
     where: { id: userId },

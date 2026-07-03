@@ -657,7 +657,7 @@ export default function MarketingPage() {
                   </li>
                   <li>
                     <Link
-                      href="/pricing"
+                      href="/#pricing"
                       className="hover:text-white transition-colors duration-[150ms] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] rounded"
                     >
                       Pricing
