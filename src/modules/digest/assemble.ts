@@ -255,7 +255,11 @@ export async function assembleAndSendDigest(
 
 function buildFeedbackUrl(userId: string, daId: string, vote: 1 | 0): string {
   const token = issueFeedbackToken(userId, daId, vote);
-  return `${APP_BASE_URL}/api/feedback?token=${encodeURIComponent(token)}`;
+  // The token-validating GET handler is the dynamic [token] PATH segment
+  // (src/app/api/feedback/[token]/route.ts) — same pattern as the unsubscribe
+  // link below. A ?token= query form hits /api/feedback (POST-only, Lucia
+  // portal) and 405s, so the tap records nothing (issue #49).
+  return `${APP_BASE_URL}/api/feedback/${encodeURIComponent(token)}`;
 }
 
 /**
