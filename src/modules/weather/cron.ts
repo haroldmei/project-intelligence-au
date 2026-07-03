@@ -12,6 +12,7 @@
 // Pro upgrade is a one-line vercel.json revert — no code change here.
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { entitledDigestWhere } from "@/modules/billing/entitlement";
 import { sendEmail } from "@/lib/email/client";
 import { issueUnsubscribeToken } from "@/lib/hmac/token";
 import { fetchStormWarnings, isStormBriefEnabled } from "./feed";
@@ -74,7 +75,10 @@ export async function runStormBriefCron(): Promise<StormBriefCronResult> {
   const users = await db.user.findMany({
     where: {
       emailVerified: true,
-      subscriptionStatus: { in: ["trial", "active"] },
+      // Entitlement gate (issue #87): an unexpired paid/trial window, not just
+      // the status string — an expired self-signup trial must not keep getting
+      // the paid storm brief for free. Shared with the digest cron.
+      ...entitledDigestWhere(),
       emailOptIn: true,
       stormBriefOptIn: true,
     },

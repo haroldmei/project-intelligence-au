@@ -14,6 +14,7 @@ import { db } from "@/lib/db";
 import { cronWeekStartUtc } from "@/lib/cron/retry";
 import { runRelevanceForUser } from "@/modules/relevance/run";
 import { assembleAndSendDigest } from "./assemble";
+import { entitledDigestWhere } from "@/modules/billing/entitlement";
 import { digestWeekWindow, getJurisdictionConfig } from "@/modules/ingestion/jurisdictions/config";
 import pino from "pino";
 
@@ -113,7 +114,11 @@ export async function runDigestCron(): Promise<DigestCronResult> {
   const users = await db.user.findMany({
     where: {
       emailVerified: true,
-      subscriptionStatus: { in: ["trial", "active"] },
+      // Entitlement gate (issue #87): an unexpired paid/trial WINDOW, not just
+      // the status string — otherwise a self-signup trial (accessUntil:null, no
+      // Stripe subscription) that never enters checkout gets the digest free
+      // forever, because nothing ever transitions it off "trial".
+      ...entitledDigestWhere(),
       // Spam Act 2003: skip users who have unsubscribed. assembleAndSendDigest
       // also re-checks at send time to catch opt-outs that land mid-run, but
       // filtering here avoids the wasted assembly work up front.
