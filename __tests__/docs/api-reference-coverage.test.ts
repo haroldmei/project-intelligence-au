@@ -74,4 +74,34 @@ describe("docs/07-api-reference.md route coverage", () => {
       );
     }
   });
+
+  // Field-level parity for GET /api/cron/digest (issue #108): the handler runs
+  // two Sunday ticks and returns `resumed`/`unserved` (idempotent-resume design,
+  // issue #12), but the reference documented a single tick and a 5-field body.
+  // Pin every key of the object literal so the doc can't re-drift.
+  it("documents the digest response keys and both Sunday ticks (issue #108)", () => {
+    const route = readFileSync(
+      path.resolve(process.cwd(), "src/app/api/cron/digest/route.ts"),
+      "utf8",
+    );
+    // Sanity: the route really returns the seven keys we're documenting.
+    for (const key of [
+      "resumed",
+      "users_processed",
+      "sent",
+      "failed",
+      "unserved",
+      "run_id",
+      "duration_ms",
+    ]) {
+      expect(route, `digest route must return \`${key}\``).toContain(`${key}:`);
+      expect(
+        doc,
+        `docs/07-api-reference.md must document the \`${key}\` response field`,
+      ).toContain(`\`${key}\``);
+    }
+    // Both Sunday ticks must be named (primary 07:00 + resume retry 10:00 UTC).
+    expect(doc).toContain("07:00 UTC");
+    expect(doc).toContain("10:00 UTC");
+  });
 });

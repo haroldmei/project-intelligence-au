@@ -1601,7 +1601,13 @@ Body=STOP&From=%2B61412345678
 
 **Sunday digest generation (Vercel Cron).**
 
-Vercel Cron handler — **Sunday 17:00 AEST (07:00 UTC)**.
+Vercel Cron handler — fired by **two** Sunday ticks (`vercel.json`):
+
+- **07:00 UTC (17:00 AEST)** — primary tick.
+- **10:00 UTC (20:00 AEST)** — idempotent-resume retry tick (issue #12). Same
+  handler, same auth. `runDigestCron()` resumes the same week's run and only
+  re-processes users the primary left unserved; it is a no-op after a fully
+  successful primary run (see `resumed`/`unserved` below).
 
 Generates and dispatches weekly digests for all active users:
 1. Iterate active subscribers
@@ -1629,9 +1635,11 @@ No request body (Vercel Cron issues a GET with the auth header only).
 
 ```json
 {
+  "resumed": false,
   "users_processed": 42,
   "sent": 40,
   "failed": 2,
+  "unserved": 0,
   "run_id": "cron_123e4567-e89b-12d3-a456-426614174000",
   "duration_ms": 45000
 }
@@ -1639,9 +1647,11 @@ No request body (Vercel Cron issues a GET with the auth header only).
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `users_processed` | integer | Total active users iterated |
+| `resumed` | boolean | `true` when this invocation resumed an existing week's run (the 10:00 UTC retry tick); `false` on the primary tick |
+| `users_processed` | integer | Users this invocation processed (pending users only — excludes those an earlier tick already completed) |
 | `sent` | integer | Successful email+SMS sends |
 | `failed` | integer | Email/SMS delivery failures |
+| `unserved` | integer | Active users still not served after this invocation; `> 0` on the primary tick means the retry tick has work to do |
 | `run_id` | uuid | Unique cron run identifier (for logs) |
 | `duration_ms` | integer | Total cron execution time |
 
