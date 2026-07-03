@@ -1197,7 +1197,10 @@ paths:
       tags:
         - Cron
       description: |
-        Vercel Cron handler — Sunday 17:00 AEST (07:00 UTC).
+        Vercel Cron handler — fired by two Sunday ticks: 07:00 UTC (17:00 AEST)
+        primary and 10:00 UTC (20:00 AEST) idempotent-resume retry (issue #12).
+        The retry re-invokes the same handler; runDigestCron() resumes the same
+        week's run and only re-processes users the primary left unserved.
         Generates and dispatches weekly digests for all active users.
         **Not for client consumption.** Vercel Cron calls this endpoint.
         **FR-009 (Weekly digest delivery)**: Generate and send Sunday digests.
@@ -1828,9 +1831,14 @@ components:
     CronDigestResponse:
       type: object
       properties:
+        resumed:
+          type: boolean
+          example: false
+          description: True when this invocation resumed an existing week's run (the 10:00 UTC retry tick)
         users_processed:
           type: integer
           example: 42
+          description: Users this invocation processed (pending only — excludes those an earlier tick already completed)
         sent:
           type: integer
           example: 40
@@ -1839,6 +1847,10 @@ components:
           type: integer
           example: 2
           description: Email/SMS delivery failures
+        unserved:
+          type: integer
+          example: 0
+          description: Active users still not served after this invocation; > 0 on the primary tick means the retry tick has work to do
         run_id:
           type: string
           format: uuid
