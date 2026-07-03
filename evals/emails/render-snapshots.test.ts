@@ -10,6 +10,7 @@ import { PasswordResetTemplate } from "@/emails/password-reset";
 import { WeeklyDigestTemplate } from "@/emails/weekly-digest";
 import { WelcomeAfterVerifyTemplate } from "@/emails/welcome-after-verify";
 import { StormBriefTemplate } from "@/emails/storm-brief";
+import { PaymentFailedTemplate } from "@/emails/payment-failed";
 
 const templates = [
   {
@@ -93,6 +94,15 @@ const templates = [
         warningUrl: "http://www.bom.gov.au/products/IDN21031.html",
         manageUrl: "https://pi-au.example.com/account/storm-brief",
         unsubscribeUrl: "https://pi-au.example.com/api/unsubscribe/tok123",
+      }),
+  },
+  {
+    // Dunning email (FR-018, FR-030): card-update CTA must be absolute and the
+    // template must satisfy every email invariant.
+    name: "payment-failed",
+    fn: () =>
+      PaymentFailedTemplate({
+        manageBillingUrl: "https://pi-au.example.com/account",
       }),
   },
 ];
