@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const OTP_LENGTH = 6;
 const RESEND_COUNTDOWN = 60;
@@ -14,7 +15,39 @@ export default function VerifyPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resendCountdown, setResendCountdown] = useState(RESEND_COUNTDOWN);
   const [resendSent, setResendSent] = useState(false);
+  // Destination email — shown so a typo at signup is visible (issue #92).
+  const [email, setEmail] = useState<string | null>(null);
+  // Inline "change email" affordance.
+  const [editing, setEditing] = useState(false);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [changeError, setChangeError] = useState<string | null>(null);
+  const [changeSubmitting, setChangeSubmitting] = useState(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Load the pending account so the verify screen can show WHICH address the
+  // code went to (issue #92). Best-effort: a failure just falls back to the
+  // generic copy — it must never block verification.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/me");
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        if (json.emailVerified) {
+          router.push("/onboarding/area");
+          return;
+        }
+        if (typeof json.email === "string") setEmail(json.email);
+      } catch {
+        /* silent — keep the generic fallback copy */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   // 60-second countdown for resend
   useEffect(() => {
@@ -98,6 +131,49 @@ export default function VerifyPage() {
     }
   }
 
+  function openEditor() {
+    setEmailDraft(email ?? "");
+    setChangeError(null);
+    setEditing(true);
+  }
+
+  // Correct a mistyped signup email and re-send the OTP to the fixed address
+  // (issue #92). Updates the pending account before dispatching a fresh code.
+  async function handleChangeEmail(e: React.FormEvent) {
+    e.preventDefault();
+    const next = emailDraft.trim();
+    if (!next) {
+      setChangeError("Enter your email address.");
+      return;
+    }
+    setChangeError(null);
+    setChangeSubmitting(true);
+    try {
+      const res = await fetch("/api/auth/verify-email/change-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: next }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setChangeError(json.error ?? "Could not update your email. Please try again.");
+        return;
+      }
+      // Reflect the corrected address, clear the stale code, restart the timer.
+      setEmail(typeof json.email === "string" ? json.email : next);
+      setDigits(Array(OTP_LENGTH).fill(""));
+      setServerError(null);
+      setEditing(false);
+      setResendCountdown(RESEND_COUNTDOWN);
+      setResendSent(true);
+      setTimeout(() => setResendSent(false), 4000);
+    } catch {
+      setChangeError("Network error. Please try again.");
+    } finally {
+      setChangeSubmitting(false);
+    }
+  }
+
   return (
     <div className="bg-white rounded-xl border border-[#E5E5E5] shadow-sm p-6 space-y-5">
       <div className="flex items-center justify-end text-xs text-[#829AB1]">
@@ -107,8 +183,67 @@ export default function VerifyPage() {
       <div>
         <h1 className="text-2xl font-bold text-[#102A43]">Check your email</h1>
         <p className="text-sm text-[#627D98] mt-1">
-          We sent a 6-digit code to your email address.
+          We sent a 6-digit code to{" "}
+          {email ? (
+            <span className="font-semibold text-[#102A43] break-all">{email}</span>
+          ) : (
+            "your email address"
+          )}
+          .
         </p>
+        {!editing ? (
+          <button
+            type="button"
+            onClick={openEditor}
+            className="mt-1 text-sm font-medium text-[#1E3A5F] hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D97706] rounded"
+          >
+            Wrong email? Change it
+          </button>
+        ) : (
+          <form onSubmit={handleChangeEmail} className="mt-3 space-y-2" noValidate>
+            <label htmlFor="change-email" className="block text-sm font-medium text-[#334E68]">
+              Update your email address
+            </label>
+            <Input
+              id="change-email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              value={emailDraft}
+              onChange={(e) => setEmailDraft(e.target.value)}
+              placeholder="you@example.com"
+              aria-describedby={changeError ? "change-email-error" : undefined}
+              aria-invalid={changeError ? true : undefined}
+            />
+            {changeError && (
+              <p id="change-email-error" role="alert" className="text-sm text-[#7F1D1D]">
+                {changeError}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={changeSubmitting}
+                aria-busy={changeSubmitting}
+              >
+                {changeSubmitting ? "Updating…" : "Update & resend code"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setEditing(false);
+                  setChangeError(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        )}
       </div>
 
       {serverError && (

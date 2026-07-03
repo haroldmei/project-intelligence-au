@@ -57,6 +57,14 @@ export const OtpVerifySchema = z.object({
 });
 export type OtpVerifyInput = z.infer<typeof OtpVerifySchema>;
 
+// ── Change pending email (pre-verification) ──────────────────────────────────
+// Lets a signed-in but unverified user correct a mistyped signup address so the
+// OTP can actually reach them (issue #92). Same email rules as signup.
+export const ChangeEmailSchema = z.object({
+  email: z.string().email("Invalid email address.").max(254, "Email must be at most 254 characters (RFC 5321)."),
+});
+export type ChangeEmailInput = z.infer<typeof ChangeEmailSchema>;
+
 // ── Password-reset request ────────────────────────────────────────────────────
 export const PasswordResetRequestSchema = z.object({
   email: z.string().email("Invalid email address.").max(254, "Email must be at most 254 characters (RFC 5321)."),
