@@ -31,6 +31,7 @@ All user-facing endpoints require an active **Lucia session cookie**. The sessio
 | `GET` | `/auth/me` | Get current user (requires session) | **Yes** | FR-002 |
 | `POST` | `/auth/verify-email` | Verify email with OTP code | **Yes** | FR-004 |
 | `POST` | `/auth/verify-email/resend` | Resend email OTP | **Yes** | FR-004 |
+| `POST` | `/auth/verify-email/change-email` | Correct a mistyped signup email (pre-verify) and re-send OTP | **Yes** | FR-004 |
 | `POST` | `/auth/password-reset/request` | Request password reset email | No | FR-005 |
 | `POST` | `/auth/password-reset/confirm` | Confirm password reset with token | No | FR-005 |
 
@@ -360,6 +361,60 @@ No request body required.
 
 ```bash
 curl -X POST http://localhost:3000/api/auth/verify-email/resend \
+  -b cookies.txt
+```
+
+---
+
+### POST /auth/verify-email/change-email
+
+**Correct a mistyped signup email before verification (issue #92).**
+
+A signed-in but unverified user updates the pending account's email address and a
+fresh OTP is dispatched to the corrected address. Only permitted while the email
+is unverified. Rate limited to 5/hr per account.
+
+**Requires active Lucia session.**
+
+#### Request
+
+```json
+{
+  "email": "eli@example.com"
+}
+```
+
+#### Response
+
+**200 OK:**
+
+```json
+{
+  "email": "eli@example.com",
+  "sent": true
+}
+```
+
+#### Errors
+
+| Status | Code | Description |
+|--------|------|-------------|
+| `400` | — | Email already verified, or invalid JSON body |
+| `401` | — | Unauthorized (no active session) |
+| `409` | — | Email already in use by another account |
+| `422` | — | Validation failed (invalid email) |
+| `429` | — | Rate limit: 5/hr per account |
+
+#### Rate Limiting
+
+- **Limit:** 5 requests per hour per account
+
+#### Curl Example
+
+```bash
+curl -X POST http://localhost:3000/api/auth/verify-email/change-email \
+  -H "Content-Type: application/json" \
+  -d '{"email":"eli@example.com"}' \
   -b cookies.txt
 ```
 
@@ -1785,7 +1840,7 @@ curl -X GET http://localhost:3000/api/s/abc123def456 \
 | FR-001 | Self-serve signup | `POST /auth/signup` | ✅ Implemented |
 | FR-002 | User authentication | `POST /auth/login`, `GET /auth/me` | ✅ Implemented |
 | FR-003 | User logout | `POST /auth/logout` | ✅ Implemented |
-| FR-004 | Email verification | `POST /auth/verify-email`, `POST /auth/verify-email/resend` | ✅ Implemented |
+| FR-004 | Email verification | `POST /auth/verify-email`, `POST /auth/verify-email/resend`, `POST /auth/verify-email/change-email` | ✅ Implemented |
 | FR-005 | Password reset | `POST /auth/password-reset/request`, `POST /auth/password-reset/confirm` | ✅ Implemented |
 | FR-009 | Weekly digest | `GET /cron/digest` | ✅ Implemented |
 | FR-011 | SMS link shortening | `GET /s/{slug}` | ✅ Implemented |
@@ -1832,6 +1887,7 @@ curl -X GET http://localhost:3000/api/s/abc123def456 \
 | `POST /auth/login` | 5 | per minute per IP | Prevents brute-force login |
 | `POST /auth/verify-email` | 10 | per hour per user | Prevents OTP brute-force |
 | `POST /auth/verify-email/resend` | 1 | per minute per user | Prevents OTP spam |
+| `POST /auth/verify-email/change-email` | 5 | per hour per account | Prevents email-bombing arbitrary addresses |
 | `POST /auth/password-reset/request` | 5 | per minute per IP | Prevents enumeration attacks |
 | `POST /feedback` | 100 | per hour per user | Portal feedback rate limit |
 | `GET /export/digest/{id}.csv` | 30 | per hour per user | Caps scripted bulk history pulls |

@@ -88,6 +88,18 @@ export function rateLimitResendByAccount(
   return checkRateLimit(`account:${userId}:otp-resend`, 1, 60_000);
 }
 
+/**
+ * Change pending email (issue #92) — 5 requests/hr keyed by account. Each call
+ * writes a new address and dispatches an OTP to it, so a tighter cap than the
+ * generic mutating limit blunts using the endpoint to email-bomb arbitrary
+ * addresses. Independent of the 1/min resend budget.
+ */
+export function rateLimitChangeEmailByAccount(
+  userId: string
+): ReturnType<typeof checkRateLimit> {
+  return checkRateLimit(`account:${userId}:change-email`, 5, 3_600_000);
+}
+
 /** 10 requests/hr keyed by user — for OTP verify. */
 export function rateLimitOtpVerifyByUser(
   userId: string
