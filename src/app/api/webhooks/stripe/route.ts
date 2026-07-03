@@ -14,6 +14,7 @@ import {
   MAX_ACCESS_DAYS,
 } from "@/modules/billing/stripe";
 import { env } from "@/lib/env";
+import { sendEmail } from "@/lib/email/client";
 import { captureServer } from "@/lib/analytics/server";
 import * as Sentry from "@sentry/nextjs";
 import pino from "pino";
@@ -158,6 +159,34 @@ async function handleStripeEvent(type: string, obj: Record<string, unknown>): Pr
         data: { subscriptionStatus: "past_due" },
       });
       log.warn({ userId: user.id, type }, "[webhook-stripe] payment requires action → past_due");
+
+      // Dunning email (FR-018, FR-030): tell the user their card failed and
+      // link them to /account to update it — otherwise past_due silently
+      // churns them. Only on payment_failed: payment_action_required is a
+      // 3DS/SCA challenge (the card is fine, it just needs confirmation), so a
+      // "your payment failed" email would be wrong there — the /account CTA +
+      // Stripe portal 3DS flow already covers it.
+      //
+      // Idempotent by construction: the handler is deduped on event.id, and
+      // Stripe's smart retries each arrive as a distinct payment_failed event,
+      // so the user gets one reminder per retry attempt. A send failure is
+      // logged, not thrown — the past_due write already succeeded and we don't
+      // want Stripe to retry the whole event (which would re-send on success).
+      if (type === "invoice.payment_failed") {
+        try {
+          await sendEmail({
+            to: user.email,
+            template: "payment-failed",
+            props: { manageBillingUrl: `${env.NEXT_PUBLIC_APP_URL}/account` },
+          });
+          log.info({ userId: user.id }, "[webhook-stripe] payment-failed email sent");
+        } catch (err) {
+          log.error({ userId: user.id, err }, "[webhook-stripe] payment-failed email send failed");
+          Sentry.captureException(err, {
+            tags: { userId: user.id, phase: "billing-dunning-email" },
+          });
+        }
+      }
       break;
     }
     case "invoice.payment_succeeded": {
