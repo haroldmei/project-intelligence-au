@@ -9,6 +9,7 @@ import { createOtp } from "@/lib/auth/otp";
 import { rateLimitByIp } from "@/lib/auth/rate-limit";
 import { PasswordResetRequestSchema } from "@/lib/auth/schemas";
 import { sendEmail } from "@/lib/email/client";
+import { env } from "@/lib/env";
 
 export async function POST(req: NextRequest): Promise<Response> {
   // ── Rate limit: 5/min per IP ─────────────────────────────────────────────
@@ -55,8 +56,12 @@ export async function POST(req: NextRequest): Promise<Response> {
   const resetCode = await createOtp(user.id, "reset");
 
   // ── Send password reset email ──────────────────────────────────────────────
-  // resetUrl would be constructed in a real implementation; using code as fallback
-  const resetUrl = `https://pi-au.example.com/auth/password-reset?code=${resetCode}`;
+  // Link back to the /reset page with the OTP + email so the confirm hop can
+  // resolve the (session-less) account. Both are also shown as a fallback code.
+  const resetUrl =
+    `${env.NEXT_PUBLIC_APP_URL}/reset` +
+    `?token=${encodeURIComponent(resetCode)}` +
+    `&email=${encodeURIComponent(normalizedEmail)}`;
   await sendEmail({
     to: normalizedEmail,
     template: "password-reset",

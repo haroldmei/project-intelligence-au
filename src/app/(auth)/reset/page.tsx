@@ -15,6 +15,7 @@ function ResetForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
+  const email = searchParams.get("email") ?? "";
 
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -33,10 +34,10 @@ function ResetForm() {
     setServerError(null);
     setIsSubmitting(true);
     try {
-      const res = await fetch("/api/auth/reset", {
+      const res = await fetch("/api/auth/password-reset/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, password: data.password }),
+        body: JSON.stringify({ token, email, password: data.password }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -51,7 +52,7 @@ function ResetForm() {
     }
   }
 
-  if (!token) {
+  if (!token || !email) {
     return (
       <div className="bg-white rounded-xl border border-[#E5E5E5] shadow-sm p-6">
         <p className="text-sm text-[#DC2626]">

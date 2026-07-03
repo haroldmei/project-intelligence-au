@@ -26,28 +26,15 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
 
-  const { token, password } = parsed.data;
+  const { token, email, password } = parsed.data;
 
-  // The token field carries the 6-digit OTP code in V1.
-  // The caller gets this from the email; it is 6 digits, numeric.
-  // To identify the user, the caller must also pass their email (added below).
-  // ── We need the email to identify the user for the OTP lookup ─────────────
-  // Re-parse to include email (token-only reset is a V2 flow with signed URLs).
-  // For V1: token is the 6-digit code + email is required to identify account.
-  // This is consistent with how verify-email works (session provides the userId).
-  // HOWEVER, on a reset flow, the user is NOT logged in, so we need email here.
-  // Re-validate body with email included.
+  // The token field carries the 6-digit OTP code in V1. The user is not logged
+  // in during a reset, so `email` identifies the account for the OTP lookup.
+  // Both arrive via the emailed reset link (see password-reset/request).
+  // Token-only reset via signed URLs is a V2 flow.
+  const normalizedEmail = email.toLowerCase().trim();
 
-  // NOTE: The PasswordResetConfirmSchema only has { token, password }.
-  // We need the email to resolve the user without a session.
-  // Parse email out directly.
-  const rawBody = body as Record<string, unknown>;
-  const email = typeof rawBody.email === "string" ? rawBody.email.toLowerCase().trim() : null;
-  if (!email) {
-    return Response.json({ error: "Email is required for password reset confirmation." }, { status: 422 });
-  }
-
-  const user = await db.user.findUnique({ where: { email } });
+  const user = await db.user.findUnique({ where: { email: normalizedEmail } });
   if (!user) {
     return Response.json({ error: "Invalid or expired reset token." }, { status: 400 });
   }

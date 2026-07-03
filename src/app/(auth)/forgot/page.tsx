@@ -22,7 +22,7 @@ export default function ForgotPage() {
     setServerError(null);
     setIsSubmitting(true);
     try {
-      const res = await fetch("/api/auth/reset", {
+      const res = await fetch("/api/auth/password-reset/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
