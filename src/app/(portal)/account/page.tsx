@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CancelSubscriptionDialog } from "@/components/cancel-subscription-dialog";
+import { DeleteAccountDialog } from "@/components/delete-account-dialog";
 import { Button } from "@/components/ui/button";
 import type { AccountDTO } from "@/modules/account/service";
 import { SOLO_PLAN_LABEL } from "@/lib/pricing";
@@ -29,6 +30,7 @@ export default function AccountPage() {
   const [account, setAccount] = useState<AccountDTO | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isPortalLoading, setIsPortalLoading] = useState(false);
   const [isResubLoading, setIsResubLoading] = useState(false);
@@ -253,6 +255,31 @@ export default function AccountPage() {
         </div>
       </section>
 
+      <section aria-label="Data and privacy" className="space-y-2">
+        <h2 className="text-sm font-semibold text-[#627D98] uppercase tracking-wide">Data &amp; privacy</h2>
+        <div className="bg-white rounded-md border border-[#E5E5E5] divide-y divide-[#F5F5F5]">
+          {/* Privacy Act export — the policy promises this exact control. A GET
+              with a Content-Disposition attachment header, so a plain link
+              downloads the JSON (the auth cookie rides along same-origin). */}
+          <a
+            href="/api/account/export"
+            className="px-4 py-3 flex items-center justify-between min-h-[44px] hover:bg-[#FAFAFA] transition-colors duration-[150ms] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#D97706]"
+          >
+            <span className="text-sm text-[#627D98]">Download my data</span>
+            <span className="text-[#829AB1] text-sm flex-shrink-0" aria-hidden="true">↓</span>
+          </a>
+          <div className="px-4 py-3">
+            <button
+              type="button"
+              onClick={() => setDeleteOpen(true)}
+              className="text-sm text-[#627D98] underline hover:text-[#DC2626] transition-colors duration-[150ms] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#DC2626] rounded min-h-[44px] flex items-center"
+            >
+              Delete account
+            </button>
+          </div>
+        </div>
+      </section>
+
       <section aria-label="Session" className="pt-2">
         <Button
           type="button"
@@ -276,6 +303,16 @@ export default function AccountPage() {
         }}
         onReactivated={(newAccessUntil) => {
           setAccount((prev) => prev ? { ...prev, cancelAtPeriodEnd: false, accessUntil: newAccessUntil } : prev);
+        }}
+      />
+
+      <DeleteAccountDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        onDeleted={() => {
+          // The DELETE handler already cleared the session cookie; send the
+          // (now anonymous) user to login.
+          router.push("/login");
         }}
       />
     </div>

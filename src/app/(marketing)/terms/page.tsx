@@ -274,6 +274,7 @@ export default function TermsPage() {
                   support@projectintelligence.com.au
                 </a>
               </p>
+              {/* HUMAN INPUT REQUIRED (issue #96 B4): placeholder ABN — replace with the real registered ABN before launch. Do not invent one. */}
               <p>ABN: 00 000 000 000</p>
               <p>Jurisdiction: New South Wales, Australia</p>
             </div>

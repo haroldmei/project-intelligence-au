@@ -413,6 +413,68 @@ describe("Subscription lifecycle", () => {
       expect(u.subscriptionStatus).toBe("trial");
       expect(u.cancelAtPeriodEnd).toBe(true);
     });
+
+    // Issue #96 A5: the cancel dialog now collects a churn reason and the
+    // DELETE handler persists it (was log-only before).
+    it("persists a supplied cancellation reason (A5 churn signal)", async () => {
+      const userId = await seedUser({
+        stripeCustomerId: "cus_reason",
+        status: "active",
+        accessUntil: new Date(Date.now() + ONE_MONTH * 1000),
+        plan: "solo",
+      });
+      setAuthedUser(userId);
+
+      const sub = {
+        id: "sub_reason",
+        status: "active",
+        current_period_end: NOW_S() + ONE_MONTH,
+        cancel_at_period_end: true,
+      };
+      vi.mocked(getActiveSubscription).mockResolvedValue(sub);
+      vi.mocked(cancelSubscriptionAtPeriodEnd).mockResolvedValue(sub);
+
+      const req = new Request("http://localhost/api/billing/subscription", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: "not_enough_leads" }),
+      });
+      const res = await cancelDELETE(req);
+      expect(res.status).toBe(200);
+
+      const u = await testDb.user.findUniqueOrThrow({ where: { id: userId } });
+      expect(u.cancellationReason).toBe("not_enough_leads");
+    });
+
+    it("rejects an out-of-enum reason but still cancels (reason left null)", async () => {
+      const userId = await seedUser({
+        stripeCustomerId: "cus_badreason",
+        status: "active",
+        accessUntil: new Date(Date.now() + ONE_MONTH * 1000),
+        plan: "solo",
+      });
+      setAuthedUser(userId);
+
+      const sub = {
+        id: "sub_badreason",
+        status: "active",
+        current_period_end: NOW_S() + ONE_MONTH,
+        cancel_at_period_end: true,
+      };
+      vi.mocked(getActiveSubscription).mockResolvedValue(sub);
+      vi.mocked(cancelSubscriptionAtPeriodEnd).mockResolvedValue(sub);
+
+      const req = new Request("http://localhost/api/billing/subscription", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: "i-hate-it" }),
+      });
+      const res = await cancelDELETE(req);
+      expect(res.status).toBe(200); // cancel still succeeds
+
+      const u = await testDb.user.findUniqueOrThrow({ where: { id: userId } });
+      expect(u.cancellationReason).toBeNull();
+    });
   });
 
   // ── 4b. Reactivate a pending cancellation (in-product Undo) ────────────────

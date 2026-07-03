@@ -13,6 +13,7 @@ import { z } from "zod";
 import { validateRequest } from "@/lib/auth/session";
 import { rateLimitMutatingByUser } from "@/lib/auth/rate-limit";
 import { db } from "@/lib/db";
+import { captureServer } from "@/lib/analytics/server";
 import {
   getActiveSubscription,
   cancelSubscriptionAtPeriodEnd,
@@ -22,8 +23,20 @@ import pino from "pino";
 
 const log = pino({ name: "billing-cancel" });
 
+// Closed set of churn reason codes the cancel dialog offers (issue #96 A5).
+// A closed enum, never free-text, so the persisted value is analytics-safe
+// (no PII). Kept in sync with cancel-subscription-dialog.tsx. Not exported —
+// Next.js route modules may only export HTTP-method handlers.
+const CANCELLATION_REASONS = [
+  "too_expensive",
+  "not_enough_leads",
+  "leads_not_relevant",
+  "found_another_tool",
+  "other",
+] as const;
+
 const CancelInput = z.object({
-  reason: z.string().max(500).optional(),
+  reason: z.enum(CANCELLATION_REASONS).optional(),
 });
 
 export async function DELETE(request: Request): Promise<NextResponse> {
@@ -39,7 +52,7 @@ export async function DELETE(request: Request): Promise<NextResponse> {
   }
 
   // Parse optional body
-  let reason: string | undefined;
+  let reason: (typeof CANCELLATION_REASONS)[number] | undefined;
   try {
     const raw = await request.text();
     if (raw.trim()) {
@@ -48,10 +61,6 @@ export async function DELETE(request: Request): Promise<NextResponse> {
     }
   } catch {
     // body is optional — ignore parse errors
-  }
-
-  if (reason) {
-    log.info({ userId: auth.user.id, reason }, "[billing-cancel] cancellation reason captured (V1: log only)");
   }
 
   const user = await db.user.findUnique({ where: { id: auth.user.id } });
@@ -68,8 +77,26 @@ export async function DELETE(request: Request): Promise<NextResponse> {
     const updated = await cancelSubscriptionAtPeriodEnd(subscription.id);
     const accessUntil = new Date(updated.current_period_end * 1000).toISOString();
 
+    // Persist the churn reason (issue #96 A5) — previously logged only. Last
+    // cancel wins; only overwrite when a reason was actually supplied so a
+    // reason-less cancel doesn't wipe an earlier one.
+    if (reason) {
+      await db.user.update({
+        where: { id: auth.user.id },
+        data: { cancellationReason: reason },
+      });
+    }
+
+    // Churn instrument: the cheapest signal the product has. cancelAtPeriodEnd
+    // is true here (access continues until period end); reason is the closed
+    // enum, PII-safe.
+    captureServer(auth.user.id, "subscription_cancelled", {
+      cancelAtPeriodEnd: true,
+      reason,
+    });
+
     log.info(
-      { userId: auth.user.id, subscriptionId: subscription.id, accessUntil },
+      { userId: auth.user.id, subscriptionId: subscription.id, accessUntil, reason },
       "[billing-cancel] subscription set to cancel at period end",
     );
 

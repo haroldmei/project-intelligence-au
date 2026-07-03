@@ -9,7 +9,7 @@ const { mockDb, sendSmsMock, sendEmailMock } = vi.hoisted(() => ({
     user: { findUniqueOrThrow: vi.fn(), findUnique: vi.fn() },
     digest: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn() },
     digestDa: { create: vi.fn() },
-    daFeedback: { findMany: vi.fn() },
+    daFeedback: { findMany: vi.fn(), count: vi.fn() },
     shortUrl: { upsert: vi.fn() },
   },
   sendSmsMock: vi.fn(),

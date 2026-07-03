@@ -236,3 +236,23 @@ describe("WeeklyDigestTemplate — precision recap (CF-1.7, issue #51)", () => {
     expect(html).toContain("No strong re-roof leads this week");
   });
 });
+
+describe("WeeklyDigestTemplate — personalisation-on note (issue #96 A3)", () => {
+  const base = {
+    weekStart: "27 Apr 2026",
+    leadCount: 1,
+    lgas: ["Inner West"],
+    cards: [card("bp-1", "builder_pipeline" as LeadClass, "1 Pipeline St", 8)],
+    smsEnabled: false,
+  };
+
+  it("renders the one-time note when personalisationActivated is true", () => {
+    const { html } = WeeklyDigestTemplate({ ...base, personalisationActivated: true });
+    expect(html).toContain("Your digest is now personalised");
+  });
+
+  it("omits the note by default", () => {
+    const { html } = WeeklyDigestTemplate(base);
+    expect(html).not.toContain("Your digest is now personalised");
+  });
+});

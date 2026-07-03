@@ -7,7 +7,6 @@ export const UpdateProfileInput = z.object({
     .string()
     .regex(/^\+[1-9]\d{6,14}$/, "Must be E.164 format e.g. +61400000000")
     .optional(),
-  name: z.string().min(1).max(120).optional(),
 });
 export type UpdateProfileInput = z.infer<typeof UpdateProfileInput>;
 

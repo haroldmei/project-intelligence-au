@@ -8,7 +8,6 @@ import { describe, test, expect } from "vitest";
 import { VerifyEmailTemplate } from "@/emails/verify-email";
 import { PasswordResetTemplate } from "@/emails/password-reset";
 import { WeeklyDigestTemplate } from "@/emails/weekly-digest";
-import { DigestFallbackNoticeTemplate } from "@/emails/digest-fallback-notice";
 import { WelcomeAfterVerifyTemplate } from "@/emails/welcome-after-verify";
 import { StormBriefTemplate } from "@/emails/storm-brief";
 
@@ -73,15 +72,6 @@ const templates = [
         dasChecked: 143,
         smsEnabled: false,
         unsubscribeUrl: "https://pi-au.example.com/api/unsubscribe/tok123",
-      }),
-  },
-  {
-    name: "digest-fallback-notice",
-    fn: () =>
-      DigestFallbackNoticeTemplate({
-        lgas: ["Western Sydney", "Hills"],
-        daCount: 87,
-        appBaseUrl: "https://pi-au.example.com",
       }),
   },
   {

@@ -8,7 +8,6 @@ import { env } from "@/lib/env";
 import { VerifyEmailTemplate } from "@/emails/verify-email";
 import { PasswordResetTemplate } from "@/emails/password-reset";
 import { WeeklyDigestTemplate } from "@/emails/weekly-digest";
-import { DigestFallbackNoticeTemplate } from "@/emails/digest-fallback-notice";
 import { WelcomeAfterVerifyTemplate } from "@/emails/welcome-after-verify";
 import { TrialReminderTemplate } from "@/emails/trial-reminder";
 import { StormBriefTemplate } from "@/emails/storm-brief";
@@ -21,7 +20,6 @@ const TEMPLATES: Record<string, TemplateFn> = {
   "verify-email": VerifyEmailTemplate as TemplateFn,
   "password-reset": PasswordResetTemplate as TemplateFn,
   "weekly-digest": WeeklyDigestTemplate as TemplateFn,
-  "digest-fallback-notice": DigestFallbackNoticeTemplate as TemplateFn,
   "welcome-after-verify": WelcomeAfterVerifyTemplate as TemplateFn,
   "trial-reminder": TrialReminderTemplate as TemplateFn,
   "storm-brief": StormBriefTemplate as TemplateFn,
@@ -46,7 +44,7 @@ const fromAddress = `${fromName} <noreply@resend.dev>`;
 
 export interface EmailProps {
   to: string;
-  template: "verify-email" | "password-reset" | "weekly-digest" | "digest-fallback-notice" | "welcome-after-verify" | "trial-reminder" | "storm-brief";
+  template: "verify-email" | "password-reset" | "weekly-digest" | "welcome-after-verify" | "trial-reminder" | "storm-brief";
   props: Record<string, unknown>;
 }
 

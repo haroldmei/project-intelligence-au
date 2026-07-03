@@ -9,6 +9,20 @@ import { verifyAndConsumeOtp } from "@/lib/auth/otp";
 import { rateLimitOtpVerifyByUser } from "@/lib/auth/rate-limit";
 import { OtpVerifySchema } from "@/lib/auth/schemas";
 import { captureServer } from "@/lib/analytics/server";
+import { sendEmail } from "@/lib/email/client";
+import { env } from "@/lib/env";
+import pino from "pino";
+
+const log = pino({ name: "verify-email" });
+
+/** Best-effort friendly first name from the email local-part (no name field
+ *  exists on User). "jane.smith@x.com" → "Jane". Falls back to "there". */
+function firstNameFromEmail(email: string): string {
+  const local = email.split("@")[0] ?? "";
+  const token = local.split(/[.\-_+]/)[0] ?? "";
+  if (!token) return "there";
+  return token.charAt(0).toUpperCase() + token.slice(1);
+}
 
 export async function POST(req: NextRequest): Promise<Response> {
   // ── Auth guard ────────────────────────────────────────────────────────────
@@ -61,6 +75,23 @@ export async function POST(req: NextRequest): Promise<Response> {
   });
 
   captureServer(auth.user.id, "email_verified", {});
+
+  // Welcome + next-step nudge (issue #96 A2): the template was registered but
+  // never dispatched. Fire it here — best-effort, so a mail hiccup never fails
+  // an otherwise-successful verification. sendEmail no-ops when RESEND_API_KEY
+  // is unset (dev/test).
+  try {
+    await sendEmail({
+      to: auth.user.email,
+      template: "welcome-after-verify",
+      props: {
+        firstName: firstNameFromEmail(auth.user.email),
+        lgaSetupUrl: `${env.NEXT_PUBLIC_APP_URL}/onboarding/area`,
+      },
+    });
+  } catch (err) {
+    log.error({ userId: auth.user.id, err }, "[verify-email] welcome email send failed (non-fatal)");
+  }
 
   return Response.json({ verified: true });
 }

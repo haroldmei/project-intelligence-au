@@ -3,13 +3,20 @@
  *
  * The ONE critical user flow:
  *   landing → signup → OTP verify → LGA bundle pick (Western Sydney)
- *   → pricing → "first digest" stub state → portal /digest renders 12 cards
- *   → tap thumb up on card 1 → undo toast appears → cancel undo
- *   → reload → thumb-up state persisted
+ *   → pricing → portal /digest renders the week's cards
+ *   → tap thumb up on card 1 → undo toast appears → reload persists state
  *
- * All API calls are stubbed via page.route() so this spec runs without a
- * live database. Set STUB_DB=1 (the default when running standalone) or
- * rely on the CI env where DB is unavailable.
+ * Product truth (kept in sync with source, issue #96 C3):
+ *   - Trial length is 28 days (src/lib/pricing.ts TRIAL_LENGTH_LABEL), not 14.
+ *   - The onboarding LGA picker lives at /onboarding/area (the old duplicate
+ *     /area route was removed).
+ *   - OTP verification POSTs /api/auth/verify-email (there is no /api/auth/otp).
+ *   - Team plan is gated off (single Solo plan) — there is no Team selection.
+ *
+ * The portal (/digest) is behind the portal layout, which calls
+ * validateRequest() server-side (RSC); without a live DB it redirects to
+ * /login and page.route() stubs can't intercept RSC server calls. So the
+ * flow tests gate on PLAYWRIGHT_DB=1, exactly like digest.spec.ts.
  *
  * Viewport: 375×667 (chromium-mobile project) — wedge user is on iOS Mobile.
  */
@@ -17,6 +24,7 @@ import { test, expect } from "@playwright/test";
 import { stubDigest } from "./fixtures/seed-user";
 
 const TEST_OTP = "123456";
+const DB_AVAILABLE = process.env.PLAYWRIGHT_DB === "1";
 
 async function installCriticalStubs(page: import("@playwright/test").Page) {
   await page.route("**/api/auth/signup", async (route) => {
@@ -28,18 +36,6 @@ async function installCriticalStubs(page: import("@playwright/test").Page) {
     });
   });
 
-  await page.route("**/api/auth/otp", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ verified: true }),
-    });
-  });
-
-  await page.route("**/api/auth/otp/resend", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ sent: true }) });
-  });
-
   await page.route("**/api/auth/verify-email", async (route) => {
     await route.fulfill({
       status: 200,
@@ -48,8 +44,8 @@ async function installCriticalStubs(page: import("@playwright/test").Page) {
     });
   });
 
-  await page.route("**/api/account/lga", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+  await page.route("**/api/auth/verify-email/resend", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ sent: true }) });
   });
 
   await page.route("**/api/account/lga-bundles", async (route) => {
@@ -68,7 +64,7 @@ async function installCriticalStubs(page: import("@playwright/test").Page) {
     });
   });
 
-  // Feedback — persists state in a local Map so reload check works
+  // Feedback — persists state in a local Map so the reload check works.
   const feedbackStore = new Map<string, string>();
   await page.route("**/api/portal/feedback", async (route) => {
     const body = await route.request().postDataJSON().catch(() => ({}));
@@ -84,7 +80,6 @@ async function installCriticalStubs(page: import("@playwright/test").Page) {
 
   await page.route("**/api/digests/current", async (route) => {
     const digest = stubDigest();
-    // Attach persisted feedback to DA cards
     const das = digest.das.map((da) => ({
       ...da,
       initialFeedback: feedbackStore.get(da.id) ?? null,
@@ -98,15 +93,12 @@ async function installCriticalStubs(page: import("@playwright/test").Page) {
 }
 
 test.describe("Wedge Critical Flow", () => {
-  test("landing → signup → OTP → LGA pick → pricing → digest 12 cards → thumb up → undo → reload persists", async ({
+  test("landing → signup → OTP → LGA pick → pricing → digest cards → thumb up → undo → reload persists", async ({
     page,
   }) => {
-    // BUG-001: The duplicate /area route causes the Next.js dev server to enter an error state
-    // that renders the error overlay on ALL subsequent page navigations (including /verify, /plan).
-    // This makes the full flow untestable in dev without a DB (the error overlay intercepts rendering).
-    // When BUG-001 is fixed (/(auth)/area renamed), this test will pass end-to-end.
-    // Skip until BUG-001 is resolved.
-    test.skip(true, "BUG-001: /area duplicate route poisons Next.js dev server — error overlay blocks /verify and /plan rendering");
+    // The portal step needs a live DB (RSC validateRequest); gate the same way
+    // digest.spec.ts does rather than skipping on a long-fixed route bug.
+    test.skip(!DB_AVAILABLE, "Requires PLAYWRIGHT_DB=1 — signup→portal flow needs live DB auth");
     await installCriticalStubs(page);
 
     // Step 1: Landing page renders CTA
@@ -116,7 +108,7 @@ test.describe("Wedge Critical Flow", () => {
     // Step 2: Navigate to signup
     await page.getByRole("link", { name: /start free trial/i }).first().click();
     await page.waitForURL("**/signup");
-    await expect(page.getByRole("heading", { name: /start your 14-day trial/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /start your 28-day trial/i })).toBeVisible();
 
     // Fill signup form
     const testEmail = `test+wedge-${Date.now()}@example.com`;
@@ -128,107 +120,53 @@ test.describe("Wedge Critical Flow", () => {
 
     // Step 3: OTP verification page
     await page.waitForURL("**/verify");
-    // Dismiss Next.js dev overlay if present (BUG-001 error overlay may appear)
-    await page.keyboard.press("Escape").catch(() => {});
     await expect(page.getByRole("heading", { name: /check your email/i })).toBeVisible({ timeout: 10_000 });
-
-    // Fill OTP — deterministic test override
     for (let i = 0; i < 6; i++) {
       await page.fill(`#otp-${i}`, TEST_OTP[i]);
     }
-    // Verify button becomes enabled after 6 digits
     await expect(page.getByRole("button", { name: /verify email/i })).toBeEnabled();
     await page.click('button:has-text("Verify email")');
 
-    // Step 4: LGA bundle selection (/area)
-    // NOTE: BUG-001 — /area returns 500 due to duplicate route conflict.
-    // Navigate directly to /plan to bypass the broken /area step.
-    // The /area route test is covered separately (skipped with BUG-001 note).
-    await page.goto("/plan");
+    // Step 4: LGA bundle selection at /onboarding/area
+    await page.waitForURL("**/onboarding/area");
+    await page.getByRole("button", { name: /western sydney/i }).click();
+    await page.getByRole("button", { name: /continue/i }).click();
 
-    // Step 5: Pricing page
+    // Step 5: Pricing page — Solo pre-selected, 28-day trial CTA
     await page.waitForURL("**/plan");
     await expect(page.getByRole("heading", { name: /choose your plan/i })).toBeVisible();
-
-    // Solo plan should be pre-selected
     const soloCard = page.getByRole("radio", { name: /solo/i });
     await expect(soloCard).toHaveAttribute("aria-checked", "true");
+    await page.click('button:has-text("Start 28-day trial")');
 
-    // Click start trial — billing checkout stub redirects to /digest
-    await page.click('button:has-text("Start 14-day trial")');
-
-    // Step 6: Portal /digest — NOTE: without DB the portal layout redirects to /login (BUG-002).
-    // We verify the plan page and billing checkout work, then document the portal step as
-    // requiring DB. The wedge critical flow from landing → plan selection passes end-to-end.
-    // Portal rendering tests covered in digest.spec.ts (requires PLAYWRIGHT_DB=1).
-    const currentUrl = page.url();
-    const _reachedDigest = currentUrl.includes("/digest");
-    const redirectedToLogin = currentUrl.includes("/login");
-
-    if (redirectedToLogin) {
-      // Expected in no-DB env — billing checkout worked, portal auth gate is the known gap
-      test.info().annotations.push({
-        type: "known-gap",
-        description: "Portal /digest redirects to /login without DB (BUG-002). Billing checkout worked correctly.",
-      });
-      // Test the digest rendering by directly stubbing in a subsequent navigation
-      // (This exercises the DA card UI in isolation)
-      await page.route("**/api/auth/login", async (route) => {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ session_set: true }),
-          headers: { "Set-Cookie": "lucia_session=test-session; Path=/; HttpOnly; SameSite=Lax" },
-        });
-      });
-      // Acknowledge we can't test portal without DB — mark remaining portal steps
-      return;
-    }
-
+    // Step 6: Portal /digest renders the week's cards
     await page.waitForURL("**/digest");
-    await expect(page.getByText(/12 leads/i).first()).toBeVisible();
-
-    // Count DA cards
     const daCards = page.locator("article[aria-label]");
-    await expect(daCards).toHaveCount(12);
-
-    // End-of-digest marker
-    await expect(page.getByText(/end of digest/i)).toBeVisible();
+    await expect(daCards.first()).toBeVisible();
 
     // Step 7: Tap thumb up on card 1
     const firstCard = daCards.first();
-    const thumbUpBtn = firstCard.getByRole("button", { name: /thumb up/i });
-    await thumbUpBtn.click();
-
-    // After thumb up: card gets green left border (border-l-[#16A34A])
+    await firstCard.getByRole("button", { name: /thumb up/i }).click();
     await expect(firstCard).toHaveClass(/border-l-\[#16A34A\]/);
 
     // Undo toast appears
     const undoToast = firstCard.getByRole("status").filter({ hasText: /feedback saved/i });
     await expect(undoToast).toBeVisible();
+    await expect(firstCard.getByRole("button", { name: /undo/i })).toBeVisible();
 
-    // Step 8: Cancel undo — dismiss by clicking Undo (which reverts, so we do NOT click undo)
-    // "Cancel undo" means dismiss/ignore the toast, which auto-disappears in 5s.
-    // For the test, we just verify the Undo button is there and don't click it.
-    const undoButton = firstCard.getByRole("button", { name: /undo/i });
-    await expect(undoButton).toBeVisible();
-
-    // Step 9: Reload — thumb-up state should persist
-    // The stub returns initialFeedback from feedbackStore, which was set by the POST
+    // Step 8: Reload — thumb-up state persists
     await page.reload();
     await page.waitForURL("**/digest");
     const firstCardAfterReload = page.locator("article[aria-label]").first();
-    // Thumb up button shows active state (✓ icon, aria-pressed=true)
-    const thumbUpAfterReload = firstCardAfterReload.getByRole("button", { name: /thumb up/i });
-    await expect(thumbUpAfterReload).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      firstCardAfterReload.getByRole("button", { name: /thumb up/i }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   test("LGA bundle continue button is disabled until at least one bundle is selected", async ({ page }) => {
-    // BUG-001: /area returns 500 due to duplicate route conflict between /(auth)/area and /(portal)/area
-    // This test documents the bug and is skipped until route conflict is resolved.
-    test.skip(true, "BUG-001: /area route 500 — duplicate page conflict between /(auth)/area and /(portal)/area");
-    await page.route("**/api/**", (route) => route.continue());
-    await page.goto("/area");
+    // /onboarding/area is a post-signup step behind the auth flow; gate on DB.
+    test.skip(!DB_AVAILABLE, "Requires PLAYWRIGHT_DB=1 — onboarding step needs a live session");
+    await page.goto("/onboarding/area");
     const continueBtn = page.getByRole("button", { name: /continue/i });
     await expect(continueBtn).toBeDisabled();
 
@@ -237,49 +175,17 @@ test.describe("Wedge Critical Flow", () => {
   });
 
   test("OTP verify button is disabled until all 6 digits are entered", async ({ page }) => {
-    // BUG-001+BUG-004: /verify page shows Next.js error overlay due to BUG-001 poisoning dev server.
-    // BUG-004: page also calls /api/auth/otp (wrong endpoint per docs).
-    test.skip(true, "BUG-001: Next.js dev error overlay blocks /verify — fix duplicate /area route first");
-    await page.route("**/api/auth/otp", async (route) => {
-      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ verified: true }) });
-    });
+    test.skip(!DB_AVAILABLE, "Requires PLAYWRIGHT_DB=1 — /verify needs a live session");
     await page.goto("/verify");
-    await page.keyboard.press("Escape").catch(() => {});
     const verifyBtn = page.getByRole("button", { name: /verify email/i });
     await expect(verifyBtn).toBeDisabled({ timeout: 10_000 });
 
-    // Enter 5 digits — still disabled
     for (let i = 0; i < 5; i++) {
       await page.fill(`#otp-${i}`, "1");
     }
     await expect(verifyBtn).toBeDisabled();
 
-    // Enter 6th digit — enabled
     await page.fill("#otp-5", "2");
     await expect(verifyBtn).toBeEnabled();
-  });
-
-  test("pricing page: Team plan can be selected", async ({ page }) => {
-    // BUG-001: /plan shows Next.js error overlay due to BUG-001 poisoning dev server.
-    test.skip(true, "BUG-001: Next.js dev error overlay blocks /plan — fix duplicate /area route first");
-
-    // Stub billing checkout to avoid external redirect
-    await page.route("**/api/billing/checkout", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ checkout_url: "http://localhost:3000/" }),
-      });
-    });
-    await page.goto("/plan");
-    await page.keyboard.press("Escape").catch(() => {});
-    await expect(page.getByRole("heading", { name: /choose your plan/i })).toBeVisible({ timeout: 10_000 });
-
-    const teamCard = page.getByRole("radio", { name: /team/i });
-    await teamCard.click();
-    await expect(teamCard).toHaveAttribute("aria-checked", "true");
-
-    const soloCard = page.getByRole("radio", { name: /solo/i });
-    await expect(soloCard).toHaveAttribute("aria-checked", "false");
   });
 });
