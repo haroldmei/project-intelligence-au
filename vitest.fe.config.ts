@@ -24,9 +24,11 @@ export default defineConfig({
       "src/app/(marketing)/**/*.test.{ts,tsx}",
       "src/app/(auth)/**/*.test.{ts,tsx}",
       // Escaped like the (portal) glob below so THIS feature's verify page test
-      // actually runs (issue #92 — email display + change-email affordance). The
-      // sibling signup test stays dormant under the unescaped (auth) glob above.
+      // actually runs (issue #92 — email display + change-email affordance).
       "src/app/\\(auth\\)/verify/**/*.test.{ts,tsx}",
+      // Escaped so the signup page test runs (issue #88 — FR-022 SMS opt-in
+      // disclosure, since SMS is opted-IN by default at signup).
+      "src/app/\\(auth\\)/signup/**/*.test.{ts,tsx}",
       "src/app/\\(portal\\)/**/*.test.{ts,tsx}",
       "src/components/**/*.test.{ts,tsx}",
       // Transactional email templates (#14) — pure string builders, no DB / no

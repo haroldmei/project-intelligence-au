@@ -94,6 +94,22 @@ test.describe("Auth — Login", () => {
 });
 
 test.describe("Auth — Signup", () => {
+  // Issue #88 / FR-022 (Spam Act 2003): SMS is opted-IN by default at signup, so
+  // the form must disclose the SMS consent + opt-out at the point the mobile is
+  // collected, wired to the mobile field for screen readers.
+  test("signup form discloses the default SMS opt-in and opt-out (FR-022)", async ({ page }) => {
+    await page.goto("/signup");
+    const disclosure = page.locator("#sms-disclosure");
+    await expect(disclosure).toBeVisible();
+    await expect(disclosure).toContainText(/Sunday SMS/i);
+    await expect(disclosure).toContainText(/STOP/);
+    await expect(disclosure).toContainText(/opt|turn SMS off/i);
+    await expect(page.locator("#mobile_e164")).toHaveAttribute(
+      "aria-describedby",
+      /sms-disclosure/
+    );
+  });
+
   test("signup with duplicate email shows error", async ({ page }) => {
     await page.route("**/api/auth/signup", async (route) => {
       await route.fulfill({
