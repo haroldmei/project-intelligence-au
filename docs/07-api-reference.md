@@ -1,8 +1,8 @@
 # API Reference — ProjectIntelligence AU (PI-AU)
 
 **Document ID:** PI-AU-API-REF-001  
-**Version:** 1.0  
-**Date:** 2026-04-28  
+**Version:** 1.1  
+**Date:** 2026-07-03  
 **Status:** DRAFT
 
 ---
@@ -488,8 +488,9 @@ All account endpoints require an active Lucia session.
 | `PUT` | `/account/saved-query` | Update saved search query | FR-025 |
 | `POST` | `/account/sms-opt-in` | Opt in to SMS digests | FR-022 |
 | `POST` | `/account/sms-opt-out` | Opt out of SMS digests | FR-022 |
+| `POST` | `/account/storm-brief` | Opt in/out of mid-week storm briefs | FR-020 |
 | `GET` | `/account/export` | Export account data (Privacy Act) | FR-031 |
-| `DELETE` | `/account` | Delete account (GDPR/Privacy Act) | FR-032 |
+| `DELETE` | `/account/delete` | Delete account (GDPR/Privacy Act erasure) | FR-032 |
 
 ### GET /account/me
 
@@ -804,6 +805,51 @@ curl -X POST http://localhost:3000/api/account/sms-opt-out \
 
 ---
 
+### POST /account/storm-brief
+
+**Opt in / out of mid-week storm briefs.**
+
+Set the authenticated user's storm-brief preference. When opted in and
+`STORM_BRIEF_ENABLED` is on, the user receives a mid-week brief derived from
+BOM severe-weather warnings (see `POST /api/cron/storm-brief`).
+
+**Wedge FR-020:** Enable self-serve delivery preferences.
+
+#### Request
+
+```json
+{
+  "optIn": true
+}
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `optIn` | boolean | Yes | `true` = receive storm briefs; `false` = opt out |
+
+#### Response
+
+**200 OK:** (returns updated account, same schema as `GET /account/me`)
+
+#### Errors
+
+| Status | Code | Description |
+|--------|------|-------------|
+| `400` | — | Invalid JSON body |
+| `401` | — | Unauthorized (no active session) |
+| `422` | — | Validation error (`optIn` not a boolean) |
+
+#### Curl Example
+
+```bash
+curl -X POST http://localhost:3000/api/account/storm-brief \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{"optIn": true}'
+```
+
+---
+
 ### GET /account/export
 
 **Export account data (Privacy Act).**
@@ -850,11 +896,11 @@ curl -X GET http://localhost:3000/api/account/export \
 
 ---
 
-### DELETE /account
+### DELETE /account/delete
 
 **Delete account (GDPR/Privacy Act erasure).**
 
-Permanently delete the authenticated user's account and all associated data. Invalidates the current session.
+Permanently delete the authenticated user's account and all associated data. Invalidates the current session and clears the session cookie.
 
 **Wedge FR-032:** Enable Privacy Act right to erasure.
 
@@ -881,7 +927,7 @@ No request body.
 #### Curl Example
 
 ```bash
-curl -X DELETE http://localhost:3000/api/account \
+curl -X DELETE http://localhost:3000/api/account/delete \
   -b cookies.txt
 ```
 
@@ -1188,11 +1234,12 @@ curl -X DELETE http://localhost:3000/api/billing/subscription \
 
 ## Module: Digests
 
-Digest endpoints provide read-only access to digest history.
+Digest endpoints provide read-only access to digest history and per-digest exports.
 
 | Method | Endpoint | Purpose | Wedge FR |
 |--------|----------|---------|----------|
 | `GET` | `/digests` | List digest history | FR-026 |
+| `GET` | `/export/digest/{id}.csv` | Download a digest's leads as CSV | FR-026 |
 
 ### GET /digests
 
@@ -1248,6 +1295,195 @@ No request body.
 ```bash
 curl -X GET http://localhost:3000/api/digests \
   -b cookies.txt
+```
+
+---
+
+### GET /export/digest/{id}.csv
+
+**Download a digest's leads as a CSV file (issue #22).**
+
+Export the leads of a single digest owned by the authenticated user as a CSV
+download. Buyer-expectation parity with competing DA lead products. The `.csv`
+suffix is a cosmetic part of the dynamic path segment; it is stripped server-side
+to resolve the digest id.
+
+**Ownership:** a digest belonging to another user is simply not found (`404`) — no
+existence leak.
+
+**Requires active Lucia session.**
+
+#### Request
+
+No request body. The digest id is in the URL path.
+
+**Example URL:**
+```
+https://pi-au.example.com/api/export/digest/digest_123.csv
+```
+
+#### Response
+
+**200 OK** (file download):
+
+```
+Content-Type: text/csv; charset=utf-8
+Content-Disposition: attachment; filename="pi-au-digest-2026-04-28.csv"
+Cache-Control: private, no-store
+```
+
+The body is a CSV of the digest's ranked leads.
+
+#### Errors
+
+| Status | Code | Description |
+|--------|------|-------------|
+| `401` | — | Unauthorized (no active session) |
+| `404` | — | Digest not found or not owned by this user |
+| `429` | — | Rate limit: 30/hour per user (header: `Retry-After: <seconds>`) |
+
+#### Rate Limiting
+
+- **Limit:** 30 requests per hour per user (shared mutating-action limiter)
+
+#### Curl Example
+
+```bash
+curl -X GET "http://localhost:3000/api/export/digest/digest_123.csv" \
+  -b cookies.txt \
+  -o digest.csv
+```
+
+---
+
+## Module: Compliance
+
+Unauthenticated, token-based compliance endpoints. No login and no fee are
+required to honour them.
+
+| Method | Endpoint | Purpose | Wedge FR |
+|--------|----------|---------|----------|
+| `GET` | `/unsubscribe/{token}` | One-click email opt-out (Spam Act) | FR-023 |
+
+### GET /unsubscribe/{token}
+
+**One-click email unsubscribe (Spam Act 2003).**
+
+Honour a functional, no-login, no-fee unsubscribe from a link in any email
+(digest, trial reminder, etc.). Uses the same HMAC token pattern as the email
+feedback links — the token carries the `userId`, so **no session is required**.
+On success it sets `User.emailOptIn = false`, which the digest and trial-reminder
+send paths gate on. Idempotent: an already-deleted or already-opted-out user
+still receives a friendly confirmation page.
+
+**Wedge FR-023 / Spam Act 2003 (Cth):** Provide a working, unauthenticated opt-out.
+
+#### Request
+
+No request body. The HMAC token is in the URL path.
+
+**Example URL:**
+```
+https://pi-au.example.com/api/unsubscribe/eyJ1c2VySWQiOiI...
+```
+
+#### Response
+
+**200 OK** (HTML confirmation page):
+
+```html
+<!DOCTYPE html>
+<html>
+<body>
+  <h1>You've been unsubscribed</h1>
+  <p>You will no longer receive emails from ProjectIntelligence.
+     <a href="https://pi-au.example.com/account">Manage preferences</a>.</p>
+</body>
+</html>
+```
+
+**400 Bad Request** (invalid or tampered token) returns an HTML page pointing the
+user to their account settings. The endpoint never returns JSON.
+
+#### Token Format
+
+HMAC-signed token containing the `userId`. Signature verified with a secret key
+(`UNSUBSCRIBE_SECRET`, not exposed to clients).
+
+#### Curl Example
+
+```bash
+curl -X GET "https://pi-au.example.com/api/unsubscribe/eyJ1c2VySWQiOiI..."
+```
+
+---
+
+## Module: Waitlist
+
+Unauthenticated out-of-scope demand capture.
+
+| Method | Endpoint | Purpose | Wedge FR |
+|--------|----------|---------|----------|
+| `POST` | `/waitlist` | Register interest for an out-of-scope trade/region | FR-033 |
+
+### POST /waitlist
+
+**Register out-of-scope demand (issue #25).**
+
+Capture demand for trades or regions not yet covered. Unauthenticated: the
+endpoint only ever writes to `waitlist_entries`. Honeypot-guarded (a filled hidden
+field returns a success-shaped response but never touches the DB) and idempotent
+on `(email, trade, region)`. No confirmation email is sent (Spam Act 2003 — v1
+stores intent only).
+
+**Wedge FR-033:** Measure demand outside the current wedge.
+
+#### Request
+
+```json
+{
+  "email": "eli@roofing-co.com.au",
+  "trade": "plumbing",
+  "region": "brisbane"
+}
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `email` | string | Yes | Normalized to lowercase + trim |
+| `trade` | string | Yes | Requested trade |
+| `region` | string | Yes | Requested region |
+
+(An additional hidden honeypot field may be present in the form payload; if filled, the submission is silently discarded.)
+
+#### Response
+
+**201 Created** (new entry) or **200 OK** (duplicate — idempotent):
+
+```json
+{
+  "ok": true
+}
+```
+
+#### Errors
+
+| Status | Code | Description |
+|--------|------|-------------|
+| `400` | — | Invalid JSON body |
+| `422` | — | Validation error (missing/invalid fields) |
+| `429` | — | Rate limit: 5/min per IP (header: `Retry-After: <seconds>`) |
+
+#### Rate Limiting
+
+- **Limit:** 5 requests per minute per IP (same limiter as signup)
+
+#### Curl Example
+
+```bash
+curl -X POST http://localhost:3000/api/waitlist \
+  -H "Content-Type: application/json" \
+  -d '{"email": "eli@roofing-co.com.au", "trade": "plumbing", "region": "brisbane"}'
 ```
 
 ---
@@ -1357,7 +1593,7 @@ Body=STOP&From=%2B61412345678
 
 **Internal — not for client consumption.** These endpoints are called by Vercel Cron.
 
-### POST /api/cron/digest
+### GET /api/cron/digest
 
 **Sunday digest generation (Vercel Cron).**
 
@@ -1381,7 +1617,7 @@ Generates and dispatches weekly digests for all active users:
 
 #### Request
 
-No request body (Vercel Cron POSTs with auth header only).
+No request body (Vercel Cron issues a GET with the auth header only).
 
 #### Response
 
@@ -1414,7 +1650,7 @@ No request body (Vercel Cron POSTs with auth header only).
 
 ---
 
-### POST /api/cron/ingest
+### GET /api/cron/ingest
 
 **Nightly DA ingestion (Vercel Cron).**
 
@@ -1458,6 +1694,89 @@ No request body.
 | `ingested` | integer | Total new DAs ingested across all LGAs |
 | `failed` | integer | Total DAs that failed to ingest |
 | `perCouncil` | object | Results keyed by council (LGA) |
+
+#### Errors
+
+| Status | Code | Description |
+|--------|------|-------------|
+| `401` | — | Invalid or missing `CRON_SECRET` |
+| `500` | — | Cron execution error |
+
+---
+
+### GET /api/cron/trial-reminder
+
+**Trial-ending reminder (Vercel Cron).**
+
+Vercel Cron handler — **daily 06:00 UTC (16:00 AEST)**.
+
+Emails users on day 26 of the 28-day trial (2 days before the card is charged).
+`trialReminderSentAt` dedupes so each user is reminded at most once. Skips users
+who have unsubscribed (`emailOptIn = false`, Spam Act 2003). Each reminder email
+carries a per-user unsubscribe link (`GET /api/unsubscribe/{token}`).
+
+**Not for client consumption.** Vercel Cron calls this endpoint.
+
+**Wedge FR-028:** Remind trialists before conversion.
+
+#### Security
+
+- **Authentication:** Bearer token in `Authorization` header (value: `Bearer ${CRON_SECRET}`)
+- **Source:** Vercel Cron, time-based trigger
+
+#### Request
+
+No request body.
+
+#### Response
+
+**200 OK:**
+
+```json
+{
+  "reminded": 12
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `reminded` | integer | Number of reminder emails successfully sent this run |
+
+#### Errors
+
+| Status | Code | Description |
+|--------|------|-------------|
+| `401` | — | Invalid or missing `CRON_SECRET` |
+
+---
+
+### GET /api/cron/storm-brief
+
+**Mid-week storm brief (Vercel Cron).**
+
+Vercel Cron handler — **every 3 hours (`0 */3 * * *` UTC)**.
+
+Polls BOM severe-weather warnings and dispatches a mid-week storm brief to
+opted-in users (`POST /account/storm-brief`). A `StormBrief` unique constraint
+dedupes across the 3-hourly ticks. No-op unless `STORM_BRIEF_ENABLED` is on
+(default off until dogfooded).
+
+**Not for client consumption.** Vercel Cron calls this endpoint.
+
+**Wedge FR-020:** Deliver time-sensitive storm-driven leads.
+
+#### Security
+
+- **Authentication:** Bearer token in `Authorization` header (value: `Bearer ${CRON_SECRET}`)
+- **Source:** Vercel Cron, time-based trigger
+
+#### Request
+
+No request body.
+
+#### Response
+
+**200 OK:** (shape returned by the storm-brief cron runner; empty/no-op when the feature flag is off)
 
 #### Errors
 
@@ -1519,22 +1838,23 @@ curl -X GET http://localhost:3000/api/s/abc123def456 \
 | FR-003 | User logout | `POST /auth/logout` | ✅ Implemented |
 | FR-004 | Email verification | `POST /auth/verify-email`, `POST /auth/verify-email/resend` | ✅ Implemented |
 | FR-005 | Password reset | `POST /auth/password-reset/request`, `POST /auth/password-reset/confirm` | ✅ Implemented |
-| FR-009 | Weekly digest | `POST /cron/digest` | ✅ Implemented |
+| FR-009 | Weekly digest | `GET /cron/digest` | ✅ Implemented |
 | FR-011 | SMS link shortening | `GET /s/{slug}` | ✅ Implemented |
 | FR-017 | Account management | `GET/PUT /account/me` | ✅ Implemented |
 | FR-018 | Subscription checkout | `POST /billing/checkout` | ✅ Implemented |
 | FR-019 | Billing portal | `POST /billing/portal` | ✅ Implemented |
-| FR-020 | LGA selection | `GET/PUT /account/lga-bundles` | ✅ Implemented |
+| FR-020 | LGA selection & storm briefs | `GET/PUT /account/lga-bundles`, `POST /account/storm-brief`, `GET /cron/storm-brief` | ✅ Implemented |
 | FR-022 | SMS preferences | `POST /account/sms-opt-in`, `POST /account/sms-opt-out` | ✅ Implemented |
-| FR-023 | Email feedback | `GET /feedback/{token}` | ✅ Implemented |
+| FR-023 | Email feedback & unsubscribe | `GET /feedback/{token}`, `GET /unsubscribe/{token}` | ✅ Implemented |
 | FR-024 | Portal feedback | `POST /feedback` | ✅ Implemented |
 | FR-025 | Saved query | `GET/PUT /account/saved-query` | ✅ Implemented |
-| FR-026 | Digest history | `GET /digests` | ✅ Implemented |
-| FR-028 | Trial reminder | `POST /cron/trial-reminder` | ✅ Implemented |
+| FR-026 | Digest history & export | `GET /digests`, `GET /export/digest/{id}.csv` | ✅ Implemented |
+| FR-028 | Trial reminder | `GET /cron/trial-reminder` | ✅ Implemented |
 | FR-029 | SMS STOP handling | `POST /api/webhooks/twilio` | ✅ Implemented |
 | FR-030 | Stripe webhooks | `POST /api/webhooks/stripe` | ✅ Implemented |
 | FR-031 | Data export | `GET /account/export` | ✅ Implemented |
-| FR-032 | Account deletion | `DELETE /account` | ✅ Implemented |
+| FR-032 | Account deletion | `DELETE /account/delete` | ✅ Implemented |
+| FR-033 | Out-of-scope demand capture | `POST /waitlist` | ✅ Implemented |
 
 ---
 
@@ -1545,8 +1865,10 @@ curl -X GET http://localhost:3000/api/s/abc123def456 \
 | Auth routes (signup, login, logout, verify, reset) | Lucia session (cookie) or None | Session cookie set on signup/login; session required for verify-email |
 | Account routes | Lucia session (cookie) | Session cookie required for all |
 | Feedback routes | Lucia session (cookie) OR HMAC token | Portal: session cookie; Email: HMAC-signed token (7-day expiry) |
+| Compliance routes (unsubscribe) | HMAC token | Unauthenticated; HMAC-signed token carries `userId` (Spam Act one-click opt-out) |
 | Billing routes | Lucia session (cookie) | Session cookie required for checkout and billing portal |
-| Digest routes | Lucia session (cookie) | Session cookie required |
+| Digest routes (incl. CSV export) | Lucia session (cookie) | Session cookie required; export enforces per-user ownership (404 on non-owned id) |
+| Waitlist routes | None | Public write; honeypot + per-IP rate limit; writes only to `waitlist_entries` |
 | Webhook routes | Signature validation | Stripe: `Stripe-Signature` header (HMAC-SHA256); Twilio: `X-Twilio-Signature` header (HMAC-SHA1) |
 | Cron routes | Bearer token | `Authorization: Bearer ${CRON_SECRET}` from GCP Secret Manager |
 | Short URL routes | None | Public redirect; no authentication |
@@ -1563,6 +1885,8 @@ curl -X GET http://localhost:3000/api/s/abc123def456 \
 | `POST /auth/verify-email/resend` | 1 | per minute per user | Prevents OTP spam |
 | `POST /auth/password-reset/request` | 5 | per minute per IP | Prevents enumeration attacks |
 | `POST /feedback` | 100 | per hour per user | Portal feedback rate limit |
+| `GET /export/digest/{id}.csv` | 30 | per hour per user | Caps scripted bulk history pulls |
+| `POST /waitlist` | 5 | per minute per IP | Same limiter as signup |
 
 ---
 
