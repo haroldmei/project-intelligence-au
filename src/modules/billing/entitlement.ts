@@ -18,9 +18,22 @@
 //   - trial + no accessUntil → a self-signup trial with no Stripe subscription,
 //                              entitled only while createdAt + trialDays hasn't
 //                              elapsed (this is the window that used to be
-//                              unbounded).
-// Everything else (cancelled, past_due, expired) is NOT entitled — unchanged
-// from the prior status filter, which already excluded them.
+//                              unbounded); OR
+//   - past_due + accessUntil → a paying subscriber whose card is failing, in
+//                              Stripe's multi-day smart-retry (dunning) window
+//                              (issue #106). The subscription is still LIVE, not
+//                              cancelled. Keep delivering through the period they
+//                              already paid for (accessUntil) — the Sunday digest
+//                              is the one weekly touchpoint that prompts them to
+//                              fix their card, so dropping them here is exactly
+//                              the wrong moment. Bounded by accessUntil like the
+//                              Stripe-managed-trial branch, so a stuck past_due
+//                              row can't be handed the paid product forever (the
+//                              same unbounded-grant leak issue #87 closed).
+// Everything else (cancelled, expired, past_due with a lapsed/absent access
+// window) is NOT entitled. A real past_due subscription always carries an
+// accessUntil (it was set by the prior active/trial subscription event), so a
+// null one is anomalous and treated as not entitled — defensively bounded.
 import type { Prisma } from "@prisma/client";
 import { PRICING } from "@/lib/pricing";
 
@@ -51,6 +64,12 @@ export function isDigestEntitled(user: EntitlementUser, now: Date = new Date()):
       user.accessUntil?.getTime() ?? user.createdAt.getTime() + TRIAL_WINDOW_MS;
     return deadlineMs > now.getTime();
   }
+  if (user.subscriptionStatus === "past_due") {
+    // Card in Stripe dunning (issue #106): entitled through the already-paid
+    // window, bounded. A null accessUntil is anomalous for past_due — not
+    // entitled.
+    return user.accessUntil != null && user.accessUntil.getTime() > now.getTime();
+  }
   return false;
 }
 
@@ -73,6 +92,11 @@ export function entitledDigestWhere(now: Date = new Date()): Prisma.UserWhereInp
       // Self-signup trial with no Stripe subscription: entitled only until
       // createdAt + trialDays elapses. THIS is the bound issue #87 was missing.
       { subscriptionStatus: "trial", accessUntil: null, createdAt: { gt: trialCutoff } },
+      // Paying subscriber in Stripe dunning (issue #106): card failing, sub
+      // still live, entitled through the already-paid window (accessUntil).
+      // Bounded like the Stripe-managed-trial branch — a null accessUntil is
+      // anomalous for past_due and is deliberately excluded.
+      { subscriptionStatus: "past_due", accessUntil: { gt: now } },
     ],
   };
 }

@@ -101,7 +101,7 @@ describe("isDigestEntitled", () => {
     ).toBe(true);
   });
 
-  it.each(["cancelled", "past_due", "expired", "anything-else"])(
+  it.each(["cancelled", "expired", "anything-else"])(
     "%s is never entitled",
     (status) => {
       expect(
@@ -112,15 +112,55 @@ describe("isDigestEntitled", () => {
       ).toBe(false);
     },
   );
+
+  // Issue #106 — a past_due subscriber is a paying user in Stripe's smart-retry
+  // (dunning) window, not a cancellation. Keep serving through the paid window.
+  it("past_due IS entitled while accessUntil is in the future (dunning window)", () => {
+    expect(
+      isDigestEntitled(
+        { subscriptionStatus: "past_due", accessUntil: daysAhead(10), createdAt: daysAgo(400) },
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  it("past_due is NOT entitled once accessUntil has passed (paid window lapsed)", () => {
+    expect(
+      isDigestEntitled(
+        { subscriptionStatus: "past_due", accessUntil: daysAgo(1), createdAt: daysAgo(1) },
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it("past_due with a null accessUntil is NOT entitled (anomalous — defensively bounded)", () => {
+    // A real past_due sub always carries an accessUntil from its prior
+    // active/trial event; a null one must not open an unbounded grant.
+    expect(
+      isDigestEntitled(
+        { subscriptionStatus: "past_due", accessUntil: null, createdAt: daysAgo(1) },
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it("past_due exactly at accessUntil is NOT entitled (boundary is exclusive)", () => {
+    expect(
+      isDigestEntitled(
+        { subscriptionStatus: "past_due", accessUntil: NOW, createdAt: daysAgo(1) },
+        NOW,
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("entitledDigestWhere", () => {
   it("mirrors isDigestEntitled: the self-signup-trial branch uses a now - trialDays cutoff", () => {
     const where = entitledDigestWhere(NOW);
     const or = where.OR as Array<Record<string, unknown>>;
-    expect(or).toHaveLength(3);
+    expect(or).toHaveLength(4);
 
-    const selfSignup = or.find((c) => c.accessUntil === null);
+    const selfSignup = or.find((c) => c.subscriptionStatus === "trial" && c.accessUntil === null);
     expect(selfSignup).toBeDefined();
     const createdAt = selfSignup!.createdAt as { gt: Date };
     expect(createdAt.gt.getTime()).toBe(NOW.getTime() - TRIAL_WINDOW_MS);
@@ -132,5 +172,12 @@ describe("entitledDigestWhere", () => {
       (c) => c.subscriptionStatus === "trial" && typeof c.accessUntil === "object" && c.accessUntil !== null,
     );
     expect(stripeTrial!.accessUntil).toEqual({ gt: NOW });
+  });
+
+  it("gates the past_due (dunning) branch on accessUntil > now (issue #106)", () => {
+    const or = entitledDigestWhere(NOW).OR as Array<Record<string, unknown>>;
+    const pastDue = or.find((c) => c.subscriptionStatus === "past_due");
+    expect(pastDue).toBeDefined();
+    expect(pastDue!.accessUntil).toEqual({ gt: NOW });
   });
 });
