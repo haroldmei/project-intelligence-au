@@ -252,7 +252,7 @@ Versioning rules:
 
 Location: `evals/rerank/` (renamed from contract `eval/` to make room for future eval suites; the location is documented here and remains under the `eval/` umbrella per `contract.ai.eval_harness_path`).
 
-- Gold dataset: `evals/rerank/dataset.jsonl` — 22 hand-authored cases covering bull's-eye matches (re-roof / Colorbond / membrane), false positives (solar PV on existing roof, new-build slab-with-roof), false-negative-risk abbreviations ("re roof", "reroof"), out-of-area (Wollongong), out-of-scope (commercial high-rise), low-value patch repairs.
+- Gold dataset: `evals/rerank/roofing-nsw.jsonl` — 22 hand-authored cases covering bull's-eye matches (re-roof / Colorbond / membrane), false positives (solar PV on existing roof, new-build slab-with-roof), false-negative-risk abbreviations ("re roof", "reroof"), out-of-area (Wollongong), out-of-scope (commercial high-rise), low-value patch repairs. [Issue #31] Gold sets are now keyed `<vertical>-<jurisdiction>.jsonl`; the machinery (labelling CLI, export, eval) is parameterised by `--vertical`/`--jurisdiction` so every future (trade, region) launch inherits the same gate.
 - Config: `evals/rerank/promptfooconfig.yaml` — runs every case against both haiku-4-5 (primary) and sonnet-4-6 (fallback), asserting:
   - `score_within_1`: `|actual − expected| ≤ 1`
   - `reason_contains_keyword`: at least one expected keyword in `why`
@@ -281,7 +281,7 @@ Per wedge §6 ai-features constraint and `contract.ai.cost_tracking_impl`:
 | `src/lib/ai/relevance-pipeline.ts` | Pure 3-stage orchestrator; DB access injected via `PipelineDeps` for testability |
 | `src/prompts/rerank.system.md` | Versioned system prompt (`version: 1.0.0`); locked wedge rule, 0–5 rubric, hard constraints |
 | `src/prompts/rerank.user.md` | Versioned templated user prompt |
-| `evals/rerank/dataset.jsonl` | 22 hand-authored gold cases |
+| `evals/rerank/roofing-nsw.jsonl` | 22 hand-authored gold cases (roofing/nsw; per-(vertical,jurisdiction) as of #31) |
 | `evals/rerank/promptfooconfig.yaml` | promptfoo config + assertions |
 | `package.json` | Added `eval:rerank` script + `@anthropic-ai/sdk`, `openai`, `promptfoo` deps |
 
