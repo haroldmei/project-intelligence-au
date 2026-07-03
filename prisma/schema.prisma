@@ -21,7 +21,13 @@ model User {
   passwordHash  String   @map("password_hash")
   mobile_e164   String?
   emailVerified Boolean  @default(false) @map("email_verified")
-  smsOptIn      Boolean  @default(false) @map("sms_opt_in")
+  // Signup requires and collects a verified AU mobile and the landing page
+  // sells "Email + SMS" — so the SMS channel is opted-IN by default, matching
+  // spec SF-3.4 ("toggle … defaulting to ON") and UX §7.9 ("[◑ ON]"). The
+  // signup route also sets this explicitly at the consent point; STOP (Twilio
+  // webhook) and the /account toggle are the opt-out path. Changing this
+  // default only affects new rows — existing users keep their stored value.
+  smsOptIn      Boolean  @default(true) @map("sms_opt_in")
   // Spam Act 2003: a functional unsubscribe honoured with no login/fee.
   // Defaults true (commercial email flows from signup); the token-based
   // /api/unsubscribe/[token] link flips it false, gated in the digest +

@@ -71,6 +71,22 @@ describe("smsOptIn / smsOptOut", () => {
     await expect(smsOptIn(user.id)).rejects.toThrow("Mobile number required");
   });
 
+  it("defaults smsOptIn=true for a user created without setting it (issue #89)", async () => {
+    // The schema/column default is ON: a signup collects a required AU mobile
+    // and is sold "Email + SMS", so a new account must be opted in (SF-3.4).
+    const user = await testDb.user.create({
+      data: {
+        email: `default-sms-${Date.now()}@test.com`,
+        passwordHash: "hashed",
+        emailVerified: true,
+        subscriptionStatus: "trial",
+        mobile_e164: "+61400000004",
+        trade: "roofing",
+      },
+    });
+    expect(user.smsOptIn).toBe(true);
+  });
+
   it("sets smsOptIn=false on opt-out", async () => {
     const userId = await seedTestUser({ mobile: "+61400000003" });
     await testDb.user.update({ where: { id: userId }, data: { smsOptIn: true } });
