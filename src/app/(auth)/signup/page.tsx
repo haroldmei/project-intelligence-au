@@ -158,7 +158,7 @@ export default function SignupPage() {
               autoComplete="tel"
               placeholder="412 345 678"
               error={!!errors.mobile_e164}
-              aria-describedby="mobile-hint mobile-error"
+              aria-describedby="mobile-hint sms-disclosure mobile-error"
               {...register("mobile_e164", {
                 required: "Mobile number is required.",
                 validate: (v) => {
@@ -170,6 +170,12 @@ export default function SignupPage() {
           </div>
           <p id="mobile-hint" className="text-xs text-[#829AB1]">
             9 digits starting with 4 (e.g. 412 345 678)
+          </p>
+          {/* FR-022 (Spam Act 2003) disclosure: SMS is opted-IN at signup, so the
+              consent + opt-out path is disclosed at the point the mobile is given. */}
+          <p id="sms-disclosure" className="text-xs text-[#627D98]">
+            By providing your mobile number you agree to receive your Sunday SMS
+            lead digest. Reply STOP or turn SMS off in your account anytime.
           </p>
           {errors.mobile_e164 && (
             <p id="mobile-error" className="text-xs text-[#DC2626]" role="alert">
