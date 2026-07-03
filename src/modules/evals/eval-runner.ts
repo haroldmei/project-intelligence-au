@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { composeRerankSystemPrompt, getRegisteredPack } from "@/verticals";
 import type { EvalCase } from "./export";
+import { DEFAULT_VERTICAL, DEFAULT_JURISDICTION } from "./targets";
 import {
   gradeCase,
   precisionRecallF1,
@@ -30,10 +31,16 @@ export type ModelCaller = (args: {
   evalCase: EvalCase;
 }) => Promise<ModelScore>;
 
-/** Compose the roofing rerank system prompt (base template + roofing fragment). */
-export function buildRoofingSystemPrompt(): string {
-  const pack = getRegisteredPack("roofing");
-  if (!pack) throw new Error("[eval] roofing vertical pack is not registered");
+/**
+ * Compose the rerank system prompt for a vertical (base template + that pack's
+ * rubric fragment), via the pack registry (#27/#31) — so each vertical is
+ * evaluated against the exact prompt it will run with in production. Uses
+ * `getRegisteredPack` (not `getPack`) so a dormant, flag-gated trade can still be
+ * eval-graded without flipping its launch flag.
+ */
+export function buildSystemPromptForVertical(vertical: string): string {
+  const pack = getRegisteredPack(vertical);
+  if (!pack) throw new Error(`[eval] vertical pack "${vertical}" is not registered`);
   return composeRerankSystemPrompt(pack);
 }
 
@@ -78,6 +85,8 @@ export interface EvalCaseResult {
 }
 
 export interface EvalReport {
+  vertical: string;
+  jurisdiction: string;
   model: string;
   threshold: number;
   n: number;
@@ -98,6 +107,10 @@ export interface EvalReport {
 }
 
 export interface RunEvalOptions {
+  /** Trade whose pack composes the rerank prompt. Default roofing (#31). */
+  vertical?: string;
+  /** Region the gold set belongs to; carried through to the report. Default nsw. */
+  jurisdiction?: string;
   threshold: number;
   model: string;
   precisionTarget?: number;
@@ -113,7 +126,9 @@ export async function runRerankEval(
   call: ModelCaller,
   opts: RunEvalOptions,
 ): Promise<EvalReport> {
-  const system = buildRoofingSystemPrompt();
+  const vertical = opts.vertical ?? DEFAULT_VERTICAL;
+  const jurisdiction = opts.jurisdiction ?? DEFAULT_JURISDICTION;
+  const system = buildSystemPromptForVertical(vertical);
   const results: EvalCaseResult[] = [];
 
   for (const c of cases) {
@@ -141,6 +156,8 @@ export async function runRerankEval(
   const recallTarget = opts.recallTarget ?? RECALL_TARGET;
 
   return {
+    vertical,
+    jurisdiction,
     model: opts.model,
     threshold: opts.threshold,
     n: results.length,

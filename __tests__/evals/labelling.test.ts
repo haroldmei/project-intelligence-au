@@ -27,6 +27,7 @@ async function seedDA(opts: {
   ruleFilteredOut?: boolean;
   estimatedValue?: number | null;
   lgaId?: string | null;
+  jurisdiction?: string;
 }): Promise<string> {
   daSeq++;
   const da = await testDb.developmentApplication.create({
@@ -41,6 +42,7 @@ async function seedDA(opts: {
       ruleFilteredOut: opts.ruleFilteredOut ?? false,
       estimatedValue: opts.estimatedValue ?? 120000,
       lgaId: opts.lgaId ?? null,
+      ...(opts.jurisdiction ? { jurisdiction: opts.jurisdiction } : {}),
     },
   });
   return da.id;
@@ -72,6 +74,41 @@ describe("selectUnlabelledStratified", () => {
     expect(forBob.hits.map((d) => d.id)).toContain(da);
   });
 
+  it("surfaces a DA again for a second vertical even when the labeller labelled it for another (#31)", async () => {
+    const da = await seedDA({ ruleFilteredOut: false });
+    // Labelled for roofing (the default vertical) by alice.
+    await recordLabel(testDb, { daId: da, council: "penrith", isRelevant: true, labelledBy: "alice" });
+
+    // Roofing pass no longer offers it…
+    const roofing = await selectUnlabelledStratified(testDb, { labelledBy: "alice", limitPerStratum: 10 });
+    expect(roofing.hits.map((d) => d.id)).not.toContain(da);
+
+    // …but the demolition pass still does — the roofing label doesn't cover it.
+    const demolition = await selectUnlabelledStratified(testDb, {
+      labelledBy: "alice",
+      limitPerStratum: 10,
+      vertical: "demolition",
+    });
+    expect(demolition.hits.map((d) => d.id)).toContain(da);
+  });
+
+  it("scopes the queue to the requested jurisdiction (#31)", async () => {
+    const nswDa = await seedDA({ ruleFilteredOut: false, jurisdiction: "nsw" });
+    const saDa = await seedDA({ ruleFilteredOut: false, jurisdiction: "sa" });
+
+    const nsw = await selectUnlabelledStratified(testDb, { labelledBy: "x", limitPerStratum: 10 });
+    expect(nsw.hits.map((d) => d.id)).toContain(nswDa);
+    expect(nsw.hits.map((d) => d.id)).not.toContain(saDa);
+
+    const sa = await selectUnlabelledStratified(testDb, {
+      labelledBy: "x",
+      limitPerStratum: 10,
+      jurisdiction: "sa",
+    });
+    expect(sa.hits.map((d) => d.id)).toContain(saDa);
+    expect(sa.hits.map((d) => d.id)).not.toContain(nswDa);
+  });
+
   it("respects the per-stratum limit", async () => {
     for (let i = 0; i < 3; i++) await seedDA({ ruleFilteredOut: false });
     const { hits } = await selectUnlabelledStratified(testDb, { labelledBy: "x", limitPerStratum: 2 });
@@ -92,8 +129,25 @@ describe("recordLabel", () => {
       isRelevant: true,
       labelledBy: "founder",
       source: "manual",
+      // Defaults to the roofing/nsw wedge when the caller doesn't say otherwise.
+      vertical: "roofing",
+      jurisdiction: "nsw",
     });
     expect(rows[0].labelledAt).toBeInstanceOf(Date);
+  });
+
+  it("stamps an explicit (vertical, jurisdiction) on the row (#31)", async () => {
+    const da = await seedDA({ jurisdiction: "sa" });
+    await recordLabel(testDb, {
+      daId: da,
+      council: "penrith",
+      isRelevant: true,
+      labelledBy: "founder",
+      vertical: "demolition",
+      jurisdiction: "sa",
+    });
+    const row = await testDb.daGroundTruth.findFirst({ where: { daId: da } });
+    expect(row).toMatchObject({ vertical: "demolition", jurisdiction: "sa" });
   });
 
   it("is idempotent per (daId, labeller) — re-label overwrites, no duplicate", async () => {
@@ -177,5 +231,25 @@ describe("loadGroundTruthForExport", () => {
 
     expect(await loadGroundTruthForExport(testDb)).toHaveLength(0);
     expect(await loadGroundTruthForExport(testDb, { includeThumbs: true })).toHaveLength(1);
+  });
+
+  it("scopes the export to one (vertical, jurisdiction) — each gold set is its own file (#31)", async () => {
+    const roofingDa = await seedDA({ description: "Re-roof job", lgaId: "blacktown" });
+    const demolitionDa = await seedDA({ description: "Demolition job", lgaId: "blacktown" });
+    await recordLabel(testDb, { daId: roofingDa, council: "blacktown", isRelevant: true, labelledBy: "founder" });
+    await recordLabel(testDb, {
+      daId: demolitionDa,
+      council: "blacktown",
+      isRelevant: true,
+      labelledBy: "founder",
+      vertical: "demolition",
+    });
+
+    // Default query is roofing/nsw — only the roofing label comes back.
+    const roofing = await loadGroundTruthForExport(testDb);
+    expect(roofing.map((r) => r.daId)).toEqual([roofingDa]);
+
+    const demolition = await loadGroundTruthForExport(testDb, { vertical: "demolition" });
+    expect(demolition.map((r) => r.daId)).toEqual([demolitionDa]);
   });
 });

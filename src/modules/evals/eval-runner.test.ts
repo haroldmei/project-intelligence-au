@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  buildRoofingSystemPrompt,
+  buildSystemPromptForVertical,
   renderEvalUserPrompt,
   runRerankEval,
   type ModelCaller,
@@ -29,14 +29,29 @@ const irrelevant: EvalCase = {
   expected_reason_keywords: [],
 };
 
-describe("buildRoofingSystemPrompt", () => {
+describe("buildSystemPromptForVertical", () => {
   it("composes the base template with the roofing rubric fragment", () => {
-    const sys = buildRoofingSystemPrompt();
+    const sys = buildSystemPromptForVertical("roofing");
     expect(sys).toContain("Relevance rubric");
     expect(sys.toLowerCase()).toContain("colorbond");
     // {{trade}} placeholder resolved to roofing, no unfilled markers.
     expect(sys).not.toContain("{{trade}}");
     expect(sys).not.toContain("{{rubric_fragment}}");
+  });
+
+  it("composes a different vertical's prompt from its own pack (demolition)", () => {
+    const sys = buildSystemPromptForVertical("demolition");
+    // The trade name is substituted and the demolition fragment is spliced in —
+    // so a dormant, flag-gated pack is still eval-graded against its real prompt.
+    expect(sys.toLowerCase()).toContain("demolition");
+    expect(sys).not.toContain("{{trade}}");
+    expect(sys).not.toContain("{{rubric_fragment}}");
+    // Distinct from roofing — the roofing-only rubric term is gone.
+    expect(sys.toLowerCase()).not.toContain("colorbond");
+  });
+
+  it("throws for an unregistered vertical", () => {
+    expect(() => buildSystemPromptForVertical("plumbing")).toThrow(/not registered/);
   });
 });
 
@@ -59,6 +74,23 @@ describe("runRerankEval", () => {
     score: evalCase.expected_score,
     why: evalCase.expected_reason_keywords[0] ?? "matches",
     confidence: 0.9,
+  });
+
+  it("defaults the target to roofing/nsw and carries it on the report", async () => {
+    const report = await runRerankEval([relevant], perfectCaller, { threshold: 3, model: "fake" });
+    expect(report.vertical).toBe("roofing");
+    expect(report.jurisdiction).toBe("nsw");
+  });
+
+  it("carries the requested (vertical, jurisdiction) on the report", async () => {
+    const report = await runRerankEval([relevant], perfectCaller, {
+      vertical: "demolition",
+      jurisdiction: "nsw",
+      threshold: 3,
+      model: "fake",
+    });
+    expect(report.vertical).toBe("demolition");
+    expect(report.jurisdiction).toBe("nsw");
   });
 
   it("produces a passing report on a perfect model", async () => {

@@ -4,6 +4,7 @@
 // WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo, signup in 60 seconds.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
 import type { PrismaClient } from "@prisma/client";
+import { DEFAULT_VERTICAL, DEFAULT_JURISDICTION } from "./targets";
 
 /** Minimal DA shape the labelling CLI presents to a human. */
 export interface UnlabelledDa {
@@ -42,17 +43,29 @@ function toUnlabelled(rows: Array<Record<string, unknown>>): UnlabelledDa[] {
 }
 
 /**
- * DAs not yet labelled *by this labeller*, split by the rule filter so the gold
- * set stays stratified across rule-filter hits (ruleFilteredOut=false) AND
- * misses (ruleFilteredOut=true) — labelling only the hits would blind the eval
- * to false negatives the rule pass drops.
+ * DAs not yet labelled *by this labeller for this vertical*, split by the rule
+ * filter so the gold set stays stratified across rule-filter hits
+ * (ruleFilteredOut=false) AND misses (ruleFilteredOut=true) — labelling only the
+ * hits would blind the eval to false negatives the rule pass drops.
+ *
+ * Scoped to `jurisdiction` (the DA's own region) and to the `vertical` on the
+ * "already labelled" check, so labelling the same DA for a second trade surfaces
+ * it again rather than treating a roofing label as covering demolition (#31).
  */
 export async function selectUnlabelledStratified(
   db: PrismaClient,
-  args: { labelledBy: string; limitPerStratum: number },
+  args: {
+    labelledBy: string;
+    limitPerStratum: number;
+    vertical?: string;
+    jurisdiction?: string;
+  },
 ): Promise<{ hits: UnlabelledDa[]; misses: UnlabelledDa[] }> {
+  const vertical = args.vertical ?? DEFAULT_VERTICAL;
+  const jurisdiction = args.jurisdiction ?? DEFAULT_JURISDICTION;
   const base = {
-    groundTruth: { none: { labelledBy: args.labelledBy } },
+    jurisdiction,
+    groundTruth: { none: { labelledBy: args.labelledBy, vertical } },
   };
   const [hits, misses] = await Promise.all([
     db.developmentApplication.findMany({
@@ -77,14 +90,20 @@ export interface LabelInput {
   isRelevant: boolean;
   labelledBy: string;
   source?: string;
+  /** (trade, region) the label is made under (#31); default roofing/nsw. */
+  vertical?: string;
+  jurisdiction?: string;
 }
 
 /**
  * Record (or overwrite) one label. Idempotent per (daId, labelledBy) via upsert
  * — re-labelling the same DA corrects the earlier call rather than duplicating.
+ * The (vertical, jurisdiction) it was made under is stamped on the row (#31).
  */
 export async function recordLabel(db: PrismaClient, input: LabelInput): Promise<void> {
   const source = input.source ?? "manual";
+  const vertical = input.vertical ?? DEFAULT_VERTICAL;
+  const jurisdiction = input.jurisdiction ?? DEFAULT_JURISDICTION;
   await db.daGroundTruth.upsert({
     where: { daId_labelledBy: { daId: input.daId, labelledBy: input.labelledBy } },
     create: {
@@ -93,8 +112,10 @@ export async function recordLabel(db: PrismaClient, input: LabelInput): Promise<
       isRelevant: input.isRelevant,
       labelledBy: input.labelledBy,
       source,
+      vertical,
+      jurisdiction,
     },
-    update: { isRelevant: input.isRelevant, source },
+    update: { isRelevant: input.isRelevant, source, vertical, jurisdiction },
   });
 }
 
@@ -113,8 +134,10 @@ export interface ThumbImportResult {
  */
 export async function importThumbsAsCandidates(
   db: PrismaClient,
-  args: { limit?: number } = {},
+  args: { limit?: number; vertical?: string; jurisdiction?: string } = {},
 ): Promise<ThumbImportResult> {
+  const vertical = args.vertical ?? DEFAULT_VERTICAL;
+  const jurisdiction = args.jurisdiction ?? DEFAULT_JURISDICTION;
   const feedback = await db.daFeedback.findMany({
     orderBy: { createdAt: "desc" },
     take: args.limit,
@@ -141,18 +164,24 @@ export async function importThumbsAsCandidates(
         isRelevant: f.feedback === "up",
         labelledBy,
         source: "thumb",
+        vertical,
+        jurisdiction,
       },
-      update: { isRelevant: f.feedback === "up", source: "thumb" },
+      update: { isRelevant: f.feedback === "up", source: "thumb", vertical, jurisdiction },
     });
     imported++;
   }
   return { imported, skipped };
 }
 
-/** Ground-truth rows joined to their DA, shaped for scripts/export-eval-set.ts. */
+/**
+ * Ground-truth rows joined to their DA, shaped for scripts/export-eval-set.ts.
+ * Scoped to one (vertical, jurisdiction) so each gold set exports to its own
+ * `<vertical>-<jurisdiction>.jsonl` (#31); defaults to the roofing/nsw wedge.
+ */
 export async function loadGroundTruthForExport(
   db: PrismaClient,
-  args: { includeThumbs?: boolean } = {},
+  args: { includeThumbs?: boolean; vertical?: string; jurisdiction?: string } = {},
 ): Promise<
   Array<{
     daId: string;
@@ -165,7 +194,11 @@ export async function loadGroundTruthForExport(
   }>
 > {
   const rows = await db.daGroundTruth.findMany({
-    where: args.includeThumbs ? undefined : { source: "manual" },
+    where: {
+      vertical: args.vertical ?? DEFAULT_VERTICAL,
+      jurisdiction: args.jurisdiction ?? DEFAULT_JURISDICTION,
+      ...(args.includeThumbs ? {} : { source: "manual" }),
+    },
     include: {
       da: { select: { description: true, estimatedValue: true, lgaId: true } },
     },

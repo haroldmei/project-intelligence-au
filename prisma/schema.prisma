@@ -228,6 +228,12 @@ model DaGroundTruth {
   council     String
   isRelevant  Boolean  @map("is_relevant")
   labelledBy  String   @map("labelled_by")
+  // The (trade, region) the label was made under (#31). A gold set is scoped to
+  // one (vertical, jurisdiction) so every future launch inherits the same GA
+  // gate; existing rows are the roofing/NSW wedge, hence the defaults (which
+  // also backfill in place at migration time).
+  vertical     String  @default("roofing")
+  jurisdiction String  @default("nsw")
   // Provenance of the label (#19): `manual` = a human labelled it in the
   // scripts/label-das.ts CLI; `thumb` = imported from a DaFeedback thumbs-up/down
   // as a *candidate* label pending human review before it counts toward the gate.
