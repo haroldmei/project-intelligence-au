@@ -3,6 +3,13 @@
 // most once per (warning, user). No-op when STORM_BRIEF_ENABLED is off.
 // WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
+//
+// CADENCE: the intended schedule is every 3 hours (`0 */3 * * *`) so a warning
+// issued mid-morning reaches subbies while it's still actionable. Vercel's
+// Hobby plan (#84) caps crons at once-per-day, so vercel.json runs this daily
+// (`0 20 * * *` = 06:00 AEST). The handler is idempotent per warning-id (the
+// StormBrief unique constraint below), so restoring the 3-hourly cadence on a
+// Pro upgrade is a one-line vercel.json revert — no code change here.
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/email/client";
