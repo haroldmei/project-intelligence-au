@@ -63,28 +63,61 @@ export async function assembleAndSendDigest(
     }),
   );
 
-  // Idempotent resume (issue #12): the retry tick re-enters assembly for a
-  // user whose primary attempt partially failed. Reuse the Digest row the
-  // primary already created rather than inserting a duplicate — and remember
-  // which channels already succeeded so we don't re-send them below.
+  // Re-send protection: idempotent retry resume (issue #12) + overlapping-cron
+  // guard (issue #93).
+  //
+  // Sequential retry tick: the primary attempt partially failed, so a Digest row
+  // already exists — reuse it and re-send ONLY the channel that failed (tracked
+  // by *AlreadyDelivered below), never double-mailing a channel that succeeded.
+  //
+  // Concurrent overlap: two cron invocations reach here for the same (userId,
+  // runId) at once. Both miss this findFirst, but @@unique([userId, runId]) lets
+  // only ONE create win; the loser catches P2002 and returns WITHOUT sending —
+  // mirroring StormBrief (commit the dedupe row, then send). So overlapping ticks
+  // email each user at most once and never duplicate the DigestDa cards.
   const existing = await db.digest.findFirst({
     where: { userId, runId },
     select: { id: true, emailStatus: true, smsStatus: true },
   });
+
+  let digest: { id: string };
+  if (existing) {
+    digest = existing;
+  } else {
+    try {
+      digest = await db.digest.create({
+        data: {
+          userId,
+          runId,
+          daCount,
+          fallbackUsed: relevance.fallbackUsed,
+        },
+      });
+    } catch (err) {
+      if ((err as { code?: string }).code !== "P2002") throw err;
+      // A concurrent invocation already claimed this (userId, runId) and owns
+      // the send. Back off atomically rather than racing on the non-atomic
+      // findFirst — the whole point of issue #93.
+      const winner = await db.digest.findFirstOrThrow({
+        where: { userId, runId },
+        select: { id: true, daCount: true, emailStatus: true, smsStatus: true },
+      });
+      log.info(
+        { userId, runId, digestId: winner.id },
+        "[digest] concurrent invocation owns this digest — not sending",
+      );
+      return {
+        digestId: winner.id,
+        daCount: winner.daCount,
+        emailStatus: winner.emailStatus ?? "pending",
+        smsStatus: winner.smsStatus ?? "skipped",
+      };
+    }
+  }
+
   const emailAlreadyDelivered =
     existing?.emailStatus === "sent" || existing?.emailStatus === "skipped_optout";
   const smsAlreadyDelivered = existing?.smsStatus === "sent" || existing?.smsStatus === "skipped";
-
-  const digest =
-    existing ??
-    (await db.digest.create({
-      data: {
-        userId,
-        runId,
-        daCount,
-        fallbackUsed: relevance.fallbackUsed,
-      },
-    }));
 
   // Create DigestDa records only on first assembly (FR-012: DA card stores
   // portal_url). The cards are fixed for the week, so a retry must not
