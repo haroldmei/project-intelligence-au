@@ -73,21 +73,34 @@ export async function runDigestCron(): Promise<DigestCronResult> {
   // Idempotent resume (issue #12): the retry tick (Sun 10:00 UTC) must reuse
   // the primary tick's (Sun 07:00 UTC) DigestRun, not start a fresh one. Both
   // ticks share `cronWeekStartUtc`, so this finds the week's run if it exists.
+  //
+  // The lookup + create is also the concurrency guard (issue #93): the week key
+  // is UNIQUE, so two overlapping invocations that both miss the findFirst can't
+  // both create a run — the loser's create hits P2002 and re-reads the winner's
+  // run. Without this the two invocations would run under different runIds and
+  // the per-(user,run) Digest unique could never dedupe them.
   const weekStart = cronWeekStartUtc();
-  const existing = await db.digestRun.findFirst({
-    where: { triggeredAt: { gte: weekStart } },
-    orderBy: { triggeredAt: "asc" },
-  });
-  const resumed = existing !== null;
+  let run = await db.digestRun.findFirst({ where: { weekKey: weekStart } });
+  let resumed = run !== null;
 
-  const run =
-    existing ??
-    (await db.digestRun.create({
-      data: {
-        runDate: new Date(),
-        status: "running",
-      },
-    }));
+  if (!run) {
+    try {
+      run = await db.digestRun.create({
+        data: {
+          runDate: new Date(),
+          weekKey: weekStart,
+          status: "running",
+        },
+      });
+    } catch (err) {
+      if ((err as { code?: string }).code !== "P2002") throw err;
+      // A concurrent invocation just created this week's run — adopt it and
+      // proceed as a resume (we'll only touch users it hasn't served yet).
+      run = await db.digestRun.findFirstOrThrow({ where: { weekKey: weekStart } });
+      resumed = true;
+    }
+  }
+
   if (resumed) {
     // Reopen the run for this pass (it was marked done/failed by the primary).
     await db.digestRun.update({

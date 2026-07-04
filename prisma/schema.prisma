@@ -269,6 +269,14 @@ model DigestRun {
   userCount   Int       @default(0) @map("user_count")
   status      String    @default("running") // running|done|failed
   fallbackUsed Boolean  @default(false) @map("fallback_used")
+  // Stable per-week idempotency key: the UTC-Sunday 00:00 instant for weekly
+  // cron runs (= cronWeekStartUtc(), src/lib/cron/retry.ts). Two overlapping
+  // cron ticks for the same week compute the identical key, so the unique
+  // constraint lets them share ONE run instead of each creating a fresh one
+  // and double-sending (issue #93). NULL for ad-hoc preview runs
+  // (src/modules/digest/preview.ts) — Postgres treats NULLs as distinct, so
+  // any number of previews coexist without ever colliding here.
+  weekKey     DateTime? @unique @map("week_key")
 
   digests Digest[]
 
@@ -290,7 +298,12 @@ model Digest {
   digestDas DigestDa[]
   digestCandidates DigestCandidate[]
 
-  @@index([userId])
+  // At most one Digest per (user, run). Enforces re-send protection at the DB
+  // level (issue #93): two overlapping cron invocations for the same week can't
+  // both create a Digest and both email the user — the loser of the create race
+  // hits this constraint (P2002) and backs off without sending. The composite
+  // also serves the userId-prefix lookups that the old @@index([userId]) did.
+  @@unique([userId, runId])
   @@map("digests")
 }
 
