@@ -71,6 +71,55 @@ describe("LoginPage — returnTo (issue #137)", () => {
   });
 });
 
+// Issue #180: an unverified account has no digest to return to (the Sunday cron
+// skips it), so login must send it to /verify — not the ?returnTo/digest path —
+// avoiding a portal flash before the layout's own gate bounces it.
+describe("LoginPage — unverified routing (issue #180)", () => {
+  function stubLoginResponse(body: Record<string, unknown>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => body }),
+    );
+  }
+  beforeEach(() => {
+    pushMock.mockReset();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.history.pushState({}, "", "/login");
+  });
+
+  it("routes an unverified user to /verify, ignoring returnTo", async () => {
+    window.history.pushState(
+      {},
+      "",
+      "/login?returnTo=" + encodeURIComponent("/digest?feedback=recorded"),
+    );
+    stubLoginResponse({ session_set: true, emailVerified: false });
+    render(<LoginPage />);
+    submitValidCredentials();
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/verify"));
+    expect(pushMock).not.toHaveBeenCalledWith("/digest?feedback=recorded");
+  });
+
+  it("routes a verified user to the returnTo destination", async () => {
+    window.history.pushState(
+      {},
+      "",
+      "/login?returnTo=" + encodeURIComponent("/digest?feedback=recorded"),
+    );
+    stubLoginResponse({ session_set: true, emailVerified: true });
+    render(<LoginPage />);
+    submitValidCredentials();
+
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith("/digest?feedback=recorded"),
+    );
+    expect(pushMock).not.toHaveBeenCalledWith("/verify");
+  });
+});
+
 // The reset flow redirects to /login?reset=success but the param used to be
 // inert — the tradie landed on a bare form with no acknowledgement (issue #184).
 describe("LoginPage — password-reset confirmation (issue #184)", () => {
