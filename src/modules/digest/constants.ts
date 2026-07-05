@@ -14,9 +14,11 @@
 export const DIGEST_EMAIL_MAX_CARDS = 15;
 
 /**
- * Target floor for the email digest. Not an enforced minimum — a genuinely
- * quiet week may surface fewer real leads and we never fabricate cards — but
- * the number the marketing framing and rerank are tuned around.
+ * FR-006 minimum for a real (non-quiet) digest. A digest contains 5–15 DAs that
+ * clear the relevance floor (relevance_score ≥ 4); if fewer than this many clear
+ * it, the run is a quiet week and sends the FR-010 reassurance email instead of
+ * padding with borderline leads (enforced in modules/relevance/run.ts, issue
+ * #163). We still never fabricate cards — a quiet week ships zero, not filler.
  */
 export const DIGEST_EMAIL_MIN_CARDS = 5;
 

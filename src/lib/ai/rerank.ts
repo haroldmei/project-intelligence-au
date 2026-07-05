@@ -28,6 +28,18 @@ const FALLBACK_MODEL = "claude-sonnet-4-6";
 const FALLBACK_CONFIDENCE_THRESHOLD = 0.5;
 
 /**
+ * FR-006 digest floor, expressed on the 0–5 rerank rubric. A DA must score
+ * ≥ 2 to be surfaced — i.e. `relevance_score = score * 2 ≥ 4` on the 0–10 scale
+ * the SRS (FR-006) and the digest cards (assemble.ts) speak in.
+ *
+ * This is the SINGLE source of the floor: relevance-pipeline.ts defaults
+ * `minScoreForDigest` to it and rerankCandidates defaults `minScore` to it, so
+ * the two can never silently drift again — the drift was the root of issue #163,
+ * where the pipeline defaulted to 0 and surfaced DAs the model scored 0/10.
+ */
+export const DIGEST_MIN_RERANK_SCORE = 2;
+
+/**
  * Cap for any single untrusted DA field before it is interpolated into the
  * rerank prompt (G-005 prompt-injection defence). Real portal descriptions and
  * scope text are ≤ a few KB; anything larger is malformed or hostile. 4000
@@ -315,8 +327,9 @@ async function callModel(
 }
 
 /**
- * Rerank candidates with the LLM. Returns top-N (default: all candidates
- * scored ≥ 4) sorted by score descending. Records cost in ai_cost_log.
+ * Rerank candidates with the LLM. Returns top-N (default: candidates scoring
+ * ≥ DIGEST_MIN_RERANK_SCORE on the 0–5 rubric = relevance_score ≥ 4, the FR-006
+ * digest floor) sorted by score descending. Records cost in ai_cost_log.
  *
  * Fallback path: if the primary model returns ANY candidate with
  * confidence < FALLBACK_CONFIDENCE_THRESHOLD, we re-run those low-confidence
@@ -391,10 +404,11 @@ export async function rerankCandidates(
     applyRows(fallback.parsed.results, validIds, FALLBACK_MODEL, byId);
   }
 
-  // Default min-score 3 matches relevance-pipeline.ts. The pipeline always
-  // passes one explicitly, so this default only applies to ad-hoc callers
-  // (eval scripts, future utilities). Keep them aligned.
-  const minScore = opts.minScore ?? 3;
+  // Default to the shared FR-006 floor (DIGEST_MIN_RERANK_SCORE = rubric 2 =
+  // relevance_score 4). The pipeline passes one explicitly, but sharing the
+  // constant means an ad-hoc caller (eval scripts, future utilities) that omits
+  // it still gets the production floor rather than surfacing 0-scored DAs.
+  const minScore = opts.minScore ?? DIGEST_MIN_RERANK_SCORE;
   const sorted = [...byId.values()]
     .filter((r) => r.score >= minScore)
     .sort((a, b) => b.score - a.score || b.confidence - a.confidence);
