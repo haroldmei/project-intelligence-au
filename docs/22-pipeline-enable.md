@@ -143,7 +143,7 @@ The cron is configured in `vercel.json` to fire `/api/cron/digest` at Sun 07:00 
 
 ```bash
 CRON_SECRET=$(grep '^CRON_SECRET=' .env.production.local | cut -d= -f2- | tr -d '"')
-curl -X POST -H "Authorization: Bearer $CRON_SECRET" \
+curl -X GET -H "Authorization: Bearer $CRON_SECRET" \
   https://www.pi-au.com/api/cron/digest
 ```
 
@@ -232,7 +232,7 @@ To enable in production:
 3. Trigger the ingest cron once to verify (or wait for the next 13:00 UTC tick):
    ```bash
    CRON_SECRET=$(grep '^CRON_SECRET=' .env.production.local | cut -d= -f2- | tr -d '"')
-   curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://www.pi-au.com/api/cron/ingest
+   curl -X GET -H "Authorization: Bearer $CRON_SECRET" https://www.pi-au.com/api/cron/ingest
    ```
    Then check `ingestion_log` for one row per council with `source_api='da_exhibitions'`.
 
