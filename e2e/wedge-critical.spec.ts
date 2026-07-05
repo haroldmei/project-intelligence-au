@@ -174,6 +174,74 @@ test.describe("Wedge Critical Flow", () => {
     await expect(continueBtn).toBeEnabled();
   });
 
+  test("onboarding query step has a Back control that returns to area with the bundle still checked (issue #139)", async ({
+    page,
+  }) => {
+    // Onboarding steps are client components with no RSC auth gate, so this
+    // journey runs on stubs without PLAYWRIGHT_DB. A stateful store makes the
+    // PUT-then-GET round-trip behave like the real API: the bundle saved on
+    // "Continue" comes back checked when the user navigates Back.
+    let savedBundles: string[] = [];
+    await page.route("**/api/account/lga-bundles", async (route) => {
+      const method = route.request().method();
+      if (method === "PUT") {
+        savedBundles = route.request().postDataJSON()?.bundle_ids ?? [];
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ lgaBundles: savedBundles }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ bundle_ids: savedBundles }),
+      });
+    });
+    await page.route("**/api/account/saved-query", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ saved_query_text: null }),
+      });
+    });
+
+    // The cookie-consent banner intercepts clicks on every page until dismissed.
+    const dismissCookieBanner = async () => {
+      const banner = page.locator('[role="dialog"][aria-label="Cookie consent"]');
+      // It mounts a beat after navigation — wait for it before dismissing so we
+      // don't race past an as-yet-unrendered banner that then intercepts clicks.
+      await banner.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
+      const close = page.getByRole("button", {
+        name: /close cookie banner|reject analytics cookies/i,
+      });
+      if (await close.count()) {
+        await close.first().click();
+        await banner.waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
+      }
+    };
+
+    // Step 3: pick a bundle and advance to the query step.
+    await page.goto("/onboarding/area");
+    await dismissCookieBanner();
+    await page.getByRole("button", { name: /western sydney/i }).click();
+    await page.getByRole("button", { name: /continue/i }).click();
+    await page.waitForURL("**/onboarding/query");
+
+    // Step 4: a Back control is present…
+    const back = page.getByRole("link", { name: /back to service area/i });
+    await expect(back).toBeVisible();
+
+    // …and activating it returns to the area step with the bundle still checked.
+    await back.click();
+    await page.waitForURL("**/onboarding/area");
+    await expect(page.getByRole("button", { name: /western sydney/i })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   test("OTP verify button is disabled until all 6 digits are entered", async ({ page }) => {
     test.skip(!DB_AVAILABLE, "Requires PLAYWRIGHT_DB=1 — /verify needs a live session");
     await page.goto("/verify");
