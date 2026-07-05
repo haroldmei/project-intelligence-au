@@ -5,8 +5,11 @@
 // Spam Act 2003 / Spam Regulations 2021: a functional unsubscribe honoured
 // with NO login and NO fee. Same HMAC pattern as the thumbs feedback links
 // (src/app/api/feedback/[token]/route.ts) — the token carries the userId, so
-// no session is required. Sets User.emailOptIn = false, which the digest and
-// trial-reminder send paths gate on.
+// no session is required. Sets User.emailOptIn = false, which the MARKETING
+// send path (the weekly digest) gates on. Transactional notices — the
+// trial-ending charge reminder (issue #127) and the payment-failed dunning
+// email — deliberately do NOT gate on this flag, so unsubscribing never
+// silently suppresses a pre-charge warning.
 import { validateUnsubscribeToken } from "@/lib/hmac/token";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -53,7 +56,8 @@ export async function GET(
   return page(
     200,
     "You've been unsubscribed",
-    `You will no longer receive the weekly Sydney roofing digest or other emails from ProjectIntelligence. ` +
+    `You will no longer receive the weekly Sydney roofing digest or other marketing emails from ProjectIntelligence. ` +
+      `We'll still send essential account and billing notices — such as a reminder before your trial ends and your card is charged. ` +
       `Changed your mind? You can re-enable email from your <a href="${APP_BASE}/account">account settings</a>.`,
   );
 }

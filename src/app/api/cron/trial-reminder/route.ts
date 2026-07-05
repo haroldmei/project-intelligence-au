@@ -58,14 +58,21 @@ export async function GET(request: Request): Promise<NextResponse> {
   const now = new Date();
   const windowEnd = new Date(now.getTime() + REMINDER_WINDOW_DAYS * MS_PER_DAY);
 
+  // Deliberately NOT gated on emailOptIn (issue #127). This is the ONLY
+  // pre-charge warning a trialer gets before the day-28 auto-charge, so it is
+  // transactional — same class as the payment-failed dunning email, which also
+  // ignores emailOptIn. The one-tap digest unsubscribe flips a single global
+  // emailOptIn flag; suppressing this notice on that flag would auto-charge a
+  // user who only meant to mute the weekly digest, with zero prior warning — a
+  // trust and chargeback/dispute risk. The Spam Act 2003 permits a factual
+  // notice about a transaction the recipient has entered into; marketing sends
+  // (the weekly digest) still honour emailOptIn.
   const users = await db.user.findMany({
     where: {
       subscriptionStatus: "trial",
       stripeCustomerId: { not: null },
       accessUntil: { gt: now, lte: windowEnd },
       trialReminderSentAt: null,
-      // Spam Act 2003: don't email a user who has unsubscribed.
-      emailOptIn: true,
     },
     select: { id: true, email: true, accessUntil: true },
     take: 1000, // bounded daily cohort; matches NFR-008 ceiling
