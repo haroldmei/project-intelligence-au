@@ -67,7 +67,8 @@ Then in the Vercel dashboard:
 
 1. https://app.posthog.com → Create project → name: `pi-au`.
 2. Project settings → copy "Project API key" → `NEXT_PUBLIC_POSTHOG_KEY`.
-3. `NEXT_PUBLIC_POSTHOG_HOST=https://app.posthog.com` (default).
+3. `NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com` (default; the ingest
+   host, distinct from the `app.posthog.com` dashboard URL above).
 4. Cookie consent is wired in `src/components/cookie-consent.tsx` — events
    only fire after the user accepts the banner.
 
