@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { validateRequest } from "@/lib/auth/session";
 import { rateLimitMutatingByUser } from "@/lib/auth/rate-limit";
 import { UpdateLgaBundlesInput } from "@/modules/account/schemas";
-import { getAccount, updateLgaBundles } from "@/modules/account/service";
+import { getAccount, updateLgaBundles, UnknownLgaBundleError } from "@/modules/account/service";
 
 export async function GET(): Promise<NextResponse> {
   const auth = await validateRequest();
@@ -39,6 +39,18 @@ export async function PUT(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 });
   }
 
-  const account = await updateLgaBundles(auth.user.id, parsed.data.bundle_ids);
-  return NextResponse.json(account);
+  try {
+    const account = await updateLgaBundles(auth.user.id, parsed.data.bundle_ids);
+    return NextResponse.json(account);
+  } catch (err) {
+    // Unknown bundle id → clean 422, not an unhandled 500 that leaves the user
+    // with no coverage (#134).
+    if (err instanceof UnknownLgaBundleError) {
+      return NextResponse.json(
+        { error: "Unknown LGA bundle", bundle_ids: err.bundleIds },
+        { status: 422 },
+      );
+    }
+    throw err;
+  }
 }

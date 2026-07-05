@@ -54,13 +54,46 @@ export async function updateProfile(
   return toDTO(updated);
 }
 
+/**
+ * Thrown when a submitted bundle id doesn't reference a real LgaBundle row.
+ * The route maps this to a 422 client error instead of a 500 (#134).
+ */
+export class UnknownLgaBundleError extends Error {
+  readonly bundleIds: string[];
+  constructor(bundleIds: string[]) {
+    super(`Unknown LGA bundle id(s): ${bundleIds.join(", ")}`);
+    this.name = "UnknownLgaBundleError";
+    this.bundleIds = bundleIds;
+  }
+}
+
 export async function updateLgaBundles(userId: string, bundleIds: string[]): Promise<AccountDTO> {
-  // Replace all subscriptions (delete + create)
-  await db.lgaBundleSubscription.deleteMany({ where: { userId } });
-  await db.lgaBundleSubscription.createMany({
-    data: bundleIds.map((bundleId) => ({ userId, bundleId })),
-    skipDuplicates: true,
-  });
+  // Validate every submitted id references a real LgaBundle up front (#134).
+  // Zod only checks the ids are non-empty strings — it can't know whether they
+  // reference real rows. Without this, a stale/bogus id (a client bug, a bundle
+  // deleted between page load and submit) throws P2003 from createMany AFTER
+  // deleteMany has already wiped the user's coverage. Reject cleanly instead.
+  const uniqueIds = [...new Set(bundleIds)];
+  if (uniqueIds.length > 0) {
+    const existing = await db.lgaBundle.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true },
+    });
+    const known = new Set(existing.map((b) => b.id));
+    const unknown = uniqueIds.filter((id) => !known.has(id));
+    if (unknown.length > 0) throw new UnknownLgaBundleError(unknown);
+  }
+
+  // Replace all subscriptions atomically (#134): if createMany fails, the
+  // deleteMany rolls back so the user is never stranded with zero coverage
+  // (which would silently drop them from the Sunday digest — the paid product).
+  await db.$transaction([
+    db.lgaBundleSubscription.deleteMany({ where: { userId } }),
+    db.lgaBundleSubscription.createMany({
+      data: bundleIds.map((bundleId) => ({ userId, bundleId })),
+      skipDuplicates: true,
+    }),
+  ]);
   const user = await db.user.findUniqueOrThrow({
     where: { id: userId },
     include: { lgaBundles: true },
