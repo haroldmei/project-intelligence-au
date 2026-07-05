@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
 const DEFAULT_QUERY =
@@ -76,7 +77,14 @@ export default function QueryPage() {
 
   return (
     <div className="bg-white rounded-xl border border-[#E5E5E5] shadow-sm p-6 space-y-5">
-      <div className="flex items-center justify-end text-xs text-[#829AB1]">
+      <div className="flex items-center justify-between text-xs text-[#829AB1]">
+        <Link
+          href="/onboarding/area"
+          aria-label="Back to service area"
+          className="inline-flex items-center gap-1 font-semibold text-[#627D98] hover:text-[#1E3A5F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] rounded"
+        >
+          <span aria-hidden="true">←</span> Back
+        </Link>
         <span>Step 4 of 5</span>
       </div>
 

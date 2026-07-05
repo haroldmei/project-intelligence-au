@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,24 @@ export default function AreaPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+
+  // Pre-fill previously saved bundles so a user returning from a later step
+  // (issue #139: the Back link on /onboarding/query) sees their earlier pick
+  // still checked. Guard with prev.size === 0 so a resolving fetch never
+  // clobbers a selection the user made while it was in flight.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/account/lga-bundles")
+      .then(async (res) => (res.ok ? ((await res.json()) as { bundle_ids: string[] }) : null))
+      .then((data) => {
+        if (cancelled || !data?.bundle_ids?.length) return;
+        setSelected((prev) => (prev.size === 0 ? new Set(data.bundle_ids) : prev));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function toggle(id: string) {
     setSelected((prev) => {

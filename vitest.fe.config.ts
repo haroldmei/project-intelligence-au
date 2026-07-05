@@ -29,6 +29,9 @@ export default defineConfig({
       // Escaped so the signup page test runs (issue #88 — FR-022 SMS opt-in
       // disclosure, since SMS is opted-IN by default at signup).
       "src/app/\\(auth\\)/signup/**/*.test.{ts,tsx}",
+      // Escaped so the onboarding area/query page tests run (issue #139 — Back
+      // navigation + bundle pre-fill across the wizard steps).
+      "src/app/\\(auth\\)/onboarding/**/*.test.{ts,tsx}",
       "src/app/\\(portal\\)/**/*.test.{ts,tsx}",
       "src/components/**/*.test.{ts,tsx}",
       // Transactional email templates (#14) — pure string builders, no DB / no
