@@ -1,9 +1,10 @@
 // Unit tests for billing/stripe.ts (signature validation + status mapping)
 // FR-030 | NFR-015
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   validateStripeWebhook,
   clampAccessUntil,
+  getActiveSubscription,
   MAX_ACCESS_DAYS,
 } from "@/modules/billing/stripe";
 import { createHmac } from "node:crypto";
@@ -113,5 +114,85 @@ describe("clampAccessUntil", () => {
     const { accessUntil, clamped } = clampAccessUntil(nowSec, now);
     expect(clamped).toBe("none");
     expect(accessUntil.getTime()).toBe(nowSec * 1000);
+  });
+});
+
+// ─── getActiveSubscription: dunning subscribers stay cancellable (issue #132) ─
+// past_due/unpaid/paused subscriptions are kept LIVE by the entitlement module
+// (#106) — a card-failing subscriber is still cancelling-eligible. The old
+// status=active/trialing-only lookup hid them, so cancel/reactivate/erasure
+// returned null → 404 and Stripe smart-retry later billed AUD 99. These pin the
+// broadened lookup: any live/cancellable status is returned, canceled is not.
+describe("getActiveSubscription", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const cus = "cus_dunning_1";
+
+  // Emulates real Stripe's status filtering: a status=all query returns every
+  // subscription, but status=active/trialing (the pre-fix query) returns only
+  // subscriptions matching that exact status. Without this filtering the mock
+  // would return the same data regardless of the query and could pass against
+  // the pre-fix status=active/trialing-only lookup.
+  function stubStripeList(subs: Array<{ id: string; status: string }>): () => string[] {
+    const calledUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calledUrls.push(url);
+        const status = new URL(url, "http://stripe.local").searchParams.get("status");
+        const filtered = status && status !== "all" ? subs.filter((s) => s.status === status) : subs;
+        const data = filtered.map((s) => ({
+          id: s.id,
+          status: s.status,
+          current_period_end: 9_999_999_999,
+          cancel_at_period_end: false,
+        }));
+        return { ok: true, json: async () => ({ data }) } as unknown as Response;
+      }),
+    );
+    return () => calledUrls;
+  }
+
+  it("returns a past_due subscription (the #132 regression)", async () => {
+    stubStripeList([{ id: "sub_pd", status: "past_due" }]);
+    const sub = await getActiveSubscription(cus);
+    expect(sub).not.toBeNull();
+    expect(sub?.id).toBe("sub_pd");
+    expect(sub?.status).toBe("past_due");
+  });
+
+  it.each(["unpaid", "paused"])("returns a %s subscription (also cancellable)", async (status) => {
+    stubStripeList([{ id: `sub_${status}`, status }]);
+    const sub = await getActiveSubscription(cus);
+    expect(sub?.id).toBe(`sub_${status}`);
+  });
+
+  it("queries status=all so dunning subs are not filtered out by Stripe", async () => {
+    const urls = stubStripeList([{ id: "sub_pd", status: "past_due" }]);
+    await getActiveSubscription(cus);
+    expect(urls().some((u) => u.includes("status=all"))).toBe(true);
+    // Must not fall back to a status=active-only query that would hide past_due.
+    expect(urls().every((u) => !u.includes("status=active"))).toBe(true);
+  });
+
+  it("prefers an active subscription over a dunning one when both exist", async () => {
+    stubStripeList([
+      { id: "sub_pd", status: "past_due" },
+      { id: "sub_active", status: "active" },
+    ]);
+    const sub = await getActiveSubscription(cus);
+    expect(sub?.id).toBe("sub_active");
+  });
+
+  it("returns null when the only subscription is already canceled", async () => {
+    stubStripeList([{ id: "sub_x", status: "canceled" }]);
+    expect(await getActiveSubscription(cus)).toBeNull();
+  });
+
+  it("returns null when the customer has no subscriptions", async () => {
+    stubStripeList([]);
+    expect(await getActiveSubscription(cus)).toBeNull();
   });
 });
