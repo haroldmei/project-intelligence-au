@@ -245,6 +245,33 @@ test.describe("Subscription lifecycle (production E2E)", () => {
     await tryDeleteAccount(page);
   });
 
+  // ── Stage 2b: post-Checkout return before the webhook lands (#133) ───────
+  // A just-paid user is redirected to /account?billing=success, but the
+  // customer.subscription.created webhook that populates accessUntil is async.
+  // A fresh signed-up user (subscriptionStatus=trial, accessUntil=null) is a
+  // faithful stand-in for that pre-webhook state, so we can assert the race
+  // deterministically without having to catch the real webhook mid-flight.
+  test("Stage 2b — ?billing=success with accessUntil still null shows an activating confirmation, not 'Trial not started'", async ({ page }) => {
+    await signupAutoVerified(page, "stage2b");
+
+    // Precondition: this is exactly the pre-webhook state the bug reproduces in.
+    const me = await fetchAccountMe(page);
+    expect(me.subscriptionStatus).toBe("trial");
+    expect(me.accessUntil).toBeNull();
+
+    await page.goto("/account?billing=success");
+    await expect(page.getByRole("heading", { name: /account/i })).toBeVisible();
+
+    // Explicit checkout-success confirmation is shown…
+    await expect(page.getByText(/payment received/i)).toBeVisible();
+    // …and the account reads as provisioning, NOT the pre-checkout dead-end.
+    await expect(page.getByText(/activating your trial/i)).toBeVisible();
+    await expect(page.getByText(/trial not started/i)).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /choose a plan/i })).toHaveCount(0);
+
+    await tryDeleteAccount(page);
+  });
+
   // ── Stage 3: full Checkout → trial-active state ──────────────────────────
   test("Stage 3 — Checkout completes, /account shows trial-active state", async ({ page }) => {
     await signupAutoVerified(page, "stage3");

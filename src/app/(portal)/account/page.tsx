@@ -25,6 +25,15 @@ function formatDate(iso: string | null): string {
   });
 }
 
+// After Stripe Checkout the subscription is provisioned asynchronously by the
+// customer.subscription.created webhook, which populates User.accessUntil. That
+// webhook is not synchronous with the redirect, so a just-paid user landing on
+// /account?billing=success can arrive before it lands. Poll /api/account/me a
+// few times so the page flips to the trial state on its own instead of
+// stranding them on "Trial not started" (issue #133).
+const POLL_INTERVAL_MS = 2500;
+const MAX_POLL_ATTEMPTS = 8; // ~20s — long enough for the webhook, short enough to give up gracefully
+
 export default function AccountPage() {
   const router = useRouter();
   const [account, setAccount] = useState<AccountDTO | null>(null);
@@ -36,17 +45,54 @@ export default function AccountPage() {
   const [isResubLoading, setIsResubLoading] = useState(false);
   const [isResumeLoading, setIsResumeLoading] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
+  // Set from the ?billing hint Stripe Checkout appends to its success/cancel URLs.
+  const [justCheckedOut, setJustCheckedOut] = useState(false);
+  const [checkoutCancelled, setCheckoutCancelled] = useState(false);
+  const [provisioningTimedOut, setProvisioningTimedOut] = useState(false);
 
   useEffect(() => {
+    // Read the ?billing hint client-side (window.location) to avoid a
+    // useSearchParams Suspense boundary — same pattern the login page uses for
+    // ?returnTo. Stripe's success_url is /account?billing=success (checkout route).
+    const billing = new URLSearchParams(window.location.search).get("billing");
+    const paidJustNow = billing === "success";
+    setJustCheckedOut(paidJustNow);
+    setCheckoutCancelled(billing === "cancelled");
+
     let cancelled = false;
-    fetch("/api/account/me")
-      .then(async (res) => {
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    async function load(): Promise<void> {
+      try {
+        const res = await fetch("/api/account/me");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return (await res.json()) as AccountDTO;
-      })
-      .then((data) => { if (!cancelled) setAccount(data); })
-      .catch(() => { if (!cancelled) setLoadError("Couldn't load your account. Refresh to try again."); });
-    return () => { cancelled = true; };
+        const data = (await res.json()) as AccountDTO;
+        if (cancelled) return;
+        setAccount(data);
+
+        // Keep polling only while a just-paid user is still waiting on the
+        // provisioning webhook (accessUntil not yet set, not already cancelled).
+        const stillProvisioning =
+          paidJustNow && data.accessUntil == null && data.subscriptionStatus !== "cancelled";
+        if (stillProvisioning) {
+          if (attempts < MAX_POLL_ATTEMPTS) {
+            attempts += 1;
+            timer = setTimeout(load, POLL_INTERVAL_MS);
+          } else {
+            setProvisioningTimedOut(true);
+          }
+        }
+      } catch {
+        if (!cancelled) setLoadError("Couldn't load your account. Refresh to try again.");
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, []);
 
   async function handleLogout() {
@@ -135,10 +181,51 @@ export default function AccountPage() {
   // the reliable signal that a Stripe subscription actually exists.
   const hasStripeSubscription = account.accessUntil != null;
   const needsCheckout = !isCancelled && !hasStripeSubscription;
+  // Just paid, but the provisioning webhook hasn't populated accessUntil yet.
+  // Show an "activating" state + success confirmation instead of the
+  // pre-checkout "Trial not started · Choose a plan" (issue #133).
+  const isProvisioning = justCheckedOut && needsCheckout;
 
   return (
     <div className="px-4 py-6 space-y-6 max-w-xl">
       <h1 className="text-2xl font-bold text-[#102A43]">Account</h1>
+
+      {justCheckedOut && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-md bg-[#DCFCE7] text-[#14532D] text-sm px-4 py-3"
+        >
+          <p className="font-semibold">Payment received — you&apos;re all set.</p>
+          {isProvisioning ? (
+            provisioningTimedOut ? (
+              <p className="mt-1">
+                Your trial is taking a little longer than usual to activate. Refresh
+                in a moment — or contact support if it doesn&apos;t appear.
+              </p>
+            ) : (
+              <p className="mt-1">
+                We&apos;re activating your 28-day trial now — this page updates
+                automatically in a few seconds.
+              </p>
+            )
+          ) : (
+            <p className="mt-1">
+              Your 28-day trial is active. Your first Sunday digest is on the way.
+            </p>
+          )}
+        </div>
+      )}
+
+      {checkoutCancelled && !justCheckedOut && (
+        <div
+          role="status"
+          className="rounded-md bg-[#F1F5F9] text-[#334E68] text-sm px-4 py-3"
+        >
+          Checkout wasn&apos;t completed and you weren&apos;t charged. Pick a plan
+          below whenever you&apos;re ready.
+        </div>
+      )}
 
       <section aria-label="Profile" className="space-y-2">
         <h2 className="text-sm font-semibold text-[#627D98] uppercase tracking-wide">Profile</h2>
@@ -166,7 +253,9 @@ export default function AccountPage() {
           <Row label="Plan" value={priceLabel} />
           <Row label="Seats" value={String(seats)} />
 
-          {needsCheckout ? (
+          {isProvisioning ? (
+            <Row label="Status" value="Activating your trial…" />
+          ) : needsCheckout ? (
             <Row label="Status" value="Trial not started" />
           ) : isTrial ? (
             <Row label="Trial ends" value={formatDate(account.accessUntil)} />
@@ -179,7 +268,12 @@ export default function AccountPage() {
           )}
 
           <div className="px-4 py-3 space-y-2">
-            {needsCheckout ? (
+            {isProvisioning ? (
+              <p className="text-sm text-[#627D98]" aria-live="polite">
+                We&apos;re setting up your trial now — nothing more to do; this page
+                updates on its own.
+              </p>
+            ) : needsCheckout ? (
               <>
                 <p className="text-sm text-[#627D98]">
                   Pick a plan to start your 28-day trial. Your card isn&apos;t charged until day 29.
