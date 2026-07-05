@@ -12,6 +12,7 @@ export default function StormBriefPage() {
   const [loaded, setLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,6 +43,7 @@ export default function StormBriefPage() {
     setEnabled(next);
     setIsSaving(true);
     setError(null);
+    setSaveError(null);
     try {
       const res = await fetch("/api/account/storm-brief", {
         method: "POST",
@@ -51,15 +53,21 @@ export default function StormBriefPage() {
       if (!res.ok) {
         setEnabled(!next); // revert
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setToast(typeof body.error === "string" ? body.error : "Failed to update. Please try again.");
+        setSaveError(typeof body.error === "string" ? body.error : "Failed to update. Please try again.");
       } else {
         setToast(next ? "Storm briefs on." : "Storm briefs off.");
       }
-      setTimeout(() => setToast(null), 4000);
+      setTimeout(() => {
+        setToast(null);
+        setSaveError(null);
+      }, 4000);
     } catch {
       setEnabled(!next);
-      setToast("Network error. Please try again.");
-      setTimeout(() => setToast(null), 4000);
+      setSaveError("Network error. Please try again.");
+      setTimeout(() => {
+        setToast(null);
+        setSaveError(null);
+      }, 4000);
     } finally {
       setIsSaving(false);
     }
@@ -121,6 +129,12 @@ export default function StormBriefPage() {
           from your Sunday digest. Warning data © Bureau of Meteorology.
         </p>
       </div>
+
+      {saveError && (
+        <div role="alert" aria-live="assertive" className="rounded-md bg-[#FEE2E2] text-[#7F1D1D] text-sm px-4 py-3">
+          {saveError}
+        </div>
+      )}
 
       {toast && (
         <div role="status" aria-live="polite" className="text-sm text-[#14532D] bg-[#DCFCE7] rounded-md px-4 py-3">

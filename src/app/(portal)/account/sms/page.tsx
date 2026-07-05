@@ -10,6 +10,7 @@ export default function SMSOptInPage() {
   const [loaded, setLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Load real state from the API. Without this, the toggle defaulted to
@@ -43,21 +44,28 @@ export default function SMSOptInPage() {
     setSmsEnabled(next);
     setIsSaving(true);
     setError(null);
+    setSaveError(null);
     try {
       const endpoint = next ? "/api/account/sms-opt-in" : "/api/account/sms-opt-out";
       const res = await fetch(endpoint, { method: "POST" });
       if (!res.ok) {
         setSmsEnabled(!next); // revert
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setToast(body.error || "Failed to update. Please try again.");
+        setSaveError(body.error || "Failed to update. Please try again.");
       } else {
         setToast(next ? "SMS enabled." : "SMS disabled.");
       }
-      setTimeout(() => setToast(null), 4000);
+      setTimeout(() => {
+        setToast(null);
+        setSaveError(null);
+      }, 4000);
     } catch {
       setSmsEnabled(!next);
-      setToast("Network error. Please try again.");
-      setTimeout(() => setToast(null), 4000);
+      setSaveError("Network error. Please try again.");
+      setTimeout(() => {
+        setToast(null);
+        setSaveError(null);
+      }, 4000);
     } finally {
       setIsSaving(false);
     }
@@ -132,6 +140,12 @@ export default function SMSOptInPage() {
           Reply STOP to any SMS to opt out immediately.
         </p>
       </div>
+
+      {saveError && (
+        <div role="alert" aria-live="assertive" className="rounded-md bg-[#FEE2E2] text-[#7F1D1D] text-sm px-4 py-3">
+          {saveError}
+        </div>
+      )}
 
       {toast && (
         <div
