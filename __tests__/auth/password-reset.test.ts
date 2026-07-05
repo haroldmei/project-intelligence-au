@@ -12,6 +12,7 @@ const {
   createOtpMock,
   verifyAndConsumeOtpMock,
   rateLimitMock,
+  rateLimitResetConfirmMock,
   sendEmailMock,
   hashPasswordMock,
   luciaMock,
@@ -20,6 +21,7 @@ const {
   createOtpMock: vi.fn(),
   verifyAndConsumeOtpMock: vi.fn(),
   rateLimitMock: vi.fn(),
+  rateLimitResetConfirmMock: vi.fn(),
   sendEmailMock: vi.fn(),
   hashPasswordMock: vi.fn(),
   luciaMock: { invalidateUserSessions: vi.fn() },
@@ -31,7 +33,10 @@ vi.mock("@/lib/auth/otp", () => ({
   createOtp: createOtpMock,
   verifyAndConsumeOtp: verifyAndConsumeOtpMock,
 }));
-vi.mock("@/lib/auth/rate-limit", () => ({ rateLimitByIp: rateLimitMock }));
+vi.mock("@/lib/auth/rate-limit", () => ({
+  rateLimitByIp: rateLimitMock,
+  rateLimitPasswordResetConfirmByEmail: rateLimitResetConfirmMock,
+}));
 vi.mock("@/lib/email/client", () => ({ sendEmail: sendEmailMock }));
 vi.mock("@/lib/auth/passwords", () => ({ hashPassword: hashPasswordMock }));
 vi.mock("@/lib/auth/lucia", () => ({ lucia: luciaMock }));
@@ -53,6 +58,7 @@ const confirmUrl = "http://localhost:3000/api/auth/password-reset/confirm";
 beforeEach(() => {
   vi.clearAllMocks();
   rateLimitMock.mockReturnValue({ allowed: true });
+  rateLimitResetConfirmMock.mockReturnValue({ allowed: true });
 });
 
 describe("POST /api/auth/password-reset/request", () => {
@@ -138,5 +144,27 @@ describe("POST /api/auth/password-reset/confirm", () => {
     expect(res.status).toBe(400);
     expect(mockDb.user.update).not.toHaveBeenCalled();
     expect(luciaMock.invalidateUserSessions).not.toHaveBeenCalled();
+  });
+
+  it("returns 429 when the per-IP limit is exceeded, before parsing or touching the DB", async () => {
+    rateLimitMock.mockReturnValue({ allowed: false, retryAfterSeconds: 42 });
+    const res = await confirmPOST(req(confirmUrl, validBody));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("42");
+    // Blocked before the OTP is ever checked — no brute-force gets through.
+    expect(mockDb.user.findUnique).not.toHaveBeenCalled();
+    expect(verifyAndConsumeOtpMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 429 on the per-email cap before resolving the account (no enumeration, no OTP check)", async () => {
+    rateLimitResetConfirmMock.mockReturnValue({ allowed: false, retryAfterSeconds: 120 });
+    const res = await confirmPOST(req(confirmUrl, validBody));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("120");
+    // Keyed on the email and checked pre-lookup: a real vs unknown account is
+    // indistinguishable, and the OTP is never verified once capped.
+    expect(rateLimitResetConfirmMock).toHaveBeenCalledWith("eli@example.com");
+    expect(mockDb.user.findUnique).not.toHaveBeenCalled();
+    expect(verifyAndConsumeOtpMock).not.toHaveBeenCalled();
   });
 });

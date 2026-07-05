@@ -102,6 +102,10 @@ model EmailOtp {
   expiresAt   DateTime  @map("expires_at")
   consumedAt  DateTime? @map("consumed_at")
   purpose     String    @default("verify") // verify|reset|login
+  // Failed-guess counter (issue #126). verifyAndConsumeOtp increments this on a
+  // wrong code and burns the OTP once it crosses the limit, so a single 6-digit
+  // code can't be brute-forced even if a rate-limit window rolls over.
+  attemptCount Int      @default(0) @map("attempt_count")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
