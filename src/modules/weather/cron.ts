@@ -14,6 +14,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { entitledDigestWhere } from "@/modules/billing/entitlement";
 import { sendEmail } from "@/lib/email/client";
+import { buildListUnsubscribeHeaders } from "@/lib/email/list-unsubscribe";
 import { issueUnsubscribeToken } from "@/lib/hmac/token";
 import { fetchStormWarnings, isStormBriefEnabled } from "./feed";
 import { selectBriefs, briefKey, type StormBriefUser } from "./select";
@@ -130,9 +131,13 @@ export async function runStormBriefCron(): Promise<StormBriefCronResult> {
 
     try {
       const names = lgaNames(task.matchedLgaIds);
+      const unsubscribeUrl = `${appUrl}/api/unsubscribe/${encodeURIComponent(issueUnsubscribeToken(task.user.id))}`;
       await sendEmail({
         to: task.user.email,
         template: "storm-brief",
+        // RFC-8058 one-click unsubscribe on the storm-brief bulk blast too
+        // (issue #179): POST-only opt-out, prefetch-GET-safe.
+        headers: buildListUnsubscribeHeaders(unsubscribeUrl),
         props: {
           warningTitle: task.warning.title,
           areasLabel: task.warning.areas[0] ?? names.join(", "),
@@ -140,7 +145,7 @@ export async function runStormBriefCron(): Promise<StormBriefCronResult> {
           issuedAtLabel: formatIssuedAt(task.warning.issuedAt),
           warningUrl: task.warning.url,
           manageUrl: `${appUrl}/account/storm-brief`,
-          unsubscribeUrl: `${appUrl}/api/unsubscribe/${encodeURIComponent(issueUnsubscribeToken(task.user.id))}`,
+          unsubscribeUrl,
         },
       });
       sent++;

@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import * as Sentry from "@sentry/nextjs";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email/client";
+import { buildListUnsubscribeHeaders } from "@/lib/email/list-unsubscribe";
 import { sendSms, SMS_SENDER_ID, SMS_STOP_FOOTER } from "@/lib/sms/client";
 import { issueFeedbackToken, issueUnsubscribeToken } from "@/lib/hmac/token";
 import { captureServer } from "@/lib/analytics/server";
@@ -233,10 +234,17 @@ export async function assembleAndSendDigest(
     emailStatus = "skipped_optout";
     log.info({ userId, digestId: digest.id }, "[digest] email suppressed — unsubscribed");
   } else {
+    // Same token backs both the in-body footer link and the RFC-8058 header so
+    // the inbox one-click and the visible "Unsubscribe" line stay in lockstep.
+    const unsubscribeUrl = buildUnsubscribeUrl(userId);
     try {
       await sendEmail({
         to: user.email,
         template: "weekly-digest",
+        // RFC-8058 one-click unsubscribe — the weekly digest is the bulk send
+        // Gmail/Yahoo's bulk-sender rules target (issue #179). The header URL
+        // opts out ONLY on POST, so a mail scanner's prefetch GET can't.
+        headers: buildListUnsubscribeHeaders(unsubscribeUrl),
         props: {
           weekStart,
           leadCount: daCount,
@@ -254,7 +262,7 @@ export async function assembleAndSendDigest(
           // (system-design §7.3) so the two degraded weeks read differently.
           fallbackReason: relevance.fallbackReason,
           personalisationActivated: showPersonalisationNote,
-          unsubscribeUrl: buildUnsubscribeUrl(userId),
+          unsubscribeUrl,
         },
       });
       emailStatus = "sent";

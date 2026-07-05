@@ -50,13 +50,19 @@ export interface EmailProps {
   to: string;
   template: "verify-email" | "password-reset" | "weekly-digest" | "welcome-after-verify" | "trial-reminder" | "storm-brief" | "payment-failed" | "verification-reminder";
   props: Record<string, unknown>;
+  /**
+   * Extra SMTP headers to attach to this send (Resend `headers` option). Used
+   * for the RFC-8058 List-Unsubscribe / List-Unsubscribe-Post pair on bulk
+   * sends — see `buildListUnsubscribeHeaders` in `./list-unsubscribe`.
+   */
+  headers?: Record<string, string>;
 }
 
 /**
  * Send email via Resend with idempotent retry on 5xx errors.
  * No-op (logged at info level) when RESEND_API_KEY is unset (dev mode).
  */
-export async function sendEmail({ to, template, props }: EmailProps): Promise<void> {
+export async function sendEmail({ to, template, props, headers }: EmailProps): Promise<void> {
   if (!resend) {
     logger.info({ to, template }, "[email] dev-mode stub — RESEND_API_KEY unset, not sending");
     return;
@@ -77,6 +83,7 @@ export async function sendEmail({ to, template, props }: EmailProps): Promise<vo
         to,
         subject: subjectPrefix + subject,
         html,
+        ...(headers ? { headers } : {}),
       });
 
       logger.info({ to, template }, "Email sent successfully");
