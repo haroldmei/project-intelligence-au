@@ -180,12 +180,15 @@ export async function getDigestHistory(
   limit = 20,
 ): Promise<DigestSummary[]> {
   const digests = await db.digest.findMany({
-    where: { userId },
-    // NULLS LAST so never-sent audit stubs (sentAt IS NULL — see
-    // getCurrentDigest) sort after every delivered digest instead of ahead of
-    // them; Postgres defaults to NULLS FIRST on DESC, which would list an empty
-    // audit row atop history and hide the actual latest delivery.
-    orderBy: { sentAt: { sort: "desc", nulls: "last" } },
+    // Exclude never-sent audit stubs (sentAt IS NULL — a subscriber who cleared
+    // every LGA bundle, or a doubly-failed week; src/modules/digest/cron.ts
+    // recordAuditDigest). Those are internal "did Sunday run?" bookkeeping rows
+    // with 0 cards that the user was never actually delivered — surfacing them
+    // in the history list renders a phantom "—" entry. A delivered quiet week
+    // (0 leads but the email WAS sent, FR-010) has sentAt set, so it still
+    // shows. Same predicate as getCurrentDigest.
+    where: { userId, sentAt: { not: null } },
+    orderBy: { sentAt: "desc" },
     take: limit,
     include: {
       run: { select: { runDate: true } },

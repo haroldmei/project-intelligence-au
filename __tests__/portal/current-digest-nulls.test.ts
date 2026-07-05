@@ -1,4 +1,6 @@
-// Acceptance test for issue #165 against the REAL portal loaders + Postgres.
+// Acceptance test for issues #165 + #162 against the REAL portal loaders +
+// Postgres. #162 tightens #165: history must EXCLUDE never-sent audit stubs
+// (not merely sort them last), while still keeping delivered quiet weeks.
 //
 // The bug: getCurrentDigest / getDigestHistory order by `sentAt DESC` without
 // excluding (or last-ordering) rows whose sentAt IS NULL. A "skipped" audit
@@ -95,7 +97,7 @@ describe("portal loaders — issue #165 null sentAt audit rows", () => {
     expect(await getCurrentDigest(userId)).toBeNull();
   });
 
-  it("getDigestHistory orders delivered digests ahead of never-sent audit rows", async () => {
+  it("getDigestHistory excludes never-sent audit stubs and lists deliveries newest-first (issue #162)", async () => {
     const userId = await seedUser();
 
     const olderRun = await seedRun("2026-06-14");
@@ -118,17 +120,46 @@ describe("portal loaders — issue #165 null sentAt audit rows", () => {
       },
     });
 
-    // A later null-sentAt audit stub that must NOT lead the list.
+    // A later null-sentAt audit stub — internal bookkeeping, never delivered.
+    // Issue #162: it must be EXCLUDED from history, not merely sorted last.
     const auditRun = await seedRun("2026-06-28");
     await testDb.digest.create({
       data: { userId, runId: auditRun, sentAt: null, daCount: 0 },
     });
 
     const history = await getDigestHistory(userId);
-    expect(history).toHaveLength(3);
-    // Delivered rows, newest delivery first, ahead of the audit stub.
+    // Only the two delivered digests, newest send first; no null-sentAt row.
+    expect(history).toHaveLength(2);
     expect(history[0].daCount).toBe(7);
     expect(history[1].daCount).toBe(3);
-    expect(history[2].sentAt).toBeNull();
+    expect(history.every((d) => d.sentAt !== null)).toBe(true);
+  });
+
+  it("getDigestHistory keeps a DELIVERED quiet week (0 leads, sentAt set) — only unsent stubs are hidden", async () => {
+    const userId = await seedUser();
+
+    // A quiet-week digest (FR-010): 0 leads, but the reassurance email WAS
+    // sent, so sentAt is set. Excluding unsent stubs must not hide this.
+    const quietRun = await seedRun("2026-06-21");
+    await testDb.digest.create({
+      data: {
+        userId,
+        runId: quietRun,
+        sentAt: new Date("2026-06-21T09:00:00Z"),
+        daCount: 0,
+        emailStatus: "sent",
+      },
+    });
+
+    // A later hard-failure audit stub — no delivery, sentAt null.
+    const auditRun = await seedRun("2026-06-28");
+    await testDb.digest.create({
+      data: { userId, runId: auditRun, sentAt: null, daCount: 0, emailStatus: "failed" },
+    });
+
+    const history = await getDigestHistory(userId);
+    expect(history).toHaveLength(1);
+    expect(history[0].daCount).toBe(0);
+    expect(history[0].sentAt).toBe("2026-06-21T09:00:00.000Z");
   });
 });
