@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { LoginInput } from "@/lib/auth/schemas";
+import { sanitizeReturnTo } from "@/lib/auth/return-to";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -34,7 +35,14 @@ export default function LoginPage() {
         setServerError(json.error ?? "Login failed. Check your email and password.");
         return;
       }
-      router.push("/digest");
+      // Honour ?returnTo so an email feedback tap that hit the login wall lands
+      // back on /digest?feedback=recorded and its confirmation shows (issue #137).
+      // Read on submit (client-only) to avoid a useSearchParams Suspense boundary;
+      // sanitizeReturnTo blocks open-redirects to external targets.
+      const returnTo = sanitizeReturnTo(
+        new URLSearchParams(window.location.search).get("returnTo"),
+      );
+      router.push(returnTo);
     } catch {
       setServerError("Network error. Please try again.");
     } finally {

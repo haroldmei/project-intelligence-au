@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { DigestView } from "@/components/digest-view";
 import { validateRequest } from "@/lib/auth/session";
+import { PATHNAME_HEADER, buildLoginRedirect } from "@/lib/auth/return-to";
 import {
   getCurrentDigest,
   getDigestHistory,
@@ -25,7 +27,11 @@ export default async function DigestPage({
   searchParams: Promise<{ feedback?: string }>;
 }) {
   const auth = await validateRequest();
-  if (!auth) redirect("/login");
+  if (!auth) {
+    // Defence in depth behind the layout gate — preserve returnTo (issue #137).
+    const target = (await headers()).get(PATHNAME_HEADER);
+    redirect(buildLoginRedirect(target));
+  }
 
   const { feedback } = await searchParams;
   const showFeedbackToast = feedback === "recorded";
