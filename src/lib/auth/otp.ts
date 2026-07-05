@@ -7,6 +7,10 @@ import argon2 from "argon2";
 import { db } from "@/lib/db";
 
 const OTP_EXPIRY_MINUTES = 10; // system-design §6.1 (≤ 15 min)
+// Failed-guess ceiling per OTP (issue #126). After this many wrong codes the
+// OTP is consumed, so a single 6-digit code (10^6 space) can't be brute-forced
+// within its window even if the per-request rate-limit budget resets.
+const MAX_OTP_ATTEMPTS = 5;
 const ARGON2_OPTS: argon2.Options & { raw?: false } = {
   type: argon2.argon2id,
   memoryCost: 19456,
@@ -75,7 +79,20 @@ export async function verifyAndConsumeOtp(
   if (!otp) return false;
 
   const valid = await argon2.verify(otp.codeHash, code, ARGON2_OPTS);
-  if (!valid) return false;
+  if (!valid) {
+    // Count the wrong guess and burn the OTP once the ceiling is reached, so a
+    // single live code can't be hammered even if a rate-limit window rolls over
+    // (issue #126). consumedAt is stamped in the same write as the final count.
+    const attemptCount = otp.attemptCount + 1;
+    await db.emailOtp.update({
+      where: { id: otp.id },
+      data: {
+        attemptCount,
+        ...(attemptCount >= MAX_OTP_ATTEMPTS ? { consumedAt: new Date() } : {}),
+      },
+    });
+    return false;
+  }
 
   // Consume the OTP — idempotent via consumedAt timestamp
   await db.emailOtp.update({

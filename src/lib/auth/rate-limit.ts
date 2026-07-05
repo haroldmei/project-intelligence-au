@@ -108,6 +108,22 @@ export function rateLimitOtpVerifyByUser(
 }
 
 /**
+ * 10 requests/hr keyed by (normalized) email — for the session-less
+ * password-reset confirm OTP check (issue #126). The reset flow has no logged-in
+ * user, so the account is identified by the emailed address; keying on the email
+ * bounds brute-force guesses against one account regardless of source IP
+ * (proxy/botnet rotation). Applied BEFORE the user lookup so a real and an
+ * unknown account behave identically (no email enumeration). Kept independent of
+ * rateLimitOtpVerifyByUser so an email-verify burst can't exhaust a legitimate
+ * reset's budget and vice-versa.
+ */
+export function rateLimitPasswordResetConfirmByEmail(
+  email: string
+): ReturnType<typeof checkRateLimit> {
+  return checkRateLimit(`email:${email}:password-reset-confirm`, 10, 3_600_000);
+}
+
+/**
  * Per-user limit for cost-amplifying mutating endpoints. Each call may
  * trigger Stripe API requests (customer create, checkout session) or
  * OpenAI calls (saved-query embedding). 30/hr is generous for legitimate
