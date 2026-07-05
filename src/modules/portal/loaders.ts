@@ -102,7 +102,12 @@ export interface MyArea {
  */
 export async function getCurrentDigest(userId: string): Promise<DigestDetail | null> {
   const digest = await db.digest.findFirst({
-    where: { userId },
+    // sentAt IS NULL rows are "skipped" audit stubs (a subscriber who cleared
+    // every LGA bundle, or a doubly-failed week — src/modules/digest/cron.ts
+    // recordAuditDigest). They must never surface as the current digest.
+    // Postgres sorts NULLS FIRST on a DESC order, so without this filter a
+    // never-sent audit row would mask the user's real most-recent delivery.
+    where: { userId, sentAt: { not: null } },
     orderBy: { sentAt: "desc" },
     include: {
       run: { select: { runDate: true } },
@@ -176,7 +181,11 @@ export async function getDigestHistory(
 ): Promise<DigestSummary[]> {
   const digests = await db.digest.findMany({
     where: { userId },
-    orderBy: { sentAt: "desc" },
+    // NULLS LAST so never-sent audit stubs (sentAt IS NULL — see
+    // getCurrentDigest) sort after every delivered digest instead of ahead of
+    // them; Postgres defaults to NULLS FIRST on DESC, which would list an empty
+    // audit row atop history and hide the actual latest delivery.
+    orderBy: { sentAt: { sort: "desc", nulls: "last" } },
     take: limit,
     include: {
       run: { select: { runDate: true } },
