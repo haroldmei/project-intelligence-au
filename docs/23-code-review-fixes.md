@@ -97,7 +97,7 @@ curl -X POST -H "Authorization: Bearer $CRON_SECRET" \
 for i in $(seq 1 35); do
   curl -s -o /dev/null -w '%{http_code} ' \
     -X POST https://staging.pi-au.com/api/billing/checkout \
-    -H 'Cookie: lucia_session=<your session>' \
+    -H 'Cookie: auth_session=<your session>' \
     -H 'Content-Type: application/json' \
     -d '{"plan":"solo"}'
 done
