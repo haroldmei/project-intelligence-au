@@ -1770,6 +1770,57 @@ No request body.
 
 ---
 
+### GET /api/cron/verification-reminder
+
+**Email-verification reminder (Vercel Cron).**
+
+Vercel Cron handler — **daily 05:00 UTC (15:00 AEST)**.
+
+The Sunday digest cron refuses to send to unverified accounts, so a signup that
+never enters its OTP silently receives nothing. This cron nudges each unverified
+account once, before the Thursday preceding its first expected Sunday digest.
+`verificationReminderSentAt` dedupes so each account is reminded at most once.
+Skips users who have unsubscribed (`emailOptIn = false`, Spam Act 2003). Each
+reminder email carries a per-user unsubscribe link (`GET /api/unsubscribe/{token}`).
+
+**Not for client consumption.** Vercel Cron calls this endpoint.
+
+**Wedge FR-016:** Reminder for accounts not verified by the Thursday before their
+first expected Sunday digest.
+
+#### Security
+
+- **Authentication:** Bearer token in `Authorization` header (value: `Bearer ${CRON_SECRET}`)
+- **Source:** Vercel Cron, time-based trigger
+
+#### Request
+
+No request body.
+
+#### Response
+
+**200 OK:**
+
+```json
+{
+  "candidates": 8,
+  "reminded": 3
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `candidates` | integer | Unverified, opted-in, un-reminded accounts examined this run |
+| `reminded` | integer | Number of reminder emails successfully sent this run |
+
+#### Errors
+
+| Status | Code | Description |
+|--------|------|-------------|
+| `401` | — | Invalid or missing `CRON_SECRET` |
+
+---
+
 ### GET /api/cron/storm-brief
 
 **Mid-week storm brief (Vercel Cron).**
@@ -1860,6 +1911,7 @@ curl -X GET http://localhost:3000/api/s/abc123def456 \
 | FR-005 | Password reset | `POST /auth/password-reset/request`, `POST /auth/password-reset/confirm` | ✅ Implemented |
 | FR-009 | Weekly digest | `GET /cron/digest` | ✅ Implemented |
 | FR-011 | SMS link shortening | `GET /s/{slug}` | ✅ Implemented |
+| FR-016 | Verification reminder | `GET /cron/verification-reminder` | ✅ Implemented |
 | FR-017 | Account management | `GET/PUT /account/me` | ✅ Implemented |
 | FR-018 | Subscription checkout | `POST /billing/checkout` | ✅ Implemented |
 | FR-019 | Billing portal | `POST /billing/portal` | ✅ Implemented |

@@ -49,6 +49,11 @@ model User {
   // Day-26 trial-reminder dedupe. Cron sets when sent so a redelivery or
   // timezone drift can't double-send.
   trialReminderSentAt DateTime? @map("trial_reminder_sent_at")
+  // FR-016 verification-reminder dedupe. An unverified signup receives no
+  // digest (the Sunday cron gates on emailVerified). The daily
+  // verification-reminder cron nudges them once, before the Thursday preceding
+  // their first expected Sunday digest; this stamp ensures at most one nudge.
+  verificationReminderSentAt DateTime? @map("verification_reminder_sent_at")
   // Churn signal captured by the in-product cancel dialog (#96 A5). A closed
   // set of reason codes ("too_expensive" | "not_enough_leads" | ...), never
   // free-text PII. Last cancel wins; a resume leaves it in place as history.
