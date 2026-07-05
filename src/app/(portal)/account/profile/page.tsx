@@ -57,7 +57,9 @@ export default function ProfilePage() {
       const res = await fetch("/api/account/me", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mobile_e164: next || undefined }),
+        // Send `null` (not undefined) when cleared so the backend removes the
+        // number instead of treating an empty submit as "no change" (#166).
+        body: JSON.stringify({ mobile_e164: next || null }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: unknown };

@@ -3,9 +3,14 @@
 import { z } from "zod";
 
 export const UpdateProfileInput = z.object({
+  // Tri-state: a valid E.164 string sets the number, `null` explicitly removes
+  // it, and omitting the key leaves it untouched. Nullable (not just optional)
+  // is what lets a user clear their mobile — otherwise an empty submit is
+  // indistinguishable from "no change" and silently no-ops (#166).
   mobile_e164: z
     .string()
     .regex(/^\+[1-9]\d{6,14}$/, "Must be E.164 format e.g. +61400000000")
+    .nullable()
     .optional(),
 });
 export type UpdateProfileInput = z.infer<typeof UpdateProfileInput>;

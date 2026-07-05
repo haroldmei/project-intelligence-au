@@ -42,12 +42,23 @@ export async function getAccount(userId: string): Promise<AccountDTO | null> {
 
 export async function updateProfile(
   userId: string,
-  data: { mobile_e164?: string },
+  data: { mobile_e164?: string | null },
 ): Promise<AccountDTO> {
   const updated = await db.user.update({
     where: { id: userId },
     data: {
-      ...(data.mobile_e164 ? { mobile_e164: data.mobile_e164 } : {}),
+      // Tri-state on mobile_e164 (#166): `undefined` means "not submitted" →
+      // leave the column alone; a string sets it; `null` explicitly removes it.
+      // The old `? {..} : {}` collapsed null and undefined together, so clearing
+      // the field silently no-opped while the UI reported "Saved."
+      ...(data.mobile_e164 !== undefined
+        ? {
+            mobile_e164: data.mobile_e164,
+            // A number that's gone can't receive SMS — clear the opt-in with it
+            // so we never keep a dangling smsOptIn=true against a null mobile.
+            ...(data.mobile_e164 === null ? { smsOptIn: false } : {}),
+          }
+        : {}),
     },
     include: { lgaBundles: true },
   });

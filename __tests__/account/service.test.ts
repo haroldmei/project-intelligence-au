@@ -97,6 +97,45 @@ describe("updateLgaBundles", () => {
   });
 });
 
+describe("updateProfile", () => {
+  it("sets the mobile number when a valid E.164 string is given", async () => {
+    const userId = await seedTestUser();
+    const { updateProfile } = await import("@/modules/account/service");
+    const account = await updateProfile(userId, { mobile_e164: "+61400000009" });
+    expect(account.mobile_e164).toBe("+61400000009");
+  });
+
+  it("leaves the mobile untouched when the key is omitted (undefined)", async () => {
+    const userId = await seedTestUser({ mobile: "+61400000010" });
+    const { updateProfile } = await import("@/modules/account/service");
+    const account = await updateProfile(userId, {});
+    expect(account.mobile_e164).toBe("+61400000010");
+  });
+
+  // Issue #166: clearing the field used to silently no-op — `? {..} : {}` treated
+  // an explicit removal (null) the same as "not submitted". A null must actually
+  // wipe the column so the UI's "Saved." is truthful.
+  it("removes the mobile number when passed null (#166)", async () => {
+    const userId = await seedTestUser({ mobile: "+61400000011" });
+    const { updateProfile } = await import("@/modules/account/service");
+    const account = await updateProfile(userId, { mobile_e164: null });
+    expect(account.mobile_e164).toBeNull();
+
+    const user = await testDb.user.findUnique({ where: { id: userId } });
+    expect(user?.mobile_e164).toBeNull();
+  });
+
+  it("clears smsOptIn when the mobile is removed (#166)", async () => {
+    const userId = await seedTestUser({ mobile: "+61400000012" });
+    await testDb.user.update({ where: { id: userId }, data: { smsOptIn: true } });
+
+    const { updateProfile } = await import("@/modules/account/service");
+    const account = await updateProfile(userId, { mobile_e164: null });
+    expect(account.mobile_e164).toBeNull();
+    expect(account.smsOptIn).toBe(false);
+  });
+});
+
 describe("smsOptIn / smsOptOut", () => {
   it("sets smsOptIn=true when mobile is set", async () => {
     const userId = await seedTestUser({ mobile: "+61400000002" });
