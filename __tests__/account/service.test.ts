@@ -47,6 +47,54 @@ describe("updateLgaBundles", () => {
     expect(subs).toHaveLength(1);
     expect(subs[0].bundleId).toBe("inner_west");
   });
+
+  // Issue #134: deleteMany + createMany used to run as two un-transactioned awaits.
+  // An id that doesn't reference a real LgaBundle row (a stale/bogus id) threw
+  // P2003 from createMany AFTER deleteMany had already wiped the user's coverage,
+  // stranding them with ZERO subscriptions and silently dropping them from the
+  // Sunday digest. The fix validates ids up front AND wraps the replace in a
+  // transaction, so a bad id can never destroy existing coverage.
+  it("rejects an unknown bundle id and leaves existing subscriptions intact (#134)", async () => {
+    const userId = await seedTestUser();
+    await testDb.lgaBundleSubscription.create({ data: { userId, bundleId: "western_sydney" } });
+    await testDb.lgaBundleSubscription.create({ data: { userId, bundleId: "inner_west" } });
+
+    const { updateLgaBundles, UnknownLgaBundleError } = await import("@/modules/account/service");
+    await expect(
+      updateLgaBundles(userId, ["nonexistent-bundle-id"]),
+    ).rejects.toBeInstanceOf(UnknownLgaBundleError);
+
+    // The prior valid coverage must survive — no partial wipe.
+    const subs = await testDb.lgaBundleSubscription.findMany({ where: { userId }, orderBy: { bundleId: "asc" } });
+    expect(subs.map((s) => s.bundleId)).toEqual(["inner_west", "western_sydney"]);
+  });
+
+  it("rejects when only SOME ids are unknown and leaves coverage intact (#134)", async () => {
+    const userId = await seedTestUser();
+    await testDb.lgaBundleSubscription.create({ data: { userId, bundleId: "western_sydney" } });
+
+    const { updateLgaBundles, UnknownLgaBundleError } = await import("@/modules/account/service");
+    // One valid, one bogus — the whole replace must be rejected atomically.
+    await expect(
+      updateLgaBundles(userId, ["inner_west", "nope"]),
+    ).rejects.toBeInstanceOf(UnknownLgaBundleError);
+
+    const subs = await testDb.lgaBundleSubscription.findMany({ where: { userId } });
+    expect(subs).toHaveLength(1);
+    expect(subs[0].bundleId).toBe("western_sydney");
+  });
+
+  it("swaps a multi-bundle selection atomically for all-valid ids (#134)", async () => {
+    const userId = await seedTestUser();
+    await testDb.lgaBundleSubscription.create({ data: { userId, bundleId: "western_sydney" } });
+
+    const { updateLgaBundles } = await import("@/modules/account/service");
+    const account = await updateLgaBundles(userId, ["inner_west", "western_sydney"]);
+
+    expect(account.lgaBundles.sort()).toEqual(["inner_west", "western_sydney"]);
+    const subs = await testDb.lgaBundleSubscription.findMany({ where: { userId } });
+    expect(subs).toHaveLength(2);
+  });
 });
 
 describe("smsOptIn / smsOptOut", () => {
