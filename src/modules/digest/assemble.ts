@@ -337,16 +337,17 @@ function buildUnsubscribeUrl(userId: string): string {
 }
 
 /**
- * Build the SMS body. Stays within 2 SMS parts (~320 chars) to avoid
- * carrier mangling and double-billing — addresses are truncated as needed.
- * Sender-id + STOP footer strings come from the centralised SMS client so
- * this call site and the client can never drift apart.
+ * Build the SMS body. Stays within FR-011's budget of 3 concatenated parts
+ * (≤ 480 chars) so all three top-3 leads fit — addresses are truncated as the
+ * primary size lever, and a card is dropped only as a last resort if the body
+ * is still over 480. Sender-id + STOP footer strings come from the centralised
+ * SMS client so this call site and the client can never drift apart.
  */
-const SMS_MAX_CHARS = 320;
+const SMS_MAX_CHARS = 480;
 const SMS_FOOTER = `\n${SMS_STOP_FOOTER}`;
 const SMS_ADDRESS_FALLBACK_LEN = 40;
 
-function buildSmsBody(
+export function buildSmsBody(
   cards: Array<{ address: string; lga: string; value?: string; portalUrl: string }>,
   lgas: string[],
   weekStart: string,

@@ -7,7 +7,8 @@
 // which starves the per-user thumbs feedback moat — 3 cards/week can never
 // reach the personalisation threshold in a useful timeframe. The wedge doc
 // (docs/01c-wedge.md §1.5b) promises "5–15 curated leads" per digest, so the
-// email is restored to that range. SMS stays top-3 to fit the ~320-char budget.
+// email is restored to that range. SMS stays top-3 to fit FR-011's 3-part
+// (≤ 480-char) budget.
 
 /** Hard ceiling on cards in the weekly email digest (wedge: "5–15 curated leads"). */
 export const DIGEST_EMAIL_MAX_CARDS = 15;
@@ -19,5 +20,5 @@ export const DIGEST_EMAIL_MAX_CARDS = 15;
  */
 export const DIGEST_EMAIL_MIN_CARDS = 5;
 
-/** SMS digest stays top-3 to stay within the 2-part (~320 char) budget. */
+/** SMS digest stays top-3 to stay within FR-011's 3-part (≤ 480 char) budget. */
 export const DIGEST_SMS_MAX_CARDS = 3;
