@@ -1,6 +1,6 @@
 // Component test for the SMS opt-in page (#167). The no-mobile state must
 // offer a one-tap path to add a mobile number, not dead-end the user.
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import SMSOptInPage from "./page";
 
@@ -47,5 +47,33 @@ describe("SMSOptInPage", () => {
     const toggle = await screen.findByRole("switch");
     await waitFor(() => expect(toggle.hasAttribute("disabled")).toBe(false));
     expect(screen.queryByRole("link", { name: /add your mobile number/i })).toBeNull();
+  });
+});
+
+describe("SMSOptInPage — save failures are rendered as errors (#185)", () => {
+  it("renders a failed opt-in in a role=alert region, not the green success toast", async () => {
+    global.fetch = vi.fn((url: FetchArgs[0]) => {
+      const u = String(url);
+      if (u === "/api/account/me") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ smsOptIn: false, mobile_e164: "+61400000000" }),
+        } as Response);
+      }
+      // POST /api/account/sms-opt-in fails
+      return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) } as Response);
+    }) as unknown as typeof fetch;
+    render(<SMSOptInPage />);
+
+    const toggle = await screen.findByRole("switch");
+    await waitFor(() => expect(toggle.hasAttribute("disabled")).toBe(false));
+
+    fireEvent.click(toggle);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Failed to update. Please try again.");
+    expect(screen.queryByRole("status")).toBeNull();
+    // Optimistic flip must have reverted on failure.
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
   });
 });

@@ -62,3 +62,31 @@ describe("StormBriefPage", () => {
     expect(screen.getByText(/Warning data © Bureau of Meteorology/i)).toBeTruthy();
   });
 });
+
+describe("StormBriefPage — save failures are rendered as errors (#185)", () => {
+  it("renders a failed toggle in a role=alert region, not the green success toast", async () => {
+    global.fetch = vi.fn((url: FetchArgs[0]) => {
+      const u = String(url);
+      if (u === "/api/account/me") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ stormBriefOptIn: true }),
+        } as Response);
+      }
+      // POST /api/account/storm-brief fails
+      return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) } as Response);
+    }) as unknown as typeof fetch;
+    render(<StormBriefPage />);
+
+    const toggle = await screen.findByRole("switch");
+    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
+
+    fireEvent.click(toggle);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Failed to update. Please try again.");
+    expect(screen.queryByRole("status")).toBeNull();
+    // Optimistic flip must have reverted on failure.
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+  });
+});

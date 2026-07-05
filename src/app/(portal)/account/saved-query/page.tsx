@@ -12,6 +12,7 @@ export default function SavedQueryPage() {
   const [loaded, setLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -55,6 +56,7 @@ export default function SavedQueryPage() {
     }
 
     setIsSaving(true);
+    setSaveError(null);
     try {
       const res = await fetch("/api/account/saved-query", {
         method: "PUT",
@@ -69,16 +71,19 @@ export default function SavedQueryPage() {
             : res.status === 429
               ? "Too many edits — please wait a few minutes and try again."
               : "Save failed. Please try again.";
-        setToast(msg);
+        setSaveError(msg);
       } else {
         setOriginal(trimmed);
         setToast("Saved. Re-running relevance — your next digest will reflect the change.");
       }
     } catch {
-      setToast("Network error. Please try again.");
+      setSaveError("Network error. Please try again.");
     } finally {
       setIsSaving(false);
-      setTimeout(() => setToast(null), 5000);
+      setTimeout(() => {
+        setToast(null);
+        setSaveError(null);
+      }, 5000);
     }
   }
 
@@ -143,6 +148,12 @@ export default function SavedQueryPage() {
           {isSaving ? "Saving…" : "Save"}
         </button>
       </form>
+
+      {saveError && (
+        <div role="alert" aria-live="assertive" className="rounded-md bg-[#FEE2E2] text-[#7F1D1D] text-sm px-4 py-3">
+          {saveError}
+        </div>
+      )}
 
       {toast && (
         <div role="status" aria-live="polite" className="text-sm text-[#14532D] bg-[#DCFCE7] rounded-md px-4 py-3">

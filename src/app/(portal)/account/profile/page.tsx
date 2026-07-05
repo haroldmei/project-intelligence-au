@@ -10,6 +10,7 @@ export default function ProfilePage() {
   const [loaded, setLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -53,6 +54,7 @@ export default function ProfilePage() {
     }
 
     setIsSaving(true);
+    setSaveError(null);
     try {
       const res = await fetch("/api/account/me", {
         method: "PUT",
@@ -64,7 +66,7 @@ export default function ProfilePage() {
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: unknown };
         const msg = typeof body.error === "string" ? body.error : "Save failed. Please try again.";
-        setToast(msg);
+        setSaveError(msg);
       } else {
         const updated = (await res.json()) as AccountDTO;
         setAccount(updated);
@@ -72,10 +74,13 @@ export default function ProfilePage() {
         setToast("Saved.");
       }
     } catch {
-      setToast("Network error. Please try again.");
+      setSaveError("Network error. Please try again.");
     } finally {
       setIsSaving(false);
-      setTimeout(() => setToast(null), 4000);
+      setTimeout(() => {
+        setToast(null);
+        setSaveError(null);
+      }, 4000);
     }
   }
 
@@ -139,6 +144,12 @@ export default function ProfilePage() {
           {isSaving ? "Saving…" : "Save"}
         </button>
       </form>
+
+      {saveError && (
+        <div role="alert" aria-live="assertive" className="rounded-md bg-[#FEE2E2] text-[#7F1D1D] text-sm px-4 py-3">
+          {saveError}
+        </div>
+      )}
 
       {toast && (
         <div role="status" aria-live="polite" className="text-sm text-[#14532D] bg-[#DCFCE7] rounded-md px-4 py-3">
