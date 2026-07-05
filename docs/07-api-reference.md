@@ -1938,7 +1938,7 @@ No request body. Slug is in the URL path.
 
 **Example:**
 ```
-https://pi-au.example.com/api/s/abc123def456
+https://pi-au.example.com/s/abc123def456
 ```
 
 #### Response
@@ -1958,7 +1958,7 @@ Location: https://portal.pi-au.example.com/feedback?daId=2025%2F123456&token=...
 #### Curl Example
 
 ```bash
-curl -X GET http://localhost:3000/api/s/abc123def456 \
+curl -X GET http://localhost:3000/s/abc123def456 \
   -L
 ```
 
