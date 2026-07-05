@@ -155,10 +155,10 @@ test.describe("Digest — 12-Card State", () => {
     await expect(firstCard.getByRole("button", { name: /undo/i })).toBeVisible();
   });
 
-  test("precision badge shown when weeksOfHistory >= 4", async ({ page }) => {
+  test("rated-lead recap badge shown when weeksOfHistory >= 4", async ({ page }) => {
     await page.goto("/digest");
-    // PrecisionBadge renders "93% precision" or similar
-    await expect(page.getByText(/precision/i).first()).toBeVisible();
+    // RatedLeadBadge renders "N of M rated on-target" (issue #186 — never "precision").
+    await expect(page.getByText(/rated on-target/i).first()).toBeVisible();
   });
 });
 

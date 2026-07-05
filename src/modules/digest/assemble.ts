@@ -15,10 +15,10 @@ import { classifyLeadClass, type LeadClass } from "@/modules/relevance/lead-clas
 import { MIN_FEEDBACK_FOR_PERSONALISATION } from "@/modules/relevance/thumbs";
 import { DIGEST_EMAIL_MAX_CARDS, DIGEST_SMS_MAX_CARDS } from "./constants";
 import {
-  computePrecisionRecap,
+  computeRatedLeadRecap,
   countSentDigests,
-  PRECISION_MIN_WEEKS,
-} from "./precision";
+  RECAP_MIN_WEEKS,
+} from "./recap";
 import pino from "pino";
 
 const log = pino({ name: "digest-assemble" });
@@ -200,18 +200,17 @@ export async function assembleAndSendDigest(
   const smsOptIn = optState?.smsOptIn ?? false;
   const mobile = optState?.mobile_e164 ?? null;
 
-  // Weekly precision recap stat (CF-1.7, design pillar P4): the "Last 4 weeks:
-  // X% precision" block at the top of the email — the month-2/3 retention proof.
-  // Only from week 4 (this send counts as the current week, so add 1 to the
-  // count of already-sent digests) and only when the user has rated some leads.
+  // Weekly rated-lead recap stat (CF-1.7, design pillar P4, issue #186): the
+  // "Last 4 weeks: you marked N of M rated leads on-target" block at the top of
+  // the email — the month-2/3 retention proof. Only from week 4 (this send counts
+  // as the current week, so add 1 to the count of already-sent digests) and only
+  // when the user has rated some leads.
   const [priorSent, recap] = await Promise.all([
     countSentDigests(userId, digest.id),
-    computePrecisionRecap(userId),
+    computeRatedLeadRecap(userId),
   ]);
-  const precisionBadge =
-    recap && priorSent + 1 >= PRECISION_MIN_WEEKS
-      ? { precision: recap.precision, weeks: recap.weeks }
-      : undefined;
+  const ratedLeadRecap =
+    recap && priorSent + 1 >= RECAP_MIN_WEEKS ? recap : undefined;
 
   // One-time "your digest is now personalised" note (FR-025, issue #96 A3).
   // Thumbs personalisation activates once a user has ≥ 25 all-time feedback
@@ -248,7 +247,7 @@ export async function assembleAndSendDigest(
           // relevant candidate pool in the user's LGAs after the rule pass —
           // the honest "we checked N DAs" number for a no-lead reassurance.
           dasChecked: relevance.stats.ruleFiltered,
-          precisionBadge,
+          ratedLeadRecap,
           smsEnabled: smsOptIn,
           fallbackUsed: relevance.fallbackUsed,
           personalisationActivated: showPersonalisationNote,

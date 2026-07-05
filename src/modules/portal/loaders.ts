@@ -9,7 +9,7 @@ import {
   toLeadClass,
   type LeadClass,
 } from "@/modules/relevance/lead-class";
-import { computePrecisionRecap } from "@/modules/digest/precision";
+import { computeRatedLeadRecap, type RatedLeadRecap } from "@/modules/digest/recap";
 
 export type LeadClassCounts = Record<LeadClass, number>;
 
@@ -82,11 +82,12 @@ export interface DigestCard {
 
 export interface DigestDetail extends DigestSummary {
   cards: DigestCard[];
-  // Weekly precision recap stat (CF-1.7): the user's trailing-4-week thumbs
-  // precision (0–100), or undefined when they've rated nothing yet. The portal
-  // header only surfaces it from week 4 (weeksOfHistory >= 4); until then, or
-  // when this is undefined, the onboarding tip renders instead.
-  precision?: number;
+  // Weekly rated-lead recap (CF-1.7, issue #186): the user's own on-target rate
+  // over the leads they rated in the trailing 4-week window (NOT FR-013
+  // ground-truth precision), or undefined when they've rated nothing yet. The
+  // portal header only surfaces it from week 4 (weeksOfHistory >= 4); until then,
+  // or when this is undefined, the onboarding tip renders instead.
+  ratedLeadRecap?: RatedLeadRecap;
 }
 
 export interface MyArea {
@@ -136,7 +137,7 @@ export async function getCurrentDigest(userId: string): Promise<DigestDetail | n
 
   const [feedbackMap, recap] = await Promise.all([
     getUserFeedbackMap(userId, digest.digestDas.map((d) => d.daId)),
-    computePrecisionRecap(userId),
+    computeRatedLeadRecap(userId),
   ]);
 
   return {
@@ -148,7 +149,7 @@ export async function getCurrentDigest(userId: string): Promise<DigestDetail | n
     fallbackUsed: digest.fallbackUsed,
     runDate: digest.run.runDate.toISOString().slice(0, 10),
     areaLabel: digest.areaLabel,
-    precision: recap?.precision,
+    ratedLeadRecap: recap ?? undefined,
     leadClassCounts: tallyLeadClasses(digest.digestDas),
     cards: digest.digestDas.map((dd) => ({
       daId: dd.daId,
@@ -243,7 +244,7 @@ export async function getDigestById(userId: string, digestId: string): Promise<D
 
   const [feedbackMap, recap] = await Promise.all([
     getUserFeedbackMap(userId, digest.digestDas.map((d) => d.daId)),
-    computePrecisionRecap(userId),
+    computeRatedLeadRecap(userId),
   ]);
 
   return {
@@ -255,7 +256,7 @@ export async function getDigestById(userId: string, digestId: string): Promise<D
     fallbackUsed: digest.fallbackUsed,
     runDate: digest.run.runDate.toISOString().slice(0, 10),
     areaLabel: digest.areaLabel,
-    precision: recap?.precision,
+    ratedLeadRecap: recap ?? undefined,
     leadClassCounts: tallyLeadClasses(digest.digestDas),
     cards: digest.digestDas.map((dd) => ({
       daId: dd.daId,

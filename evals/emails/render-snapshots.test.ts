@@ -52,8 +52,10 @@ const templates = [
             thumbDownUrl: "https://pi-au.example.com/api/feedback?id=da-001&v=0&token=abc123",
           },
         ],
-        precisionBadge: {
-          precision: 93,
+        ratedLeadRecap: {
+          onTarget: 14,
+          rated: 15,
+          rate: 93,
           weeks: 4,
         },
         smsEnabled: true,

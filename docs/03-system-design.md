@@ -705,8 +705,10 @@ Per `contract.cache.engine: redis, required: false`. **No application cache in V
 Fallback notification policy (Anthropic Claude rate-limited):
 - If LLM rerank is unavailable for an entire digest send, the digest header includes:
   "Note: relevance ranking ran in basic mode this week."
-- Precision-recap stats (FR-013) MUST exclude any digest sent in basic mode from the
-  precision computation; basic-mode digests are tagged in `digest_send.fallback_used = true`.
+- The deferred ground-truth precision variant of FR-013 MUST exclude any digest sent in
+  basic mode from its computation; basic-mode digests are tagged in
+  `digest_send.fallback_used = true`. (The shipped rated-lead recap is over the user's own
+  thumbs, independent of which mode surfaced a lead, so this exclusion does not apply to it.)
 - Resume condition: next nightly cron retry; once a successful LLM rerank completes,
   fallback flag clears.
 - Alert: any single digest sent in basic mode triggers a Sentry warning.
@@ -790,7 +792,7 @@ Should any future requirement surface that the contract cannot satisfy (e.g. a r
 | FR-010 | React Email template via `lib/email/render.tsx`; Resend SDK send | digest, email | `email.provider`, `email.templates` |
 | FR-011 | Twilio SDK send; HMAC-token-shortened links via internal `/s/:slug` | digest, sms | `email.sms_provider` |
 | FR-012 | DA card stores `portal_url`; rendered as plain `<a>` in email and portal | digest, portal | `database.engine` |
-| FR-013 | `da_ground_truth` table; SQL aggregate over user thumbs vs ground-truth labels | digest | `database.engine` |
+| FR-013 | `src/modules/digest/recap.ts` — aggregate over the user's own trailing-4-week thumbs (N marked 👍 of M rated) as their on-target rate; deliberately NOT labelled "precision" and NOT joined to `da_ground_truth` (issue #186). The ground-truth-precision variant is deferred until an ops-maintained per-LGA census exists. | digest | `database.engine` |
 | FR-014 | `/api/auth/signup` Lucia user creation; OTP dispatched; redirect to LGA setup | auth | `auth.default`, `auth.password_hashing` |
 | FR-015 | LGA bundles seeded as static config; `users.saved_query_embedding` computed at signup via OpenAI | auth, relevance | `ai.embedding_model`, `ai.vector_store` |
 | FR-016 | `email_otps` table; 6-digit code; `/api/auth/otp` consume | auth | `auth.mfa`, `email.provider` |

@@ -1,7 +1,7 @@
-// Weekly precision recap stat (CF-1.7, issue #51). Proves assemble threads the
-// trailing-4-week precision into the email props as `precisionBadge` — but only
-// from week 4 (this send counts as the current week, so 3 prior sends is enough),
-// and never before. Fully mocked DB — no network, no Prisma.
+// Weekly rated-lead recap stat (CF-1.7, issue #51; relabelled #186). Proves
+// assemble threads the trailing-4-week rated-lead recap into the email props as
+// `ratedLeadRecap` — but only from week 4 (this send counts as the current week,
+// so 3 prior sends is enough), and never before. Fully mocked DB — no network.
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const { mockDb, sendSmsMock, sendEmailMock } = vi.hoisted(() => ({
@@ -74,7 +74,7 @@ beforeEach(() => {
   mockDb.digest.update.mockResolvedValue({});
   sendEmailMock.mockResolvedValue(undefined);
   sendSmsMock.mockResolvedValue(true);
-  // Thumbs: 3 up, 1 down → 75% precision.
+  // Thumbs: 3 up, 1 down → 3 of 4 rated on-target, 75%.
   mockDb.daFeedback.findMany.mockResolvedValue([
     { feedback: "up" },
     { feedback: "up" },
@@ -83,30 +83,30 @@ beforeEach(() => {
   ]);
 });
 
-describe("assembleAndSendDigest — precision recap (CF-1.7)", () => {
-  it("threads precisionBadge into the email from week 4 (3 prior sends + this one)", async () => {
+describe("assembleAndSendDigest — rated-lead recap (CF-1.7, #186)", () => {
+  it("threads ratedLeadRecap into the email from week 4 (3 prior sends + this one)", async () => {
     mockDb.digest.count.mockResolvedValue(3);
     await assembleAndSendDigest("user-1", "run-1", RELEVANCE);
 
     const props = sendEmailMock.mock.calls[0][0].props;
-    expect(props.precisionBadge).toEqual({ precision: 75, weeks: 4 });
+    expect(props.ratedLeadRecap).toEqual({ onTarget: 3, rated: 4, rate: 75, weeks: 4 });
   });
 
-  it("omits precisionBadge before week 4 (only 2 prior sends + this one = 3)", async () => {
+  it("omits ratedLeadRecap before week 4 (only 2 prior sends + this one = 3)", async () => {
     mockDb.digest.count.mockResolvedValue(2);
     await assembleAndSendDigest("user-1", "run-1", RELEVANCE);
 
     const props = sendEmailMock.mock.calls[0][0].props;
-    expect(props.precisionBadge).toBeUndefined();
+    expect(props.ratedLeadRecap).toBeUndefined();
   });
 
-  it("omits precisionBadge at week 4+ when the user has rated nothing", async () => {
+  it("omits ratedLeadRecap at week 4+ when the user has rated nothing", async () => {
     mockDb.digest.count.mockResolvedValue(9);
     mockDb.daFeedback.findMany.mockResolvedValue([]);
     await assembleAndSendDigest("user-1", "run-1", RELEVANCE);
 
     const props = sendEmailMock.mock.calls[0][0].props;
-    expect(props.precisionBadge).toBeUndefined();
+    expect(props.ratedLeadRecap).toBeUndefined();
   });
 
   it("excludes the in-flight digest from the sent-week count", async () => {

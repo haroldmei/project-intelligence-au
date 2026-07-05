@@ -1,6 +1,7 @@
-// Weekly precision recap stat (CF-1.7, issue #51). computePrecisionRecap turns
-// a user's trailing-4-week thumbs into the TP/(TP+FP) proof stat; countSentDigests
-// backs the "from week 4" gate. Fully mocked DB — no network, no Prisma.
+// Weekly rated-lead recap stat (CF-1.7, issue #51; relabelled #186).
+// computeRatedLeadRecap turns a user's trailing-4-week thumbs into their own
+// on-target rate (N marked 👍 of M rated) — NOT ground-truth precision.
+// countSentDigests backs the "from week 4" gate. Fully mocked DB — no network.
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const { mockDb } = vi.hoisted(() => ({
@@ -13,10 +14,10 @@ const { mockDb } = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 
 import {
-  computePrecisionRecap,
+  computeRatedLeadRecap,
   countSentDigests,
-  PRECISION_WINDOW_WEEKS,
-} from "@/modules/digest/precision";
+  RECAP_WINDOW_WEEKS,
+} from "@/modules/digest/recap";
 
 const NOW = new Date("2026-04-27T08:00:00.000Z");
 
@@ -24,40 +25,45 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("computePrecisionRecap (CF-1.7)", () => {
-  it("computes TP/(TP+FP) as a rounded percentage from thumbs", async () => {
+describe("computeRatedLeadRecap (CF-1.7, #186)", () => {
+  it("reports N-of-M and the rounded on-target rate from thumbs", async () => {
     mockDb.daFeedback.findMany.mockResolvedValue([
       { feedback: "up" },
       { feedback: "up" },
       { feedback: "down" },
     ]);
-    const recap = await computePrecisionRecap("user-1", NOW);
-    expect(recap).toEqual({ precision: 67, weeks: PRECISION_WINDOW_WEEKS });
+    const recap = await computeRatedLeadRecap("user-1", NOW);
+    expect(recap).toEqual({
+      onTarget: 2,
+      rated: 3,
+      rate: 67,
+      weeks: RECAP_WINDOW_WEEKS,
+    });
   });
 
-  it("returns 100 when every rated lead was thumbed up", async () => {
+  it("reports 100 when every rated lead was thumbed up", async () => {
     mockDb.daFeedback.findMany.mockResolvedValue([
       { feedback: "up" },
       { feedback: "up" },
     ]);
-    const recap = await computePrecisionRecap("user-1", NOW);
-    expect(recap?.precision).toBe(100);
+    const recap = await computeRatedLeadRecap("user-1", NOW);
+    expect(recap).toEqual({ onTarget: 2, rated: 2, rate: 100, weeks: RECAP_WINDOW_WEEKS });
   });
 
   it("returns null when the user has rated nothing in the window", async () => {
     mockDb.daFeedback.findMany.mockResolvedValue([]);
-    const recap = await computePrecisionRecap("user-1", NOW);
+    const recap = await computeRatedLeadRecap("user-1", NOW);
     expect(recap).toBeNull();
   });
 
   it("queries only feedback from the trailing 4-week window", async () => {
     mockDb.daFeedback.findMany.mockResolvedValue([{ feedback: "up" }]);
-    await computePrecisionRecap("user-1", NOW);
+    await computeRatedLeadRecap("user-1", NOW);
 
     const where = mockDb.daFeedback.findMany.mock.calls[0][0].where;
     expect(where.userId).toBe("user-1");
     const expectedSince = new Date(
-      NOW.getTime() - PRECISION_WINDOW_WEEKS * 7 * 24 * 60 * 60 * 1000,
+      NOW.getTime() - RECAP_WINDOW_WEEKS * 7 * 24 * 60 * 60 * 1000,
     );
     expect(where.createdAt.gte.getTime()).toBe(expectedSince.getTime());
   });
@@ -68,9 +74,9 @@ describe("computePrecisionRecap (CF-1.7)", () => {
       { feedback: "down" },
       { feedback: "bogus" },
     ]);
-    const recap = await computePrecisionRecap("user-1", NOW);
+    const recap = await computeRatedLeadRecap("user-1", NOW);
     // 1 up / 2 rated (up+down) = 50%; the bogus row is not counted.
-    expect(recap?.precision).toBe(50);
+    expect(recap).toEqual({ onTarget: 1, rated: 2, rate: 50, weeks: RECAP_WINDOW_WEEKS });
   });
 });
 
