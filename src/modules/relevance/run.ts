@@ -10,12 +10,13 @@ import {
   runRelevancePipeline,
   type PipelineOutput,
 } from "@/lib/ai/relevance-pipeline";
+import { DIGEST_MIN_RERANK_SCORE } from "@/lib/ai/rerank";
 import { weeklyCostAud, weekStartAEST } from "@/lib/ai/cost-ledger";
 import { parseVector } from "@/lib/ai/embeddings";
 import { ruleFilter } from "./filters";
 import { vectorRank } from "./vector";
 import { loadThumbsExamples } from "./thumbs";
-import { DIGEST_EMAIL_MAX_CARDS } from "@/modules/digest/constants";
+import { DIGEST_EMAIL_MAX_CARDS, DIGEST_EMAIL_MIN_CARDS } from "@/modules/digest/constants";
 import pino from "pino";
 
 const log = pino({ name: "relevance-run" });
@@ -114,6 +115,11 @@ export async function runRelevanceForUser(
       // Restore the wedge's 5–15 email range (issue #11). SMS is re-trimmed to
       // top-3 downstream in assembleAndSendDigest.
       maxDigestSize: DIGEST_EMAIL_MAX_CARDS,
+      // FR-006 relevance floor (issue #163): only DAs the rerank scored
+      // relevance_score ≥ 4 (rubric ≥ 2) may surface. Passed explicitly so the
+      // production floor is legible at the call site, not left to a default that
+      // once silently sat at 0 and shipped 0/10 DAs as leads.
+      minScoreForDigest: DIGEST_MIN_RERANK_SCORE,
     },
     {
       ruleFilter,
@@ -122,13 +128,29 @@ export async function runRelevanceForUser(
     },
   );
 
-  // Sentry alert if per-user cost now exceeds ceiling after this run
+  // Sentry alert if per-user cost now exceeds ceiling after this run. Runs
+  // before the quiet-week gate below because the rerank incurred its cost
+  // regardless of whether the run ends up surfacing any leads.
   const newCost = await weeklyCostAud(userId, weekStart);
   if (newCost > WEEKLY_COST_CEILING_AUD) {
     Sentry.captureMessage(`AI weekly cost ceiling breached after digest run for user ${userId}`, {
       level: "warning",
       tags: { userId, phase: "relevance-post-run" },
     });
+  }
+
+  // FR-006 quiet-week gate (issue #163): a real digest is 5–15 DAs that clear
+  // the relevance floor. If fewer than DIGEST_EMAIL_MIN_CARDS cleared it, this
+  // is a quiet week — surface nothing rather than padding the email with a
+  // handful of borderline leads, so assemble sends the FR-010 reassurance email
+  // ("we checked N DAs, nothing strong"). `stats` (incl. ruleFiltered) is kept
+  // so that email can still report how many DAs were actually checked.
+  if (result.results.length > 0 && result.results.length < DIGEST_EMAIL_MIN_CARDS) {
+    log.info(
+      { userId, cleared: result.results.length, floor: DIGEST_EMAIL_MIN_CARDS },
+      "[relevance] quiet week — fewer than the minimum leads cleared the relevance floor",
+    );
+    return { ...result, results: [], fallbackUsed: false };
   }
 
   return { ...result, fallbackUsed: false };
@@ -157,7 +179,12 @@ async function runEmbeddingOnlyPath(
   return {
     results: vectorRanked.map((c, i) => ({
       daId: c.daId,
-      score: 5 - i, // synthetic descending score
+      // Synthetic descending rank score. Cosine order already fixes the ranking
+      // (assemble ranks by array position), so this only drives the relevance
+      // pip — floor it at DIGEST_MIN_RERANK_SCORE so the degraded path never
+      // writes a relevance_score < 4 either (issue #163 criterion: no
+      // sub-threshold score is EVER persisted, including this cost-cap path).
+      score: Math.max(DIGEST_MIN_RERANK_SCORE, 5 - i),
       why: "Matches your roofing query",
       confidence: 0,
       modelUsed: "embedding-only",

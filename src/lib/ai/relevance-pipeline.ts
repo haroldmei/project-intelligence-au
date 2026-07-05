@@ -15,6 +15,7 @@
 // digest/digest_das rows.
 import {
   rerankCandidates,
+  DIGEST_MIN_RERANK_SCORE,
   type RerankCandidate,
   type RerankResult,
 } from "./rerank";
@@ -88,14 +89,17 @@ export interface PipelineInput {
   /** How many to send to the LLM rerank stage. Default 30 per contract. */
   topKForRerank?: number;
   /**
-   * Min score (0–5) from rerank to surface in digest.
+   * Min score (0–5 rubric) from rerank to surface in the digest.
    *
-   * Default 0 — accept everything the LLM scored. The pipeline already has
-   * three earlier filters (rule keyword match, council scope, vector cosine
-   * top-K) so anything reaching the rerank is at least loosely relevant.
-   * The LLM's score is non-deterministic at default temperature, so applying
-   * a hard floor here turns variance into "the digest sometimes has 4 cards
-   * instead of 5." Top-N cap at `maxDigestSize` is the only meaningful bound.
+   * Defaults to {@link DIGEST_MIN_RERANK_SCORE} (2) — the FR-006 floor, i.e.
+   * `relevance_score = score * 2 ≥ 4` on the 0–10 scale the SRS and cards use.
+   * The three earlier stages (rule keyword match, council scope, vector cosine
+   * top-K) only establish *loose* relevance; the rule pass deliberately admits
+   * tier-2 implicit-construction false positives on the promise that this LLM
+   * rerank floor demotes them (see filters.ts). A floor of 0 breaks that promise
+   * — the demotion removes nothing and 0/10 DAs ship as "leads" (issue #163),
+   * diluting the precision wedge. The hard floor is the meaningful bound; the
+   * top-N cap at `maxDigestSize` is only the ceiling.
    */
   minScoreForDigest?: number;
   /**
@@ -148,7 +152,7 @@ export async function runRelevancePipeline(
 ): Promise<PipelineOutput> {
   const sinceIsoDate = input.sinceIsoDate ?? defaultSinceIso();
   const topKForRerank = input.topKForRerank ?? 30;
-  const minScoreForDigest = input.minScoreForDigest ?? 0;
+  const minScoreForDigest = input.minScoreForDigest ?? DIGEST_MIN_RERANK_SCORE;
   const maxDigestSize = input.maxDigestSize ?? 15;
 
   // Stage 1 — rule pass
