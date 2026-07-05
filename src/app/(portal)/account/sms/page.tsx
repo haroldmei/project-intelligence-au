@@ -117,9 +117,15 @@ export default function SMSOptInPage() {
         </div>
 
         {loaded && !hasMobile && !smsEnabled && (
-          <p className="text-xs text-[#7F1D1D] mt-3 border-t border-[#F5F5F5] pt-3">
-            Add a mobile number first — your account doesn&apos;t have one yet.
-          </p>
+          <div className="text-xs text-[#7F1D1D] mt-3 border-t border-[#F5F5F5] pt-3">
+            <p>Add a mobile number first — your account doesn&apos;t have one yet.</p>
+            <Link
+              href="/account/profile"
+              className="inline-flex items-center min-h-[44px] font-semibold text-[#B45309] hover:text-[#92400E] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] rounded"
+            >
+              Add your mobile number →
+            </Link>
+          </div>
         )}
 
         <p className="text-xs text-[#829AB1] mt-3 border-t border-[#F5F5F5] pt-3">
