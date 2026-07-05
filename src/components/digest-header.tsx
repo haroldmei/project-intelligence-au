@@ -1,10 +1,13 @@
-import { PrecisionBadge } from "@/components/precision-badge";
+import { RatedLeadBadge } from "@/components/rated-lead-badge";
+import type { RatedLeadRecap } from "@/modules/digest/recap";
 
 interface DigestHeaderProps {
   weekDate: string; // e.g. "27 Apr 2026"
   leadCount: number;
   areaLabel: string; // e.g. "Western Sydney + Hills"
-  precision?: number; // 0–100; only shown if defined (week 4+)
+  // The user's trailing-window rated-lead recap (issue #186); only shown from
+  // week 4. Undefined when the user has rated nothing yet.
+  ratedLeadRecap?: RatedLeadRecap;
   weeksOfHistory?: number;
 }
 
@@ -12,10 +15,10 @@ export function DigestHeader({
   weekDate,
   leadCount,
   areaLabel,
-  precision,
+  ratedLeadRecap,
   weeksOfHistory = 0,
 }: DigestHeaderProps) {
-  const showPrecision = typeof precision === "number" && weeksOfHistory >= 4;
+  const showRecap = ratedLeadRecap !== undefined && weeksOfHistory >= 4;
 
   return (
     <header className="space-y-1 py-4 px-4 border-b border-[#E5E5E5]">
@@ -26,15 +29,18 @@ export function DigestHeader({
       <p className="text-sm text-[#627D98]">
         {leadCount} {leadCount === 1 ? "lead" : "leads"} · {areaLabel}
       </p>
-      {showPrecision && precision !== undefined && (
+      {showRecap && ratedLeadRecap && (
         <div className="pt-1">
           {/* Recap is always the trailing-4-week window (CF-1.7), regardless of
-              how many total weeks of history the user has — so the badge reads
-              "4-week avg", the PrecisionBadge default. */}
-          <PrecisionBadge precision={precision} />
+              how many total weeks of history the user has. */}
+          <RatedLeadBadge
+            onTarget={ratedLeadRecap.onTarget}
+            rated={ratedLeadRecap.rated}
+            weeks={ratedLeadRecap.weeks}
+          />
         </div>
       )}
-      {!showPrecision && leadCount > 0 && (
+      {!showRecap && leadCount > 0 && (
         <p className="text-xs text-[#829AB1] pt-1" role="status">
           Your digest gets smarter as you use it — tap 👍 or 👎 on each card.
         </p>

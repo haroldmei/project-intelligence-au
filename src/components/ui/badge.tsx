@@ -5,7 +5,7 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   variant?:
     | "default"
     | "lga"
-    | "precision"
+    | "recap"
     | "success"
     | "error"
     // Lead-class badges (issue #14) — distinct but subtle, one hue per class.
@@ -20,7 +20,7 @@ function Badge({ className, variant = "default", ...props }: BadgeProps) {
       "bg-[#D4DDE8] text-[#1E3A5F] border border-[#A9BBCF]",
     lga:
       "bg-[#FEF3C7] text-[#78350F] border border-[#FDE68A]",
-    precision:
+    recap:
       "bg-[#FEF3C7] text-[#78350F] border border-[#D97706]",
     success:
       "bg-[#DCFCE7] text-[#14532D]",

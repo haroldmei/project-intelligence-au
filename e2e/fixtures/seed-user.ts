@@ -236,7 +236,8 @@ export function stubDigest() {
     weekDate: "27 Apr 2026",
     leadCount: 12,
     areaLabel: "Western Sydney + Hills",
-    precision: 0.93,
+    // Rated-lead recap (issue #186): the user's own on-target rate, not precision.
+    ratedLeadRecap: { onTarget: 14, rated: 15, rate: 93, weeks: 4 },
     weeksOfHistory: 4,
     das,
   };
@@ -249,7 +250,7 @@ export function stubDigestHistory() {
       weekDate: "27 Apr 2026",
       leadCount: 12,
       areaLabel: "Western Sydney + Hills",
-      precision: 0.93,
+      ratedLeadRecap: { onTarget: 14, rated: 15, rate: 93, weeks: 4 },
     },
     {
       id: "digest_122",
@@ -262,7 +263,7 @@ export function stubDigestHistory() {
       weekDate: "13 Apr 2026",
       leadCount: 14,
       areaLabel: "Western Sydney + Hills",
-      precision: 0.91,
+      ratedLeadRecap: { onTarget: 10, rated: 11, rate: 91, weeks: 4 },
     },
   ];
 }
