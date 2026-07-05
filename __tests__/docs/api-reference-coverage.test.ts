@@ -75,6 +75,37 @@ describe("docs/07-api-reference.md route coverage", () => {
     }
   });
 
+  // CDC ingest pathway parity for GET /api/cron/ingest (issue #182): CDC records
+  // are ingested ADDITIVELY on every nightly run and the flag defaults ON, yet
+  // the reference documented only the opt-in, default-OFF PCC flag — inverted
+  // priority for exactly the feed most likely to surprise an operator. Pin the
+  // doc to name the flag with its default-on semantics + key dependency, and
+  // prove the default-on claim from source so the two can't drift.
+  it("documents the default-on CDC ingest pathway and CDC_INGEST_ENABLED (issue #182)", () => {
+    const cdc = readFileSync(
+      path.resolve(process.cwd(), "src/modules/ingestion/cdc.ts"),
+      "utf8",
+    );
+    // Prove default-on from source: the flag is disabled ONLY by an explicit
+    // "false"/"0"; anything else (including unset) is enabled. If this ever flips
+    // to opt-in, the doc's "Default ON" wording must change with it.
+    expect(
+      cdc,
+      "cdc.ts isCdcIngestEnabled() must treat the flag as default-on (disabled only by explicit false/0)",
+    ).toContain(`return v !== "false" && v !== "0";`);
+
+    // The reference must name the flag, its default-on semantics, and the key it
+    // reuses — the two operator questions the doc previously couldn't answer.
+    expect(doc, "docs must name CDC_INGEST_ENABLED (issue #182)").toContain("CDC_INGEST_ENABLED");
+    expect(doc, "docs must state the CDC feed defaults ON").toMatch(/Default\s+\*?\*?ON/i);
+    expect(
+      doc,
+      "docs must state the CDC feed reuses NSW_PLANNING_API_KEY",
+    ).toContain("NSW_PLANNING_API_KEY");
+    // The pathway itself must appear in the ingest step, not just the flag name.
+    expect(doc, "docs must document the `cdc` approval pathway").toContain(`approvalPathway: "cdc"`);
+  });
+
   // Field-level parity for GET /api/cron/digest (issue #108): the handler runs
   // two Sunday ticks and returns `resumed`/`unserved` (idempotent-resume design,
   // issue #12), but the reference documented a single tick and a 5-field body.
