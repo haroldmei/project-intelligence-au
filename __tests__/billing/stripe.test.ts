@@ -130,13 +130,20 @@ describe("getActiveSubscription", () => {
 
   const cus = "cus_dunning_1";
 
+  // Emulates real Stripe's status filtering: a status=all query returns every
+  // subscription, but status=active/trialing (the pre-fix query) returns only
+  // subscriptions matching that exact status. Without this filtering the mock
+  // would return the same data regardless of the query and could pass against
+  // the pre-fix status=active/trialing-only lookup.
   function stubStripeList(subs: Array<{ id: string; status: string }>): () => string[] {
     const calledUrls: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
         calledUrls.push(url);
-        const data = subs.map((s) => ({
+        const status = new URL(url, "http://stripe.local").searchParams.get("status");
+        const filtered = status && status !== "all" ? subs.filter((s) => s.status === status) : subs;
+        const data = filtered.map((s) => ({
           id: s.id,
           status: s.status,
           current_period_end: 9_999_999_999,

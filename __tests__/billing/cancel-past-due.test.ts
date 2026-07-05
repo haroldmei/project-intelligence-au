@@ -45,14 +45,21 @@ afterEach(() => {
 });
 
 /**
- * Mock Stripe's HTTP layer: the subscription LIST returns a single past_due
- * subscription; the subscription UPDATE (cancel) echoes cancel_at_period_end.
+ * Mock Stripe's HTTP layer: the subscription LIST only returns the past_due
+ * subscription for a status=all query — status=active/trialing (the pre-fix
+ * query) returns an empty page, exactly like real Stripe would for a customer
+ * whose only subscription is past_due. This is what makes the test fail
+ * against the pre-fix code (which never queries status=all) instead of
+ * passing regardless of which status filter is used.
  */
 function stubStripe(): { fetchMock: ReturnType<typeof vi.fn>; periodEnd: number } {
   const periodEnd = 1_800_000_000; // fixed, inside the 400d access ceiling
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     if (method === "GET" && url.includes("/subscriptions?")) {
+      if (url.includes("status=active") || url.includes("status=trialing")) {
+        return { ok: true, json: async () => ({ data: [] }) } as unknown as Response;
+      }
       return {
         ok: true,
         json: async () => ({
