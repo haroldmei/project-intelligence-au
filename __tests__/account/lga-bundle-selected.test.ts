@@ -6,8 +6,12 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const { mockDb, captureServerMock } = vi.hoisted(() => ({
   mockDb: {
+    lgaBundle: { findMany: vi.fn() },
     lgaBundleSubscription: { deleteMany: vi.fn(), createMany: vi.fn() },
     user: { findUniqueOrThrow: vi.fn() },
+    // updateLgaBundles wraps the delete+create pair in db.$transaction([...]).
+    // Resolve each operation in order so the mocked ops still run.
+    $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   },
   captureServerMock: vi.fn(),
 }));
@@ -42,6 +46,13 @@ const USER_ROW = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Every submitted id resolves to a real LgaBundle row, so bundle-id
+  // validation passes and these tests stay focused on the emitted event.
+  mockDb.lgaBundle.findMany.mockImplementation(
+    ({ where }: { where?: { id?: { in?: string[] } } }) =>
+      Promise.resolve((where?.id?.in ?? []).map((id) => ({ id }))),
+  );
+  mockDb.$transaction.mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops));
   mockDb.lgaBundleSubscription.deleteMany.mockResolvedValue({ count: 0 });
   mockDb.lgaBundleSubscription.createMany.mockResolvedValue({ count: 2 });
   mockDb.user.findUniqueOrThrow.mockResolvedValue(USER_ROW);
