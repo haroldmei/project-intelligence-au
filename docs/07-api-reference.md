@@ -21,7 +21,7 @@ The ProjectIntelligence AU API is a REST API built with Next.js 15 API routes an
 
 ## Authentication
 
-All user-facing endpoints require an active **Lucia session cookie**. The session is created automatically on signup or login and is stored as an `HttpOnly` cookie named `lucia_session`.
+All user-facing endpoints require an active **Lucia session cookie**. The session is created automatically on signup or login and is stored as an `HttpOnly` cookie named `auth_session` (Lucia's default cookie name).
 
 | Method | Endpoint | Purpose | Auth Required | Wedge FR |
 |--------|----------|---------|---------------|----------|
@@ -40,7 +40,7 @@ All user-facing endpoints require an active **Lucia session cookie**. The sessio
 After signup or login, the response includes a `Set-Cookie` header:
 
 ```
-Set-Cookie: lucia_session=<session_id>; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000
+Set-Cookie: auth_session=<session_id>; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000
 ```
 
 **Attributes:**
@@ -199,7 +199,7 @@ No request body required.
 
 #### Response
 
-**200 OK** (with `Set-Cookie: lucia_session=; Max-Age=0` header):
+**200 OK** (with `Set-Cookie: auth_session=; Max-Age=0` header):
 
 ```json
 {

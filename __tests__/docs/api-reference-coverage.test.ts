@@ -104,4 +104,31 @@ describe("docs/07-api-reference.md route coverage", () => {
     expect(doc).toContain("07:00 UTC");
     expect(doc).toContain("10:00 UTC");
   });
+
+  // Session-cookie name parity (issue #136): the reference named the cookie
+  // `lucia_session`, but the code never overrides Lucia's default, so the real
+  // cookie is `auth_session`. Anyone debugging auth or writing a health check by
+  // inspecting cookies would look for a name that does not exist. Pin the doc to
+  // the name Lucia actually emits, and prove that name from the source: the
+  // sessionCookie config must set no `name`, so Lucia's default applies.
+  it("documents the real Lucia session cookie name `auth_session` (issue #136)", () => {
+    const lucia = readFileSync(
+      path.resolve(process.cwd(), "src/lib/auth/lucia.ts"),
+      "utf8",
+    );
+    // The sessionCookie config must NOT override the name — else this test would
+    // be asserting the wrong literal. If a name is ever set, update the doc + here.
+    const sessionCookieBlock = lucia.slice(lucia.indexOf("sessionCookie:"));
+    expect(
+      sessionCookieBlock,
+      "lucia.ts must not set sessionCookie.name (Lucia default `auth_session` applies)",
+    ).not.toMatch(/name\s*:/);
+
+    // Doc uses the real name and no longer references the fictional one.
+    expect(doc).toContain("auth_session");
+    expect(
+      doc.includes("lucia_session"),
+      "docs/07-api-reference.md must not name the cookie `lucia_session` — the real name is `auth_session`",
+    ).toBe(false);
+  });
 });
