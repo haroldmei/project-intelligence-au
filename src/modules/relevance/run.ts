@@ -34,7 +34,10 @@ export interface RelevanceRunResult extends PipelineOutput {
  * - If ceiling breached: embedding-only (vector rank, no LLM rerank).
  * - Otherwise: full 3-stage pipeline.
  */
-export async function runRelevanceForUser(userId: string): Promise<RelevanceRunResult | null> {
+export async function runRelevanceForUser(
+  userId: string,
+  currentRunId?: string,
+): Promise<RelevanceRunResult | null> {
   // Load user data
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -77,7 +80,14 @@ export async function runRelevanceForUser(userId: string): Promise<RelevanceRunR
   // 14-day rule-filter lookback (defaultSinceIso in relevance-pipeline.ts):
   // without dedupe, two consecutive Sunday digests would overlap by 7
   // days and re-send the same lead.
-  const excludeDaIds = await loadPastDigestDaIds(userId);
+  //
+  // The current run is excluded from the dedupe (issue #124): on the Sunday
+  // retry tick the primary attempt has already persisted THIS run's DigestDa
+  // rows, so without the runId filter the retry would exclude its own leads,
+  // surface an empty set, and send a "quiet week" email that disagrees with
+  // the persisted portal digest. On the primary tick currentRunId matches no
+  // rows yet, so this is a no-op there.
+  const excludeDaIds = await loadPastDigestDaIds(userId, currentRunId);
 
   // Cost-cap kill switch check (dev-plan §A.5)
   const weekStart = weekStartAEST();
@@ -173,10 +183,20 @@ function lookbackIsoDate(daysBack: number): string {
  * Internal DA ids the user has been shown in any previous digest. Used to
  * dedupe across the 14-day rule-filter window so a DA seen last Sunday
  * doesn't reappear this Sunday.
+ *
+ * `currentRunId`, when supplied, is excluded so the retry tick doesn't dedupe
+ * against its OWN run's already-persisted DigestDa rows (issue #124).
  */
-async function loadPastDigestDaIds(userId: string): Promise<string[]> {
+async function loadPastDigestDaIds(
+  userId: string,
+  currentRunId?: string,
+): Promise<string[]> {
   const rows = await db.digestDa.findMany({
-    where: { digest: { userId } },
+    where: {
+      digest: currentRunId
+        ? { userId, runId: { not: currentRunId } }
+        : { userId },
+    },
     select: { daId: true },
     distinct: ["daId"],
   });
