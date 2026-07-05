@@ -1,7 +1,9 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { User } from "lucide-react";
 import { validateRequest } from "@/lib/auth/session";
+import { PATHNAME_HEADER, buildLoginRedirect } from "@/lib/auth/return-to";
 import { AnalyticsProvider } from "@/components/analytics-provider";
 import { PortalNav } from "./portal-nav";
 
@@ -10,10 +12,13 @@ export default async function PortalLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Auth gate — redirect to login if unauthenticated
+  // Auth gate — redirect to login if unauthenticated, preserving where the user
+  // was headed as ?returnTo (issue #137) so an email feedback tap doesn't lose
+  // its /digest?feedback=recorded confirmation behind the login wall.
   const auth = await validateRequest();
   if (!auth) {
-    redirect("/login");
+    const target = (await headers()).get(PATHNAME_HEADER);
+    redirect(buildLoginRedirect(target));
   }
 
   return (

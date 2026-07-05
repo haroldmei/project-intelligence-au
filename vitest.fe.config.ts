@@ -29,6 +29,9 @@ export default defineConfig({
       // Escaped so the signup page test runs (issue #88 — FR-022 SMS opt-in
       // disclosure, since SMS is opted-IN by default at signup).
       "src/app/\\(auth\\)/signup/**/*.test.{ts,tsx}",
+      // Escaped so the login page test runs (issue #137 — honour ?returnTo so an
+      // email feedback tap lands back on /digest after the login wall).
+      "src/app/\\(auth\\)/login/**/*.test.{ts,tsx}",
       // Escaped so the onboarding area/query page tests run (issue #139 — Back
       // navigation + bundle pre-fill across the wizard steps).
       "src/app/\\(auth\\)/onboarding/**/*.test.{ts,tsx}",
