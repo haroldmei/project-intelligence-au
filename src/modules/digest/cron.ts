@@ -164,7 +164,7 @@ export async function runDigestCron(): Promise<DigestCronResult> {
 
   for (const user of pending) {
     try {
-      const relevance = await runRelevanceForUser(user.id);
+      const relevance = await runRelevanceForUser(user.id, run.id);
       if (!relevance) {
         // Persist a Digest row anyway so observability queries can answer
         // "did Sunday work for everyone?" — null relevance means the user
