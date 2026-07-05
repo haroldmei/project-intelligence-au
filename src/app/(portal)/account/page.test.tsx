@@ -56,6 +56,8 @@ function mockFetch(account: AccountDTO) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Reset the URL between tests — the page reads ?billing from window.location.
+  window.history.pushState({}, "", "/account");
 });
 
 describe("AccountPage — past_due dunning state", () => {
@@ -105,5 +107,80 @@ describe("AccountPage — past_due dunning state", () => {
     // The active state leads with Cancel + Manage billing, no card-update CTA.
     await screen.findByRole("button", { name: /cancel subscription/i });
     expect(screen.queryByRole("button", { name: /update your card/i })).toBeNull();
+  });
+});
+
+// The paid-conversion terminal hop (#133): a just-paid user redirected to
+// /account?billing=success must NOT see the pre-checkout "Trial not started ·
+// Choose a plan" while the async provisioning webhook is still in flight — they
+// must see an explicit success confirmation and an "activating" state.
+describe("AccountPage — post-Checkout ?billing=success (webhook race, #133)", () => {
+  // Keep 'setTimeout' polling in the module in sync with this value.
+  const POLL_INTERVAL_MS = 2500;
+
+  it("shows a success confirmation and 'activating' state, not 'Choose a plan', while accessUntil is null", async () => {
+    window.history.pushState({}, "", "/account?billing=success");
+    // Pre-webhook DB state: schema default trial, accessUntil not yet populated.
+    mockFetch(baseAccount({ subscriptionStatus: "trial", accessUntil: null }));
+    render(<AccountPage />);
+
+    // Explicit checkout-success confirmation.
+    expect(await screen.findByText(/payment received/i)).toBeTruthy();
+    // Provisioning state, not the pre-checkout dead-end.
+    expect(screen.getByText(/activating your trial/i)).toBeTruthy();
+    expect(screen.queryByText(/trial not started/i)).toBeNull();
+    expect(screen.queryByRole("link", { name: /choose a plan/i })).toBeNull();
+  });
+
+  it("stops showing 'activating' and reveals the trial-active state once the webhook lands (poll)", async () => {
+    let call = 0;
+    global.fetch = vi.fn((url: FetchArgs[0]) => {
+      if (String(url) === "/api/account/me") {
+        call += 1;
+        // First load: webhook hasn't landed. A later poll: accessUntil populated.
+        const acct =
+          call === 1
+            ? baseAccount({ subscriptionStatus: "trial", accessUntil: null })
+            : baseAccount({ subscriptionStatus: "trial", accessUntil: "2026-08-01T00:00:00.000Z" });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(acct) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    }) as unknown as typeof fetch;
+
+    window.history.pushState({}, "", "/account?billing=success");
+    render(<AccountPage />);
+
+    // First load resolves — provisioning state.
+    expect(await screen.findByText(/activating your trial/i)).toBeTruthy();
+
+    // The scheduled poll (POLL_INTERVAL_MS) fires and the webhook has now landed;
+    // wait past one interval for the page to flip itself to the trial-active state.
+    expect(
+      await screen.findByText(/trial ends/i, {}, { timeout: POLL_INTERVAL_MS + 2500 }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/activating your trial/i)).toBeNull();
+    // The confirmation banner persists after activation.
+    expect(screen.getByText(/payment received/i)).toBeTruthy();
+  }, 10_000);
+
+  it("without ?billing, a pre-checkout trial user still sees 'Trial not started · Choose a plan'", async () => {
+    // Regression guard: the provisioning UI must be gated on the ?billing hint,
+    // not shown to every accessUntil-null trial user.
+    mockFetch(baseAccount({ subscriptionStatus: "trial", accessUntil: null }));
+    render(<AccountPage />);
+
+    expect(await screen.findByText(/trial not started/i)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /choose a plan/i })).toBeTruthy();
+    expect(screen.queryByText(/payment received/i)).toBeNull();
+  });
+
+  it("shows a neutral, no-charge note on ?billing=cancelled and still offers a plan", async () => {
+    window.history.pushState({}, "", "/account?billing=cancelled");
+    mockFetch(baseAccount({ subscriptionStatus: "trial", accessUntil: null }));
+    render(<AccountPage />);
+
+    expect(await screen.findByText(/weren't charged/i)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /choose a plan/i })).toBeTruthy();
+    expect(screen.queryByText(/payment received/i)).toBeNull();
   });
 });
