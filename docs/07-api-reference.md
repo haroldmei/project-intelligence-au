@@ -1724,6 +1724,70 @@ No request body.
 
 ---
 
+### GET /api/cron/ingest-retry
+
+**Compensating ingestion retry (Vercel Cron) — issue #125.**
+
+Vercel Cron handler — **hourly at :15 (`15 * * * *`)**.
+
+The nightly ingest (`GET /api/cron/ingest`) isolates a per-LGA transient upstream
+failure — it writes an `ingestion_log` row with `success = false` and fires
+Sentry — but does **not** re-fetch it; the next nightly tick is ~24h away, after
+the Sunday 17:00 AEST digest has already read that LGA's DAs. Vercel Cron cannot
+dynamically re-fire a failed job, so this secondary hourly poll is the design's
+compensating control (system-design §3.3/§5.1):
+
+1. Query `ingestion_log` for councils that failed during the **current night's
+   run** (scoped to the most recent 13:00 UTC nightly boundary) and have **not
+   since recovered**.
+2. Re-run ingestion for **only** those councils (idempotent — `upsertDa` is keyed
+   on `(daId, council)`).
+3. Give up on a council after `MAX_INGEST_RETRY_ATTEMPTS` failures in the night,
+   leaving a persistent outage to drift detection.
+
+A transient Saturday-night failure is thus healed before the Sunday digest reads
+the data. A no-op on a healthy night (nothing failed / everything recovered).
+
+**Not for client consumption.** Vercel Cron calls this endpoint.
+
+#### Security
+
+- **Authentication:** Bearer token in `Authorization` header
+- **Source:** Vercel Cron, time-based trigger
+
+#### Request
+
+No request body.
+
+#### Response
+
+**200 OK:**
+
+```json
+{
+  "retried": ["blacktown"],
+  "ingested": 7,
+  "failed": 0,
+  "perCouncil": [{ "council": "blacktown", "ingested": 7, "failed": false }]
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `retried` | string[] | Council slugs re-fetched this pass (had an unrecovered failure) |
+| `ingested` | integer | Total DAs ingested across retried councils |
+| `failed` | integer | Councils that failed again on this retry pass |
+| `perCouncil` | object[] | Per-council retry results |
+
+#### Errors
+
+| Status | Code | Description |
+|--------|------|-------------|
+| `401` | — | Invalid or missing `CRON_SECRET` |
+| `500` | — | Cron execution error |
+
+---
+
 ### GET /api/cron/trial-reminder
 
 **Trial-ending reminder (Vercel Cron).**

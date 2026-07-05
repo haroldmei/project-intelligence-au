@@ -14,6 +14,10 @@
       "schedule": "0 13 * * *"
     },
     {
+      "path": "/api/cron/ingest-retry",
+      "schedule": "15 * * * *"
+    },
+    {
       "path": "/api/cron/trial-reminder",
       "schedule": "0 6 * * *"
     },
