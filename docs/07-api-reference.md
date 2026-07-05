@@ -46,13 +46,13 @@ Set-Cookie: lucia_session=<session_id>; Path=/; HttpOnly; SameSite=Lax; Max-Age=
 **Attributes:**
 - `HttpOnly` — cannot be accessed via JavaScript (CSRF/XSS protection)
 - `SameSite=Lax` — CSRF protection (same-origin POST required)
-- `Max-Age=2592000` — 30-day session lifetime
+- `Max-Age=2592000` — 30-day inactivity window; refreshed on active use (see [Session Expiration](#session-expiration))
 
 The frontend automatically includes the cookie in all requests (browsers do this by default).
 
 ### Session Expiration
 
-Sessions expire after 30 days of creation (regardless of activity). Users must re-login on expiration.
+Sessions use a rolling 30-day inactivity window (Lucia `sessionExpiresIn`). Each authenticated request made past the halfway point of the window extends the session for another 30 days (Lucia issues a fresh `Set-Cookie`), so active users are never forced to re-login. A session expires only after 30 days with no activity; after that the user must re-login.
 
 ---
 
