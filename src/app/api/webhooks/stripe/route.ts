@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import {
   validateStripeWebhook,
   planFromPriceId,
+  isRepresentablePlan,
   clampAccessUntil,
   MAX_ACCESS_DAYS,
 } from "@/modules/billing/stripe";
@@ -119,13 +120,36 @@ async function handleStripeEvent(type: string, obj: Record<string, unknown>): Pr
       const priceId = items?.data?.[0]?.price?.id;
       const plan = priceId ? planFromPriceId(priceId) : undefined;
 
+      // A subscription carrying a plan the app can't represent end-to-end (the
+      // Team price — sold-through in Stripe config but with no seat UI or
+      // per-seat digest fan-out yet) must NOT be written onto the user: doing so
+      // rendered the account as Plan '—' / 1 seat while the customer was billed
+      // AUD 499 Team (issue #164). Alert loudly so ops can refund/downgrade, and
+      // keep the last representable plan so the account stays coherent. The
+      // portal config (createBillingPortalSession) is the front-door lock; this
+      // is the backstop for any other path onto the Team price.
+      const persistablePlan = plan && isRepresentablePlan(plan) ? plan : undefined;
+      if (plan && !persistablePlan) {
+        log.error(
+          { userId: user.id, priceId, plan, type },
+          "[webhook-stripe] unrepresentable plan on subscription — not persisting; billed for a plan the app can't serve",
+        );
+        Sentry.captureMessage(
+          `Stripe subscription carries unrepresentable plan '${plan}' for user ${user.id} — billed but not fulfillable`,
+          {
+            level: "error",
+            tags: { userId: user.id, phase: "billing-unrepresentable-plan", plan },
+          },
+        );
+      }
+
       await db.user.update({
         where: { id: user.id },
         data: {
           subscriptionStatus: status,
           accessUntil: clampAndWarn(periodEnd, { userId: user.id, eventType: type }),
           cancelAtPeriodEnd,
-          ...(plan ? { plan } : {}),
+          ...(persistablePlan ? { plan: persistablePlan } : {}),
         },
       });
       log.info(

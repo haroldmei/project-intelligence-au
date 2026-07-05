@@ -11,6 +11,7 @@
 // db-migrator request: no new schema changes — User already has stripeCustomerId, subscriptionStatus, accessUntil.
 import { createHmac, timingSafeEqual } from "node:crypto";
 import pino from "pino";
+import * as Sentry from "@sentry/nextjs";
 import { env } from "@/lib/env";
 import { PRICING } from "@/lib/pricing";
 
@@ -98,6 +99,27 @@ export function planFromPriceId(priceId: string): string | undefined {
     if (id === priceId) return plan;
   }
   return undefined;
+}
+
+/**
+ * Plans the app can currently represent AND serve end-to-end: the account page
+ * has a plan label + seat count for it (src/app/(portal)/account/page.tsx) AND
+ * the digest pipeline can deliver it. Multi-seat "team" is sold-through in
+ * Stripe config — STRIPE_PRICE_ID_TEAM is required in prod (src/lib/env.ts) so
+ * the price object exists — but is NOT yet buildable here: no team creation, no
+ * seat invites, no per-seat digest fan-out (see the /plan picker and checkout,
+ * which both gate "team" off). A subscription that carries the team price is
+ * therefore an anomaly, not a valid state, and MUST NOT be persisted onto the
+ * user: doing so left the account rendering Plan '—' / 1 seat while the customer
+ * was billed AUD 499 Team (issue #164). The webhook surfaces it (Sentry) and
+ * keeps the last representable plan instead. Re-add "team" here — in lockstep
+ * with the account-page labels, seat UI, and fan-out — when multi-seat ships.
+ */
+export const REPRESENTABLE_PLANS: ReadonlySet<string> = new Set(["solo"]);
+
+/** True when the app can fully render and serve `plan` end-to-end. */
+export function isRepresentablePlan(plan: string): boolean {
+  return REPRESENTABLE_PLANS.has(plan);
 }
 
 /**
@@ -201,18 +223,86 @@ export async function createCheckoutSession(
   return { url: session.url, id: session.id };
 }
 
+// Cache the "no plan switching" portal configuration id for the process
+// lifetime so we create it once, not on every portal open. A module-level
+// promise dedupes concurrent creates within a warm instance; a cold start (or a
+// prior failure resetting it to null) recreates it, which Stripe deduplicates
+// via the stable Idempotency-Key below within its 24h window.
+let noPlanSwitchPortalConfig: Promise<string | null> | null = null;
+
 /**
- * Create a Stripe Customer Portal session (cancel/upgrade).
+ * Create (once) a Billing Portal configuration that DISABLES plan switching.
+ *
+ * The portal is purpose-labelled "cancel/upgrade", but the app cannot represent
+ * the Team plan yet (see REPRESENTABLE_PLANS): if the portal let a Solo
+ * subscriber switch to the Team price, they'd be billed AUD 499 for a plan the
+ * account page renders as '—' / 1 seat (issue #164). We pin `subscription_update`
+ * off so "Manage billing" can update cards, view invoices, and cancel — but can
+ * never move a subscriber onto an unrepresentable price.
+ *
+ * Best-effort by design: if Stripe rejects the create (misconfigured business
+ * profile, API change, …) we return null and the caller falls back to the
+ * account's default portal configuration — managing billing must never break.
+ * The webhook guard (route.ts) is the backstop that catches a Team price
+ * regardless of how it was reached.
+ */
+async function ensureNoPlanSwitchPortalConfig(): Promise<string | null> {
+  if (!noPlanSwitchPortalConfig) {
+    noPlanSwitchPortalConfig = (async (): Promise<string | null> => {
+      try {
+        const appUrl = env.NEXT_PUBLIC_APP_URL;
+        const config = await stripePost<{ id: string }>(
+          "/billing_portal/configurations",
+          {
+            "business_profile[privacy_policy_url]": `${appUrl}/privacy`,
+            "business_profile[terms_of_service_url]": `${appUrl}/terms`,
+            // The lock: no plan switching. Everything else the portal is for
+            // (cards, invoices, cancel, contact details) stays enabled.
+            "features[subscription_update][enabled]": "false",
+            "features[subscription_cancel][enabled]": "true",
+            "features[payment_method_update][enabled]": "true",
+            "features[invoice_history][enabled]": "true",
+            "features[customer_update][enabled]": "true",
+            "features[customer_update][allowed_updates][0]": "email",
+            "features[customer_update][allowed_updates][1]": "address",
+            "features[customer_update][allowed_updates][2]": "phone",
+          },
+          { idempotencyKey: "portal-config:no-plan-switch:v1" },
+        );
+        log.info({ configurationId: config.id }, "[billing] no-plan-switch portal configuration ready");
+        return config.id;
+      } catch (err) {
+        log.error(
+          { err },
+          "[billing] could not create no-plan-switch portal configuration — falling back to Stripe default",
+        );
+        Sentry.captureException(err, { tags: { phase: "billing-portal-config" } });
+        noPlanSwitchPortalConfig = null; // let the next portal open retry
+        return null;
+      }
+    })();
+  }
+  return noPlanSwitchPortalConfig;
+}
+
+/**
+ * Create a Stripe Customer Portal session (cancel/manage — NOT upgrade). Bound
+ * to a configuration that disables plan switching so a Solo subscriber can't
+ * self-serve onto the unrepresentable Team price (issue #164); falls back to the
+ * account default configuration if that config can't be created.
  * FR-019 | system-design §2 billing
  */
 export async function createBillingPortalSession(
   stripeCustomerId: string,
   returnUrl: string,
 ): Promise<{ url: string }> {
-  return stripePost<{ url: string }>("/billing_portal/sessions", {
+  const configurationId = await ensureNoPlanSwitchPortalConfig();
+  const params: Record<string, string> = {
     customer: stripeCustomerId,
     return_url: returnUrl,
-  });
+  };
+  if (configurationId) params.configuration = configurationId;
+  return stripePost<{ url: string }>("/billing_portal/sessions", params);
 }
 
 export interface StripeSubscription {
