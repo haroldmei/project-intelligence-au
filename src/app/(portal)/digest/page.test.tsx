@@ -60,3 +60,34 @@ describe("DigestPage feedback toast", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 });
+
+describe("DigestPage empty state — onboarding completeness (issue #123)", () => {
+  beforeEach(() => {
+    getCurrentDigest.mockResolvedValue(null);
+  });
+
+  it("shows a finish-setup CTA (not 'arrives Sunday') when the user never saved a query", async () => {
+    getMyArea.mockResolvedValue({
+      lgaBundles: [{ label: "Inner West" }],
+      savedQueryText: null,
+    });
+    await renderPage(undefined);
+
+    expect(screen.getByText(/finish setting up your digest/i)).toBeInTheDocument();
+    const cta = screen.getByRole("link", { name: /add your search query/i });
+    expect(cta).toHaveAttribute("href", "/account/saved-query");
+    // The false promise must NOT render for an unset-query user.
+    expect(screen.queryByText(/your first digest arrives sunday/i)).toBeNull();
+  });
+
+  it("shows the 'arrives Sunday' empty state once a saved query exists", async () => {
+    getMyArea.mockResolvedValue({
+      lgaBundles: [{ label: "Inner West" }],
+      savedQueryText: "metal roof replacement",
+    });
+    await renderPage(undefined);
+
+    expect(screen.getByText(/your first digest arrives sunday/i)).toBeInTheDocument();
+    expect(screen.queryByText(/finish setting up your digest/i)).toBeNull();
+  });
+});
