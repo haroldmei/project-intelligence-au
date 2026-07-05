@@ -203,7 +203,10 @@ describe("GET /api/cron/trial-reminder — dedupe + opt-out", () => {
     expect(mockedSend).toHaveBeenCalledTimes(1);
   });
 
-  it("excludes users who unsubscribed from all email (Spam Act opt-out)", async () => {
+  // Issue #127: the trial-ending reminder is transactional (the only pre-charge
+  // warning), so it must reach a user who unsubscribed from the digest. A
+  // marketing opt-out must NOT silently trigger a surprise auto-charge.
+  it("still reminds a trialer who unsubscribed from email (transactional pre-charge notice)", async () => {
     await seedTrialUser({
       email: "unsub@example.com",
       createdAt: daysFromNow(-27),
@@ -213,8 +216,11 @@ describe("GET /api/cron/trial-reminder — dedupe + opt-out", () => {
     });
 
     const res = await invoke();
-    expect(await res.json()).toEqual({ reminded: 0 });
-    expect(mockedSend).not.toHaveBeenCalled();
+    expect(await res.json()).toEqual({ reminded: 1 });
+    expect(sentTo("unsub@example.com")?.template).toBe("trial-reminder");
+    // dedupe stamp is set so the transactional notice is still sent at most once
+    const u = await testDb.user.findFirstOrThrow({ where: { email: "unsub@example.com" } });
+    expect(u.trialReminderSentAt).not.toBeNull();
   });
 
   it("never anchors daysLeft on PRICING.trialDays - 2 for a short custom trial", async () => {

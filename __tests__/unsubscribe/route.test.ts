@@ -30,6 +30,13 @@ describe("GET /api/unsubscribe/[token]", () => {
 
     const after = await testDb.user.findUnique({ where: { id: userId } });
     expect(after?.emailOptIn).toBe(false);
+
+    // Issue #127: the confirmation must set the expectation that essential
+    // billing notices (the pre-charge trial reminder) still arrive, so a
+    // marketing opt-out never reads as "I'll never be charged without warning".
+    const body = await res.text();
+    expect(body).toMatch(/marketing emails/i);
+    expect(body).toMatch(/billing notices/i);
   });
 
   it("rejects an invalid token and leaves the flag unchanged", async () => {
