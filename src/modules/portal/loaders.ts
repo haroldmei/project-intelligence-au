@@ -48,6 +48,12 @@ export interface DigestSummary {
   runDate: string;
   // Per-class breakdown (issue #14) — powers the history list's class chips.
   leadClassCounts: LeadClassCounts;
+  // Send-time service-area snapshot (issue #138): the area label frozen when this
+  // digest was sent, so the history/detail views show what the digest actually
+  // covered rather than the user's current area. NULL for legacy digests sent
+  // before the snapshot column existed — the portal falls back to the live area
+  // only for those.
+  areaLabel: string | null;
 }
 
 export interface DigestCard {
@@ -136,6 +142,7 @@ export async function getCurrentDigest(userId: string): Promise<DigestDetail | n
     smsStatus: digest.smsStatus,
     fallbackUsed: digest.fallbackUsed,
     runDate: digest.run.runDate.toISOString().slice(0, 10),
+    areaLabel: digest.areaLabel,
     precision: recap?.precision,
     leadClassCounts: tallyLeadClasses(digest.digestDas),
     cards: digest.digestDas.map((dd) => ({
@@ -185,6 +192,7 @@ export async function getDigestHistory(
     smsStatus: d.smsStatus,
     fallbackUsed: d.fallbackUsed,
     runDate: d.run.runDate.toISOString().slice(0, 10),
+    areaLabel: d.areaLabel,
     leadClassCounts: tallyLeadClasses(d.digestDas),
   }));
 }
@@ -234,6 +242,7 @@ export async function getDigestById(userId: string, digestId: string): Promise<D
     smsStatus: digest.smsStatus,
     fallbackUsed: digest.fallbackUsed,
     runDate: digest.run.runDate.toISOString().slice(0, 10),
+    areaLabel: digest.areaLabel,
     precision: recap?.precision,
     leadClassCounts: tallyLeadClasses(digest.digestDas),
     cards: digest.digestDas.map((dd) => ({
