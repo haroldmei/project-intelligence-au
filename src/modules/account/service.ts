@@ -196,7 +196,8 @@ export async function deleteAccount(userId: string): Promise<void> {
     log.error({ userId, err }, "[account] deleteAccount — could not fetch stripe customer id; proceeding");
   }
 
-  // Step 2: Cancel any active/trialing Stripe subscription before erasure (AT-005a).
+  // Step 2: Cancel any live Stripe subscription — active, trialing, or dunning
+  // (past_due/unpaid/paused, #132) — before erasure (AT-005a).
   if (stripeCustomerId) {
     try {
       const sub = await getActiveSubscription(stripeCustomerId);

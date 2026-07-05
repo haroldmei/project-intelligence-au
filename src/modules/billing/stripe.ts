@@ -222,24 +222,38 @@ export interface StripeSubscription {
   cancel_at_period_end: boolean;
 }
 
+// Stripe subscription statuses that represent a LIVE, cancellable subscription,
+// in preference order. active/trialing are the normally-entitled states;
+// past_due/unpaid/paused are dunning states the entitlement module deliberately
+// keeps live (issue #106) — the card is failing but the subscription is NOT yet
+// cancelled, so it is still cancellable in-product and MUST be returned here.
+// Omitting them (issue #132) made a dunning subscriber's live subscription
+// invisible to every cancel/reactivate/erasure path: they got a 404 and were
+// then billed AUD 99 when Stripe's smart-retry recovered the card.
+const CANCELLABLE_STATUSES = ["active", "trialing", "past_due", "unpaid", "paused"] as const;
+
 /**
- * Fetch the first active or trialing subscription for a Stripe customer.
- * Returns null if the customer has no active subscription.
+ * Fetch the customer's live, cancellable subscription — active, trialing, or a
+ * dunning state (past_due/unpaid/paused). Returns null only when the customer
+ * has no cancellable subscription (e.g. already canceled/incomplete_expired).
  * FR-021 | system-design §2 billing
  */
 export async function getActiveSubscription(
   stripeCustomerId: string,
 ): Promise<StripeSubscription | null> {
-  const data = await stripeGet<{
-    data: StripeSubscription[];
-  }>(`/subscriptions?customer=${encodeURIComponent(stripeCustomerId)}&status=active&limit=1`);
-  if (data.data.length > 0) return data.data[0] ?? null;
-
-  // Also check trialing subscriptions
-  const trialing = await stripeGet<{ data: StripeSubscription[] }>(
-    `/subscriptions?customer=${encodeURIComponent(stripeCustomerId)}&status=trialing&limit=1`,
+  // status=all (not status=active) so dunning subscriptions are visible; filter
+  // to the cancellable set below. limit=100 (Stripe's max) so a rare customer
+  // with several historical subscriptions can't push the live one off the page.
+  const { data } = await stripeGet<{ data: StripeSubscription[] }>(
+    `/subscriptions?customer=${encodeURIComponent(stripeCustomerId)}&status=all&limit=100`,
   );
-  return trialing.data[0] ?? null;
+  // Preference order: return an active/trialing sub over a dunning one if a
+  // customer somehow has both, so we never cancel the wrong subscription.
+  for (const status of CANCELLABLE_STATUSES) {
+    const match = data.find((s) => s.status === status);
+    if (match) return match;
+  }
+  return null;
 }
 
 /**
