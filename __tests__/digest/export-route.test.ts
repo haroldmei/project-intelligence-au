@@ -30,6 +30,7 @@ const sampleDigest: DigestDetail = {
   smsStatus: null,
   fallbackUsed: false,
   runDate: "2026-07-05",
+  areaLabel: "Western Sydney",
   leadClassCounts: { fast_track: 0, strata_heritage: 0, builder_pipeline: 1 },
   cards: [
     {

@@ -52,6 +52,14 @@ export async function assembleAndSendDigest(
   const results = relevance.results.slice(0, DIGEST_EMAIL_MAX_CARDS);
   const daCount = results.length;
 
+  // Freeze the service-area label as it stands right now (issue #138). This is
+  // what the history list / detail header will show for THIS digest forever, so
+  // a later area change can't retroactively relabel it. Same join the portal
+  // loaders use for the live area (" + "). NULL when the user somehow has no
+  // bundles — the portal then falls back to their live area.
+  const lgaLabels = user.lgaBundles.map((sub) => sub.bundle.label);
+  const areaSnapshot = lgaLabels.length > 0 ? lgaLabels.join(" + ") : null;
+
   // Honest lead class per lead (issue #14). Deterministic + pure over the DA's
   // scope text (+ approval pathway once #10 populates it). Computed ONCE here so
   // the persisted DigestDa.leadClass and the email/portal badge always agree.
@@ -91,6 +99,7 @@ export async function assembleAndSendDigest(
           runId,
           daCount,
           fallbackUsed: relevance.fallbackUsed,
+          areaLabel: areaSnapshot,
         },
       });
     } catch (err) {
@@ -139,7 +148,6 @@ export async function assembleAndSendDigest(
   }
 
   const weekStart = getWeekStartLabel();
-  const lgaLabels = user.lgaBundles.map((sub) => sub.bundle.label);
 
   // Build email cards from the relevance candidates we already have. No
   // per-card DB roundtrip — the candidate carries everything we need

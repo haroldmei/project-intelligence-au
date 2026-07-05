@@ -33,6 +33,7 @@ function digest(cards: DigestCard[], runDate = "2026-07-05"): DigestDetail {
     daCount: cards.length,
     emailStatus: "sent",
     smsStatus: null,
+    areaLabel: "Western Sydney",
     fallbackUsed: false,
     runDate,
     leadClassCounts: { fast_track: 0, strata_heritage: 0, builder_pipeline: cards.length },

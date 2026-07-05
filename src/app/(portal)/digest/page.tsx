@@ -50,7 +50,9 @@ export default async function DigestPage({
       {showFeedbackToast && <FeedbackToast />}
       <DigestView
         digest={digest}
-        areaLabel={buildAreaLabel(area)}
+        // Show the area this digest was sent under, not the user's current area
+        // if it changed since (issue #138); fall back to live for legacy digests.
+        areaLabel={digest.areaLabel ?? buildAreaLabel(area)}
         weeksOfHistory={history.filter((h) => h.sentAt).length}
       />
     </>

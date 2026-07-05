@@ -292,6 +292,14 @@ model Digest {
   emailStatus String?   @map("email_status")
   smsStatus   String?   @map("sms_status")
   fallbackUsed Boolean  @default(false) @map("fallback_used")
+  // Send-time snapshot of the user's service-area label, e.g. "Western Sydney +
+  // Northern Sydney" (issue #138). The history list and digest-detail header must
+  // show what a PAST digest actually covered, not the user's CURRENT area — a
+  // tradie who later widened their area would otherwise see old digests falsely
+  // relabelled. Frozen here at create time so it never drifts. NULL for digests
+  // sent before this column existed; the portal falls back to the live area only
+  // for those legacy rows.
+  areaLabel   String?   @map("area_label")
 
   user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   run     DigestRun @relation(fields: [runId], references: [id])
