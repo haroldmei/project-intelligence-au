@@ -244,6 +244,49 @@ describe("WeeklyDigestTemplate — rated-lead recap (CF-1.7, issue #51; #186)", 
   });
 });
 
+describe("WeeklyDigestTemplate — degraded-ranking note (system-design §7.3, issue #181)", () => {
+  const base = {
+    weekStart: "27 Apr 2026",
+    leadCount: 3,
+    lgas: ["Inner West"],
+    cards: [card("bp-1", "builder_pipeline" as LeadClass, "1 Pipeline St", 8)],
+    smsEnabled: false,
+  };
+
+  it("shows the 'basic mode' outage note when the LLM was unavailable", () => {
+    const { html } = WeeklyDigestTemplate({
+      ...base,
+      fallbackUsed: true,
+      fallbackReason: "llm_unavailable",
+    });
+    expect(html).toContain("Relevance ranking ran in basic mode this week");
+    expect(html).toContain("briefly unavailable");
+    // Must NOT read as a cost/billing throttle — that would misinform the user.
+    expect(html).not.toContain("AI cost cap reached");
+  });
+
+  it("shows the cost-cap note when the weekly ceiling was hit", () => {
+    const { html } = WeeklyDigestTemplate({
+      ...base,
+      fallbackUsed: true,
+      fallbackReason: "cost_cap",
+    });
+    expect(html).toContain("AI cost cap reached");
+    expect(html).not.toContain("basic mode");
+  });
+
+  it("defaults to the cost-cap copy when fallbackUsed but no reason given (back-compat)", () => {
+    const { html } = WeeklyDigestTemplate({ ...base, fallbackUsed: true });
+    expect(html).toContain("AI cost cap reached");
+  });
+
+  it("shows no degraded-ranking note on the normal full-pipeline path", () => {
+    const { html } = WeeklyDigestTemplate(base);
+    expect(html).not.toContain("basic mode");
+    expect(html).not.toContain("AI cost cap reached");
+  });
+});
+
 describe("WeeklyDigestTemplate — personalisation-on note (issue #96 A3)", () => {
   const base = {
     weekStart: "27 Apr 2026",

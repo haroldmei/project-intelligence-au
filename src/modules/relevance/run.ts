@@ -5,6 +5,11 @@
 //
 // Called by the digest cron per user. Returns the scored DA list to assemble into a digest.
 import * as Sentry from "@sentry/nextjs";
+import {
+  APIConnectionError,
+  InternalServerError,
+  RateLimitError,
+} from "@anthropic-ai/sdk";
 import { db } from "@/lib/db";
 import {
   runRelevancePipeline,
@@ -24,9 +29,39 @@ const log = pino({ name: "relevance-run" });
 /** AUD 0.13 = weekly equivalent of AUD 0.50/month ceiling (dev-plan §A.5) */
 const WEEKLY_COST_CEILING_AUD = 0.13;
 
+/**
+ * Why the embedding-only degraded path ran, when {@link RelevanceRunResult.fallbackUsed}.
+ * - `cost_cap`        — weekly AI cost ceiling breached (dev-plan §A.5).
+ * - `llm_unavailable` — the Claude rerank was unavailable (429/5xx/timeout) and
+ *   we degraded rather than dropping the digest (system-design §7.3, NFR-019).
+ * The two drive distinct email copy so a user (and support) can tell a cost
+ * throttle apart from a transient upstream outage.
+ */
+export type FallbackReason = "cost_cap" | "llm_unavailable";
+
 export interface RelevanceRunResult extends PipelineOutput {
-  /** True if the cost-cap kill switch forced embedding-only ranking (dev-plan §A.5) */
+  /** True if a degraded path forced embedding-only ranking (cost cap or LLM outage). */
   fallbackUsed: boolean;
+  /** Present iff `fallbackUsed` — which degraded path produced this result. */
+  fallbackReason?: FallbackReason;
+}
+
+/**
+ * True for the transient Anthropic failures system-design §7.3 says must degrade
+ * the digest to embedding-only rather than drop it: 429 rate limits, 5xx/529
+ * overloads, and connection timeouts (after the SDK's own retries are exhausted).
+ *
+ * Deliberately NARROW: a 4xx like 401 (bad key) or 400 (malformed request) is a
+ * config/logic bug, not an outage — those keep propagating so the cron records a
+ * hard failure and the unserved alert pages, instead of silently shipping a
+ * "basic mode" digest every week and masking a broken deploy.
+ */
+function isAnthropicOutage(err: unknown): boolean {
+  return (
+    err instanceof APIConnectionError || // includes APIConnectionTimeoutError
+    err instanceof RateLimitError || // 429
+    err instanceof InternalServerError // 5xx / 529 overloaded
+  );
 }
 
 /**
@@ -101,32 +136,52 @@ export async function runRelevanceForUser(
       level: "warning",
       tags: { userId, phase: "relevance-cost-cap" },
     });
-    return runEmbeddingOnlyPath(userId, savedQueryEmbedding, councilSlugs, excludeDaIds);
+    return runEmbeddingOnlyPath(userId, savedQueryEmbedding, councilSlugs, excludeDaIds, "cost_cap");
   }
 
-  // Full 3-stage pipeline
-  const result = await runRelevancePipeline(
-    {
-      userId,
-      savedQueryText: user.savedQueryText,
-      savedQueryEmbedding,
-      userLgaCouncilSlugs: councilSlugs,
-      excludeDaIds,
-      // Restore the wedge's 5–15 email range (issue #11). SMS is re-trimmed to
-      // top-3 downstream in assembleAndSendDigest.
-      maxDigestSize: DIGEST_EMAIL_MAX_CARDS,
-      // FR-006 relevance floor (issue #163): only DAs the rerank scored
-      // relevance_score ≥ 4 (rubric ≥ 2) may surface. Passed explicitly so the
-      // production floor is legible at the call site, not left to a default that
-      // once silently sat at 0 and shipped 0/10 DAs as leads.
-      minScoreForDigest: DIGEST_MIN_RERANK_SCORE,
-    },
-    {
-      ruleFilter,
-      vectorRank,
-      loadThumbsExamples,
-    },
-  );
+  // Full 3-stage pipeline. The Claude rerank is the only external dependency the
+  // embedding-only path doesn't share, so a transient Anthropic outage
+  // (429/5xx/timeout) is caught here and degraded to embedding-only ranking —
+  // the user still gets a Sunday digest, just ranked by cosine similarity with a
+  // "basic mode" note (system-design §7.3, NFR-019 ≥99% delivery SLA). Any other
+  // error (DB failures in the rule/vector stages, a non-transient 4xx from the
+  // model) propagates to the cron's per-user hard-failure branch as before.
+  let result: PipelineOutput;
+  try {
+    result = await runRelevancePipeline(
+      {
+        userId,
+        savedQueryText: user.savedQueryText,
+        savedQueryEmbedding,
+        userLgaCouncilSlugs: councilSlugs,
+        excludeDaIds,
+        // Restore the wedge's 5–15 email range (issue #11). SMS is re-trimmed to
+        // top-3 downstream in assembleAndSendDigest.
+        maxDigestSize: DIGEST_EMAIL_MAX_CARDS,
+        // FR-006 relevance floor (issue #163): only DAs the rerank scored
+        // relevance_score ≥ 4 (rubric ≥ 2) may surface. Passed explicitly so the
+        // production floor is legible at the call site, not left to a default that
+        // once silently sat at 0 and shipped 0/10 DAs as leads.
+        minScoreForDigest: DIGEST_MIN_RERANK_SCORE,
+      },
+      {
+        ruleFilter,
+        vectorRank,
+        loadThumbsExamples,
+      },
+    );
+  } catch (err) {
+    if (!isAnthropicOutage(err)) throw err;
+    log.warn(
+      { userId, err },
+      "[relevance] Claude rerank unavailable — degrading to embedding-only (basic mode)",
+    );
+    Sentry.captureMessage(`Rerank degraded to embedding-only for user ${userId} (Anthropic unavailable)`, {
+      level: "warning",
+      tags: { userId, phase: "relevance-llm-fallback" },
+    });
+    return runEmbeddingOnlyPath(userId, savedQueryEmbedding, councilSlugs, excludeDaIds, "llm_unavailable");
+  }
 
   // Sentry alert if per-user cost now exceeds ceiling after this run. Runs
   // before the quiet-week gate below because the rerank incurred its cost
@@ -158,7 +213,9 @@ export async function runRelevanceForUser(
 
 /**
  * Embedding-only path — skips the LLM rerank stage.
- * Used when the cost-cap kill switch fires (dev-plan §A.5).
+ * Used when the cost-cap kill switch fires (dev-plan §A.5) or when the Claude
+ * rerank is unavailable (system-design §7.3). `reason` records which so the
+ * digest email can show the matching note.
  * Returns the top-5 candidates by cosine similarity only.
  */
 async function runEmbeddingOnlyPath(
@@ -166,6 +223,7 @@ async function runEmbeddingOnlyPath(
   userEmbedding: number[],
   councilSlugs: string[],
   excludeDaIds: string[],
+  reason: FallbackReason,
 ): Promise<RelevanceRunResult> {
   const sinceIsoDate = lookbackIsoDate(14);
   const ruleFiltered = await ruleFilter({ userId, councilSlugs, sinceIsoDate, excludeDaIds });
@@ -197,6 +255,7 @@ async function runEmbeddingOnlyPath(
       rerankSurfaced: vectorRanked.length,
     },
     fallbackUsed: true,
+    fallbackReason: reason,
   };
 }
 

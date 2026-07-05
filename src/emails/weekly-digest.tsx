@@ -114,12 +114,17 @@ export function WeeklyDigestTemplate(props: {
   ratedLeadRecap?: { onTarget: number; rated: number; rate: number; weeks: number };
   smsEnabled: boolean;
   fallbackUsed?: boolean;
+  // Why the embedding-only path ran, when fallbackUsed (system-design §7.3):
+  // "cost_cap" = weekly AI cost ceiling hit; "llm_unavailable" = the Claude
+  // ranker was briefly down and we degraded rather than drop the digest. Drives
+  // distinct copy; absent → the generic cost-cap wording (back-compat).
+  fallbackReason?: "cost_cap" | "llm_unavailable";
   // One-time note the week a user's thumbs personalisation activates (FR-025,
   // ≥25 feedback rows). Sent once, then suppressed via User.personalisationNotifiedAt.
   personalisationActivated?: boolean;
   unsubscribeUrl?: string;
 }): { subject: string; html: string } {
-  const { weekStart, leadCount, lgas, cards, dasChecked, ratedLeadRecap, smsEnabled, fallbackUsed, personalisationActivated, unsubscribeUrl } = props;
+  const { weekStart, leadCount, lgas, cards, dasChecked, ratedLeadRecap, smsEnabled, fallbackUsed, fallbackReason, personalisationActivated, unsubscribeUrl } = props;
   // Spam Act 2003: a functional, no-login unsubscribe in every commercial email.
   // Falls back to the account page if a caller omits the token URL.
   const unsubHref = unsubscribeUrl ?? "/account";
@@ -306,12 +311,17 @@ export function WeeklyDigestTemplate(props: {
       ${
         fallbackUsed
           ? `
-      <!-- Fallback indicator: weekly cost cap hit, embedding-only ranking -->
+      <!-- Fallback indicator: embedding-only ranking. Two distinct causes
+           (system-design §7.3): a transient Anthropic outage vs the weekly AI
+           cost cap. Default (no reason) keeps the original cost-cap copy. -->
       <tr>
         <td style="padding: 8px 16px; background-color: #FFFBEB;">
           <p style="margin: 0; font-size: 12px; color: #78350F;">
-            ⚠ Embedding-only ranking this week (AI cost cap reached).
-            Cards may be less relevance-filtered than usual.
+            ${
+              fallbackReason === "llm_unavailable"
+                ? "⚠ Relevance ranking ran in basic mode this week (our AI ranker was briefly unavailable). Leads are ordered by keyword and similarity match; relevance may be rougher than usual."
+                : "⚠ Embedding-only ranking this week (AI cost cap reached). Cards may be less relevance-filtered than usual."
+            }
           </p>
         </td>
       </tr>

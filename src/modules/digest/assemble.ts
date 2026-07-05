@@ -250,6 +250,9 @@ export async function assembleAndSendDigest(
           ratedLeadRecap,
           smsEnabled: smsOptIn,
           fallbackUsed: relevance.fallbackUsed,
+          // Distinguish the cost-cap throttle from a transient Anthropic outage
+          // (system-design §7.3) so the two degraded weeks read differently.
+          fallbackReason: relevance.fallbackReason,
           personalisationActivated: showPersonalisationNote,
           unsubscribeUrl: buildUnsubscribeUrl(userId),
         },
