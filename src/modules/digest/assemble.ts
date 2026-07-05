@@ -128,10 +128,23 @@ export async function assembleAndSendDigest(
     existing?.emailStatus === "sent" || existing?.emailStatus === "skipped_optout";
   const smsAlreadyDelivered = existing?.smsStatus === "sent" || existing?.smsStatus === "skipped";
 
-  // Create DigestDa records only on first assembly (FR-012: DA card stores
-  // portal_url). The cards are fixed for the week, so a retry must not
-  // duplicate them.
-  if (!existing) {
+  // Persist the DA cards when they're missing (FR-012: DA card stores portal_url).
+  //
+  // Normally that's the first assembly. But a retry tick can also reach here with
+  // an existing *audit stub* Digest: the primary tick's hard-failure branch writes
+  // Digest{daCount:0, emailStatus:"failed"} with NO DigestDa rows (cron.ts
+  // recordAuditDigest), and that stub matches the findFirst above. Gating card
+  // creation on `!existing` alone would then skip the cards forever — the retry
+  // re-sends the email with 5–15 real leads but the portal, history, and CSV
+  // export show that week as 0 leads with no cards (issue #161).
+  //
+  // So gate on whether the cards actually exist yet, not on `!existing`: backfill
+  // them whenever they're absent, while a genuine per-channel retry (cards already
+  // persisted) never double-creates them.
+  const cardsAlreadyPersisted = existing
+    ? (await db.digestDa.count({ where: { digestId: digest.id } })) > 0
+    : false;
+  if (!cardsAlreadyPersisted) {
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
       await db.digestDa.create({
@@ -291,6 +304,11 @@ export async function assembleAndSendDigest(
       sentAt: new Date(),
       emailStatus,
       smsStatus,
+      // Backfill daCount alongside the cards we just created. An audit stub was
+      // written with daCount:0, so without this the recovered digest would report
+      // 0 leads even though its DigestDa rows now exist (issue #161). Left
+      // untouched on a per-channel retry whose cards + count were already persisted.
+      ...(cardsAlreadyPersisted ? {} : { daCount }),
     },
   });
 
