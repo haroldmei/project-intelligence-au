@@ -1868,7 +1868,7 @@ curl -X GET http://localhost:3000/api/s/abc123def456 \
 | FR-023 | Email feedback & unsubscribe | `GET /feedback/{token}`, `GET /unsubscribe/{token}` | ✅ Implemented |
 | FR-024 | Portal feedback | `POST /feedback` | ✅ Implemented |
 | FR-025 | Saved query | `GET/PUT /account/saved-query` | ✅ Implemented |
-| FR-026 | Digest history & export | `GET /digests`, `GET /export/digest/{id}.csv` | ✅ Implemented |
+| FR-026 | Digest history & export | `GET /export/digest/{id}.csv` (history via RSC loaders, not a JSON API) | ✅ Implemented |
 | FR-028 | Trial reminder | `GET /cron/trial-reminder` | ✅ Implemented |
 | FR-029 | SMS STOP handling | `POST /api/webhooks/twilio` | ✅ Implemented |
 | FR-030 | Stripe webhooks | `POST /api/webhooks/stripe` | ✅ Implemented |
