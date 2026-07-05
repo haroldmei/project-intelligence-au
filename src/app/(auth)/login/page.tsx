@@ -40,6 +40,13 @@ function LoginForm() {
         setServerError(json.error ?? "Login failed. Check your email and password.");
         return;
       }
+      // An unverified account has no digest to return to — the Sunday cron skips
+      // it — so send it straight to /verify rather than /digest (issue #180),
+      // avoiding a flash of the portal before the layout's own gate bounces it.
+      if (json.emailVerified === false) {
+        router.push("/verify");
+        return;
+      }
       // Honour ?returnTo so an email feedback tap that hit the login wall lands
       // back on /digest?feedback=recorded and its confirmation shows (issue #137).
       // Read on submit (client-only) to avoid a useSearchParams Suspense boundary;

@@ -21,6 +21,16 @@ export default async function PortalLayout({
     redirect(buildLoginRedirect(target));
   }
 
+  // Verification gate (issue #180) — a Lucia session is minted at signup with
+  // emailVerified=false, so an authenticated-but-unverified user could otherwise
+  // land on /digest and see "your first digest arrives Sunday". But the Sunday
+  // cron hard-filters emailVerified:true (src/modules/digest/cron.ts), so that
+  // user would never receive anything and is never re-prompted — a silent dead
+  // end. Bounce them to /verify (which resends/edits the OTP) until verified.
+  if (!auth.user.emailVerified) {
+    redirect("/verify");
+  }
+
   return (
     <div className="min-h-screen bg-[#F0F4F8] flex flex-col">
       {/* Identify the authenticated browser by internal user id (consent-gated). */}
