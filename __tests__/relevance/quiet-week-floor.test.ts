@@ -136,20 +136,56 @@ describe("runRelevanceForUser — embedding-only fallback respects the floor (is
   it("never emits a synthetic relevance_score below the floor", async () => {
     // Force the cost-cap kill switch → embedding-only path (no LLM rerank).
     (weeklyCostAud as ReturnType<typeof vi.fn>).mockResolvedValue(0.2); // > 0.13 ceiling
-    // Five cosine matches — the last would score 5-4=1 (relevance_score 2) before
-    // the floor clamp, which criterion (a) forbids from ever being written.
-    const candidates = Array.from({ length: 5 }, (_, i) => ({ daId: `da-${i + 1}` }));
+    // DIGEST_EMAIL_MIN_CARDS cosine matches — enough to clear the quiet-week floor,
+    // so this exercises a real degraded digest. The last would score 5-4=1
+    // (relevance_score 2) before the floor clamp, which criterion (a) forbids.
+    const candidates = Array.from({ length: DIGEST_EMAIL_MIN_CARDS }, (_, i) => ({ daId: `da-${i + 1}` }));
     ruleFilterMock.mockResolvedValue(candidates);
     vectorRankMock.mockResolvedValue(candidates);
 
     const result = await run();
 
     expect(result?.fallbackUsed).toBe(true);
-    expect(result?.results).toHaveLength(5);
+    expect(result?.results).toHaveLength(DIGEST_EMAIL_MIN_CARDS);
     expect(result?.results.every((r) => r.score >= DIGEST_MIN_RERANK_SCORE)).toBe(true);
     // …and therefore never a relevance_score (= score × 2) below 4.
     expect(result?.results.every((r) => r.score * 2 >= 4)).toBe(true);
     // Pipeline (LLM rerank) is never reached on the cost-capped path.
     expect(runPipelineMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("runRelevanceForUser — embedding-only fallback honours the quiet-week floor (issue #201)", () => {
+  it.each([1, 2, DIGEST_EMAIL_MIN_CARDS - 1])(
+    "cost-cap week with only %i cosine matches sends a quiet week — never a thin 1–4-lead digest",
+    async (n) => {
+      // Cost-cap kill switch → embedding-only path (no LLM rerank).
+      (weeklyCostAud as ReturnType<typeof vi.fn>).mockResolvedValue(0.2); // > 0.13 ceiling
+      const candidates = Array.from({ length: n }, (_, i) => ({ daId: `da-${i + 1}` }));
+      ruleFilterMock.mockResolvedValue(candidates);
+      vectorRankMock.mockResolvedValue(candidates);
+
+      const result = await run();
+
+      // Fewer than the floor cleared → surface nothing so assemble sends the
+      // FR-010 reassurance email, identical to the full pipeline's quiet week.
+      expect(result?.fallbackUsed).toBe(true);
+      expect(result?.results).toEqual([]);
+      // …but keep the "we checked N DAs" count for that email.
+      expect(result?.stats.ruleFiltered).toBe(n);
+      expect(runPipelineMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("cost-cap week with the full floor of cosine matches still ships a real digest", async () => {
+    (weeklyCostAud as ReturnType<typeof vi.fn>).mockResolvedValue(0.2);
+    const candidates = Array.from({ length: DIGEST_EMAIL_MIN_CARDS }, (_, i) => ({ daId: `da-${i + 1}` }));
+    ruleFilterMock.mockResolvedValue(candidates);
+    vectorRankMock.mockResolvedValue(candidates);
+
+    const result = await run();
+
+    expect(result?.fallbackUsed).toBe(true);
+    expect(result?.results).toHaveLength(DIGEST_EMAIL_MIN_CARDS);
   });
 });

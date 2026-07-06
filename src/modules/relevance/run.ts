@@ -216,7 +216,15 @@ export async function runRelevanceForUser(
  * Used when the cost-cap kill switch fires (dev-plan §A.5) or when the Claude
  * rerank is unavailable (system-design §7.3). `reason` records which so the
  * digest email can show the matching note.
- * Returns the top-5 candidates by cosine similarity only.
+ *
+ * Ranks by cosine similarity only (no LLM), but is held to the SAME two
+ * digest-shape guarantees as the full pipeline (issue #201):
+ *   - it builds up to DIGEST_EMAIL_MAX_CARDS candidates, not a hard-coded top-5,
+ *     so a busy degraded week can still surface the wedge's full 5–15 leads;
+ *   - it applies the FR-006 quiet-week floor: if fewer than DIGEST_EMAIL_MIN_CARDS
+ *     candidates survive, it surfaces NOTHING so assemble sends the FR-010
+ *     reassurance email — never a thin 1–4-lead digest that skipped every
+ *     relevance floor while wearing a passing relevance pip.
  */
 async function runEmbeddingOnlyPath(
   userId: string,
@@ -231,29 +239,51 @@ async function runEmbeddingOnlyPath(
     userId,
     candidates: ruleFiltered,
     userEmbedding,
-    topK: 5,
+    // Match the full pipeline's ceiling (maxDigestSize = DIGEST_EMAIL_MAX_CARDS)
+    // instead of a hard-coded 5, so a degraded week can produce a real 5–15-lead
+    // digest rather than being silently capped at exactly the quiet-week floor.
+    topK: DIGEST_EMAIL_MAX_CARDS,
   });
 
+  const results = vectorRanked.map((c, i) => ({
+    daId: c.daId,
+    // Synthetic descending rank score. Cosine order already fixes the ranking
+    // (assemble ranks by array position), so this only drives the relevance
+    // pip — floor it at DIGEST_MIN_RERANK_SCORE so the degraded path never
+    // writes a relevance_score < 4 either (issue #163 criterion: no
+    // sub-threshold score is EVER persisted, including this cost-cap path).
+    score: Math.max(DIGEST_MIN_RERANK_SCORE, 5 - i),
+    why: "Matches your roofing query",
+    confidence: 0,
+    modelUsed: "embedding-only",
+    candidate: c,
+  }));
+
+  const stats = {
+    ruleFiltered: ruleFiltered.length,
+    vectorRanked: vectorRanked.length,
+    rerankInput: 0,
+    rerankSurfaced: vectorRanked.length,
+  };
+
+  // FR-006 quiet-week gate (issue #201): the degraded path must honour the same
+  // 5-lead floor as the full pipeline (run above at the main-path return). A
+  // cost-cap or Anthropic-outage week with only 1–4 cosine matches is a quiet
+  // week — surface nothing so assemble sends the FR-010 reassurance email
+  // ("we checked N DAs, nothing strong") instead of a thin sub-floor digest
+  // whose leads never cleared any relevance bar. `stats.ruleFiltered` is kept
+  // so that email can still report how many DAs were actually checked.
+  if (results.length > 0 && results.length < DIGEST_EMAIL_MIN_CARDS) {
+    log.info(
+      { userId, cleared: results.length, floor: DIGEST_EMAIL_MIN_CARDS, reason },
+      "[relevance] quiet week (embedding-only) — fewer than the minimum leads matched",
+    );
+    return { results: [], stats, fallbackUsed: true, fallbackReason: reason };
+  }
+
   return {
-    results: vectorRanked.map((c, i) => ({
-      daId: c.daId,
-      // Synthetic descending rank score. Cosine order already fixes the ranking
-      // (assemble ranks by array position), so this only drives the relevance
-      // pip — floor it at DIGEST_MIN_RERANK_SCORE so the degraded path never
-      // writes a relevance_score < 4 either (issue #163 criterion: no
-      // sub-threshold score is EVER persisted, including this cost-cap path).
-      score: Math.max(DIGEST_MIN_RERANK_SCORE, 5 - i),
-      why: "Matches your roofing query",
-      confidence: 0,
-      modelUsed: "embedding-only",
-      candidate: c,
-    })),
-    stats: {
-      ruleFiltered: ruleFiltered.length,
-      vectorRanked: vectorRanked.length,
-      rerankInput: 0,
-      rerankSurfaced: vectorRanked.length,
-    },
+    results,
+    stats,
     fallbackUsed: true,
     fallbackReason: reason,
   };
