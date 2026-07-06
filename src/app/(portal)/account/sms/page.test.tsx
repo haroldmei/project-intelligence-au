@@ -50,6 +50,41 @@ describe("SMSOptInPage", () => {
   });
 });
 
+describe("SMSOptInPage — shows the SMS destination number (#202)", () => {
+  it("renders a masked destination showing the last 3 digits of mobile_e164", async () => {
+    mockFetch({ smsOptIn: true, mobile_e164: "+61412345678" });
+    render(<SMSOptInPage />);
+
+    // Wait for the loaded state (toggle becomes interactive).
+    const toggle = await screen.findByRole("switch", { name: /SMS digest/i });
+    await waitFor(() => expect(toggle.hasAttribute("disabled")).toBe(false));
+
+    // The exact last 3 digits of the saved number must appear so the user can
+    // confirm it before/while the digest is enabled.
+    const dest = await screen.findByText(/Sent to/i);
+    expect(dest.textContent).toMatch(/678/);
+    // Middle digits are masked — the full number is not exposed.
+    expect(dest.textContent).not.toContain("412345678");
+    expect(dest.textContent).toContain("+61 4•• ••• 678");
+  });
+
+  it("links 'Change number' to /account/profile", async () => {
+    mockFetch({ smsOptIn: false, mobile_e164: "+61412345678" });
+    render(<SMSOptInPage />);
+
+    const link = await screen.findByRole("link", { name: /change number/i });
+    expect(link.getAttribute("href")).toBe("/account/profile");
+  });
+
+  it("shows no destination line when the account has no mobile", async () => {
+    mockFetch({ smsOptIn: false, mobile_e164: null });
+    render(<SMSOptInPage />);
+
+    await screen.findByRole("switch", { name: /SMS digest/i });
+    expect(screen.queryByText(/Sent to/i)).toBeNull();
+  });
+});
+
 describe("SMSOptInPage — email digest re-enable control (#105)", () => {
   it("reflects an unsubscribed user with the email toggle off", async () => {
     mockFetch({ smsOptIn: false, mobile_e164: null, emailOptIn: false });
