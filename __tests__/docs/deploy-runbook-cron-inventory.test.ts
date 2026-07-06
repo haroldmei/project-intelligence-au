@@ -30,6 +30,22 @@ function cronPaths(): string[] {
   return cfg.crons.map((c) => c.path);
 }
 
+function cronEntries(): VercelCron[] {
+  const cfg = JSON.parse(readFileSync(VERCEL_PATH, "utf8")) as {
+    crons: VercelCron[];
+  };
+  return cfg.crons;
+}
+
+// A cron fires more than once per day (sub-daily) unless BOTH its minute and
+// hour fields are a single fixed integer. `15 * * * *` (hour `*`) and
+// `0 */3 * * *` (hour `*/3`) are sub-daily; `0 13 * * *` and `0 7 * * 0`
+// (weekly) are daily-or-less.
+function isSubDaily(schedule: string): boolean {
+  const [minute, hour] = schedule.trim().split(/\s+/);
+  return !/^\d+$/.test(minute) || !/^\d+$/.test(hour);
+}
+
 const NUMBER_WORDS: Record<string, number> = {
   zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
   seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
@@ -64,6 +80,32 @@ describe("deploy runbook cron inventory", () => {
         c,
         `runbook states ${c} entries but vercel.json registers ${paths.length}`,
       ).toBe(paths.length);
+    }
+  });
+
+  // Issue #199: the cron-plan paragraph must not assert that all crons are
+  // daily-or-less while a sub-daily cron (the hourly `15 * * * *` ingest-retry)
+  // is registered — that claim contradicts vercel.json and misleads an operator
+  // debugging a failed deploy or deciding whether a sub-daily cron is allowed.
+  it("makes no schedule claim vercel.json contradicts", () => {
+    const subDaily = cronEntries().filter((c) => isSubDaily(c.schedule));
+
+    if (subDaily.length > 0) {
+      // No "all/every ... entries ... daily-or-less" assertion.
+      expect(
+        runbook,
+        "runbook claims all crons are daily-or-less but a sub-daily cron is registered",
+      ).not.toMatch(
+        /\b(all|every)\b[^.]*\bentr(?:y|ies)\b[^.]*\bdaily[- ]or[- ]less\b/i,
+      );
+      // Each sub-daily schedule string must be surfaced verbatim, so the doc
+      // acknowledges the cadence rather than hiding it.
+      for (const c of subDaily) {
+        expect(
+          runbook,
+          `runbook does not surface sub-daily schedule ${c.schedule}`,
+        ).toContain(c.schedule);
+      }
     }
   });
 });
