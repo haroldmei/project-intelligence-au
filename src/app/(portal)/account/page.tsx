@@ -71,10 +71,14 @@ export default function AccountPage() {
         if (cancelled) return;
         setAccount(data);
 
-        // Keep polling only while a just-paid user is still waiting on the
-        // provisioning webhook (accessUntil not yet set, not already cancelled).
+        // Keep polling while a just-paid user is still waiting on the
+        // provisioning webhook. Two shapes of "not provisioned yet":
+        //  - first-time trialer: accessUntil not yet populated by the webhook;
+        //  - re-subscriber: still status=cancelled (the cancel webhook keeps a
+        //    stale non-null accessUntil, so accessUntil==null never fires here)
+        //    until subscription.created flips status back to active (#197).
         const stillProvisioning =
-          paidJustNow && data.accessUntil == null && data.subscriptionStatus !== "cancelled";
+          paidJustNow && (data.accessUntil == null || data.subscriptionStatus === "cancelled");
         if (stillProvisioning) {
           if (attempts < MAX_POLL_ATTEMPTS) {
             attempts += 1;
@@ -181,10 +185,20 @@ export default function AccountPage() {
   // the reliable signal that a Stripe subscription actually exists.
   const hasStripeSubscription = account.accessUntil != null;
   const needsCheckout = !isCancelled && !hasStripeSubscription;
-  // Just paid, but the provisioning webhook hasn't populated accessUntil yet.
-  // Show an "activating" state + success confirmation instead of the
-  // pre-checkout "Trial not started · Choose a plan" (issue #133).
-  const isProvisioning = justCheckedOut && needsCheckout;
+  // A cancelled user who just completed re-subscribe checkout. The cancel
+  // webhook deliberately preserves a stale non-null accessUntil, and the
+  // subscription.created webhook hasn't flipped status back to active yet — so
+  // the account is momentarily still "cancelled" with old data. Treat this as
+  // provisioning too, otherwise the page renders the "Payment received" banner
+  // alongside the contradictory "Subscription cancelled · Access ended" +
+  // Resubscribe block, and never re-polls to self-heal (issue #197).
+  const isResubscribing = justCheckedOut && isCancelled;
+  // Just paid, but the provisioning webhook hasn't caught up yet: either a
+  // first-time trialer (accessUntil not populated) or a re-subscriber (status
+  // still cancelled). Show one coherent "activating" state + success
+  // confirmation instead of the pre-checkout dead-end or the stale cancelled
+  // block (issues #133, #197).
+  const isProvisioning = justCheckedOut && (needsCheckout || isResubscribing);
 
   return (
     <div className="px-4 py-6 space-y-6 max-w-xl">
@@ -200,18 +214,23 @@ export default function AccountPage() {
           {isProvisioning ? (
             provisioningTimedOut ? (
               <p className="mt-1">
-                Your trial is taking a little longer than usual to activate. Refresh
-                in a moment — or contact support if it doesn&apos;t appear.
+                Your {isResubscribing ? "subscription" : "trial"} is taking a
+                little longer than usual to activate. Refresh in a moment — or
+                contact support if it doesn&apos;t appear.
               </p>
             ) : (
               <p className="mt-1">
-                We&apos;re activating your 28-day trial now — this page updates
-                automatically in a few seconds.
+                {isResubscribing
+                  ? "We're reactivating your subscription now"
+                  : "We're activating your 28-day trial now"}{" "}
+                — this page updates automatically in a few seconds.
               </p>
             )
           ) : (
             <p className="mt-1">
-              Your 28-day trial is active. Your first Sunday digest is on the way.
+              {isTrial
+                ? "Your 28-day trial is active. Your first Sunday digest is on the way."
+                : "Your subscription is active. Your next Sunday digest is on the way."}
             </p>
           )}
         </div>
@@ -254,7 +273,10 @@ export default function AccountPage() {
           <Row label="Seats" value={String(seats)} />
 
           {isProvisioning ? (
-            <Row label="Status" value="Activating your trial…" />
+            <Row
+              label="Status"
+              value={isResubscribing ? "Reactivating your subscription…" : "Activating your trial…"}
+            />
           ) : needsCheckout ? (
             <Row label="Status" value="Trial not started" />
           ) : isTrial ? (
@@ -270,8 +292,10 @@ export default function AccountPage() {
           <div className="px-4 py-3 space-y-2">
             {isProvisioning ? (
               <p className="text-sm text-[#627D98]" aria-live="polite">
-                We&apos;re setting up your trial now — nothing more to do; this page
-                updates on its own.
+                {isResubscribing
+                  ? "We're reactivating your subscription now"
+                  : "We're setting up your trial now"}{" "}
+                — nothing more to do; this page updates on its own.
               </p>
             ) : needsCheckout ? (
               <>
@@ -359,7 +383,7 @@ export default function AccountPage() {
               </button>
             )}
 
-            {!needsCheckout && !isPastDue && (
+            {!needsCheckout && !isPastDue && !isProvisioning && (
               <button
                 type="button"
                 onClick={handleManageBilling}

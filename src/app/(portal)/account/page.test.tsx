@@ -185,3 +185,75 @@ describe("AccountPage — post-Checkout ?billing=success (webhook race, #133)", 
     expect(screen.queryByText(/payment received/i)).toBeNull();
   });
 });
+
+// The re-subscribe terminal hop (#197): a churned user (status=cancelled with a
+// stale, non-null accessUntil) who completes checkout lands on
+// /account?billing=success before the subscription.created webhook lands. The
+// cancel webhook preserves accessUntil, so the first-time-trial provisioning
+// guards (keyed on accessUntil==null) never fired — the page rendered the green
+// "Payment received" banner AND the contradictory "Subscription cancelled ·
+// Access ended" + Resubscribe block, and never re-polled to self-heal.
+describe("AccountPage — re-subscribe ?billing=success (churned user, #197)", () => {
+  const POLL_INTERVAL_MS = 2500;
+
+  it("shows a single coherent 'reactivating' state, not the cancelled + Resubscribe block", async () => {
+    window.history.pushState({}, "", "/account?billing=success");
+    // Pre-webhook state: cancel webhook kept the OLD accessUntil and status.
+    mockFetch(
+      baseAccount({ subscriptionStatus: "cancelled", accessUntil: "2026-02-01T00:00:00.000Z" }),
+    );
+    render(<AccountPage />);
+
+    // Success confirmation, reworded for a returning subscriber (no new trial).
+    expect(await screen.findByText(/payment received/i)).toBeTruthy();
+    // "Reactivating" copy appears in the banner, the status row, and the CTA —
+    // all coherent, so several matches are expected.
+    expect(screen.getAllByText(/reactivating your subscription/i).length).toBeGreaterThan(0);
+
+    // None of the contradictory cancelled-terminal-state UI co-renders.
+    expect(screen.queryByText(/subscription cancelled/i)).toBeNull();
+    expect(screen.queryByText(/access ended/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /resubscribe/i })).toBeNull();
+    // No stale "Access until <old date>" row either.
+    expect(screen.queryByText(/1 february 2026/i)).toBeNull();
+  });
+
+  it("polls and flips to the active state once subscription.created lands — no manual reload", async () => {
+    let call = 0;
+    global.fetch = vi.fn((url: FetchArgs[0]) => {
+      if (String(url) === "/api/account/me") {
+        call += 1;
+        // First load: still cancelled with the stale accessUntil. A later poll:
+        // the webhook has flipped status to active with a fresh period end.
+        const acct =
+          call === 1
+            ? baseAccount({
+                subscriptionStatus: "cancelled",
+                accessUntil: "2026-02-01T00:00:00.000Z",
+              })
+            : baseAccount({
+                subscriptionStatus: "active",
+                accessUntil: "2026-08-01T00:00:00.000Z",
+              });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(acct) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    }) as unknown as typeof fetch;
+
+    window.history.pushState({}, "", "/account?billing=success");
+    render(<AccountPage />);
+
+    // First load: reactivating.
+    expect((await screen.findAllByText(/reactivating your subscription/i)).length).toBeGreaterThan(0);
+
+    // The scheduled poll fires and the webhook has now landed; the page flips
+    // itself to the active state without a reload.
+    expect(
+      await screen.findByText(/your subscription is active/i, {}, { timeout: POLL_INTERVAL_MS + 2500 }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/reactivating your subscription/i)).toBeNull();
+    // Still no cancelled/Resubscribe remnants, and the banner persists.
+    expect(screen.queryByRole("button", { name: /resubscribe/i })).toBeNull();
+    expect(screen.getByText(/payment received/i)).toBeTruthy();
+  }, 10_000);
+});
