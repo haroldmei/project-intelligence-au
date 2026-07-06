@@ -49,10 +49,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ ok: true });
   }
 
-  // ── Create OTP with purpose='reset' (10-min expiry per otp.ts) ───────────
-  // NOTE: system-design §6.1 calls for 1-hour expiry on password reset tokens.
-  // The OTP table uses 10-min expiry from otp.ts constant. Acceptable for V1;
-  // extend OTP_EXPIRY_MINUTES to 60 in otp.ts when longer windows are needed.
+  // ── Create OTP with purpose='reset' (1-hour expiry per otp.ts) ───────────
+  // system-design §6.1 / FR-017 mandate a 1-hour reset window; createOtp keys
+  // the expiry off the purpose, so 'reset' codes live for 60 min.
   const resetCode = await createOtp(user.id, "reset");
 
   // ── Send password reset email ──────────────────────────────────────────────
