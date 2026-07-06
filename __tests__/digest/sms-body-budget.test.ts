@@ -86,6 +86,99 @@ describe("buildSmsBody — FR-011 480-char / 3-part budget", () => {
     expect(numberedLines(body).length).toBeGreaterThanOrEqual(1);
   });
 
+  it("includes a scope summary per lead within the 480-char budget (FR-011/UI-003)", () => {
+    // Regression for issue #204: the SMS teaser must carry each lead's scope so a
+    // tradie can tell a re-roof from a demolition without tapping through.
+    const cards = [
+      {
+        address: addr(40),
+        lga: "Inner West",
+        value: "AUD 180k",
+        scope: "Demolition of existing dwelling and construction of two-storey dwelling",
+        portalUrl: "https://council.example/da/1001",
+      },
+      {
+        address: addr(40),
+        lga: "Inner West",
+        value: "AUD 240k",
+        scope: "Re-roofing and replacement of guttering to existing residence",
+        portalUrl: "https://council.example/da/1002",
+      },
+      {
+        address: addr(40),
+        lga: "Inner West",
+        value: "AUD 95k",
+        scope: "Rear extension and internal alterations to dwelling",
+        portalUrl: "https://council.example/da/1003",
+      },
+    ];
+
+    const body = buildSmsBody(cards, ["Inner West"], "5 Jul 2026");
+
+    // Every lead still present, still within FR-011's budget...
+    expect(numberedLines(body)).toHaveLength(3);
+    expect(body.length).toBeLessThanOrEqual(480);
+    // ...and each line carries scope-derived text that distinguishes the jobs.
+    expect(body).toMatch(/Demolition/);
+    expect(body).toMatch(/Re-?roof/i);
+    expect(body).toMatch(/extension/i);
+    // Format is `[Address] | [Scope] | [Value] | link` — scope sits between the
+    // address and the value, so a scoped line has at least two ` | ` separators.
+    for (const line of numberedLines(body)) {
+      expect(line.split(" | ").length).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("caps the scope to ≤ 20 words per lead (FR-011)", () => {
+    const longScope = Array.from({ length: 40 }, (_, i) => `word${i}`).join(" ");
+    const cards = [
+      {
+        address: addr(30),
+        lga: "Inner West",
+        value: "AUD 100k",
+        scope: longScope,
+        portalUrl: "https://council.example/da/4001",
+      },
+    ];
+
+    const body = buildSmsBody(cards, ["Inner West"], "5 Jul 2026");
+    const line = numberedLines(body)[0];
+    const scopeSeg = line.split(" | ")[1] ?? "";
+    // Word-limited (≤ 20) and char-capped, so nowhere near the 40-word input.
+    const wordCount = scopeSeg.replace(/…$/, "").trim().split(/\s+/).filter(Boolean).length;
+    expect(wordCount).toBeLessThanOrEqual(20);
+    expect(scopeSeg.length).toBeLessThanOrEqual(44);
+  });
+
+  it("drops a lead but keeps scope on the survivors when scoped leads blow the budget", () => {
+    // Three fully-scoped, long-address, big-value leads can't all fit with scope;
+    // the fix must shed the lowest-ranked lead rather than silently drop scope.
+    const bigValue = "AUD 1,234,567 estimated construction cost".padEnd(60, "x");
+    const scope = "Demolition of existing structures and construction of new dwelling";
+    const cards = [
+      { address: addr(60), lga: "Inner West", value: bigValue, scope, portalUrl: "https://council.example/da/5001" },
+      { address: addr(60), lga: "Inner West", value: bigValue, scope, portalUrl: "https://council.example/da/5002" },
+      { address: addr(60), lga: "Inner West", value: bigValue, scope, portalUrl: "https://council.example/da/5003" },
+    ];
+
+    const body = buildSmsBody(cards, ["Inner West"], "5 Jul 2026");
+
+    expect(body.length).toBeLessThanOrEqual(480);
+    expect(numberedLines(body).length).toBeLessThan(3);
+    // Surviving lead(s) still carry the scope — the whole point of the field.
+    expect(body).toMatch(/Demolition/);
+  });
+
+  it("omits the scope segment gracefully when a lead has no description", () => {
+    const cards = [
+      { address: addr(40), lga: "Inner West", value: "AUD 180k", scope: "", portalUrl: "https://council.example/da/6001" },
+    ];
+    const body = buildSmsBody(cards, ["Inner West"], "5 Jul 2026");
+    // No empty ` |  | ` gap — just address | value.
+    expect(body).not.toMatch(/\|\s+\|/);
+    expect(numberedLines(body)).toHaveLength(1);
+  });
+
   it("sends a single over-budget card rather than dropping to an empty body", () => {
     const cards = [
       {

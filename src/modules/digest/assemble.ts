@@ -365,18 +365,41 @@ function buildUnsubscribeUrl(userId: string): string {
 }
 
 /**
- * Build the SMS body. Stays within FR-011's budget of 3 concatenated parts
- * (≤ 480 chars) so all three top-3 leads fit — addresses are truncated as the
- * primary size lever, and a card is dropped only as a last resort if the body
- * is still over 480. Sender-id + STOP footer strings come from the centralised
- * SMS client so this call site and the client can never drift apart.
+ * Build the SMS body. Each lead line follows FR-011/UI-003's format
+ * `[Address] | [Scope] | AUD [Value] | [link]` so a tradie can tell WHAT the
+ * job is (re-roof vs demolition vs extension) without tapping through — the
+ * scope is the whole point of the top-3 teaser.
+ *
+ * Stays within FR-011's budget of 3 concatenated parts (≤ 480 chars). The scope
+ * is capped to ≤ 20 words (FR-011) and shrinks first, then addresses truncate,
+ * and only as a last resort is a card dropped — surfacing the "fewer leads but
+ * still scoped" tradeoff rather than silently omitting the scope field. Sender-id
+ * + STOP footer strings come from the centralised SMS client so this call site
+ * and the client can never drift apart.
  */
 const SMS_MAX_CHARS = 480;
 const SMS_FOOTER = `\n${SMS_STOP_FOOTER}`;
 const SMS_ADDRESS_FALLBACK_LEN = 40;
+// FR-011/UI-003: scope is "≤ 20 words". Within the SMS budget the char cap is
+// the tighter constraint, so we word-limit first (FR contract) then char-cap.
+const SMS_SCOPE_MAX_WORDS = 20;
+const SMS_SCOPE_MAX_LEN = 44;
+const SMS_SCOPE_FALLBACK_LEN = 24;
+
+/**
+ * Derive a short, single-line scope token from a lead's description: collapse
+ * whitespace, keep at most SMS_SCOPE_MAX_WORDS words (FR-011), then hard-cap to
+ * `maxLen` chars with an ellipsis so the SMS budget is respected.
+ */
+function smsScopeToken(scope: string | undefined, maxLen: number): string {
+  const clean = (scope ?? "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const words = clean.split(" ").slice(0, SMS_SCOPE_MAX_WORDS).join(" ");
+  return words.length > maxLen ? `${words.slice(0, maxLen - 1)}…` : words;
+}
 
 export function buildSmsBody(
-  cards: Array<{ address: string; lga: string; value?: string; portalUrl: string }>,
+  cards: Array<{ address: string; lga: string; value?: string; scope?: string; portalUrl: string }>,
   lgas: string[],
   weekStart: string,
 ): string {
@@ -386,26 +409,37 @@ export function buildSmsBody(
   const header = `${SMS_SENDER_ID} ${weekStart} (${lgaLabel}):\n`;
 
   const renderLine = (
-    c: { address: string; value?: string; portalUrl: string },
+    c: { address: string; value?: string; scope?: string; portalUrl: string },
     i: number,
     addressLen: number,
+    scopeLen: number,
   ) => {
-    const val = c.value ? ` ${c.value}` : "";
     const addr = c.address.length > addressLen ? `${c.address.slice(0, addressLen - 1)}…` : c.address;
-    return `${i + 1}. ${addr}${val}\n${APP_BASE_URL}/s/${shortSlug(c.portalUrl)}`;
+    const scope = smsScopeToken(c.scope, scopeLen);
+    const scopeSeg = scope ? ` | ${scope}` : "";
+    const val = c.value ? ` | ${c.value}` : "";
+    return `${i + 1}. ${addr}${scopeSeg}${val}\n${APP_BASE_URL}/s/${shortSlug(c.portalUrl)}`;
   };
 
-  // First pass: full addresses.
-  let lines = cards.map((c, i) => renderLine(c, i, c.address.length));
-  let body = `${header}${lines.join("\n\n")}${SMS_FOOTER}`;
+  const assemble = (addressLen: (c: { address: string }) => number, scopeLen: number) => {
+    const lines = cards.map((c, i) => renderLine(c, i, addressLen(c), scopeLen));
+    return `${header}${lines.join("\n\n")}${SMS_FOOTER}`;
+  };
+
+  // First pass: full addresses, full scope.
+  let body = assemble((c) => c.address.length, SMS_SCOPE_MAX_LEN);
   if (body.length <= SMS_MAX_CHARS) return body;
 
-  // Second pass: truncate addresses to a fixed length.
-  lines = cards.map((c, i) => renderLine(c, i, SMS_ADDRESS_FALLBACK_LEN));
-  body = `${header}${lines.join("\n\n")}${SMS_FOOTER}`;
+  // Second pass: truncate addresses to a fixed length, keep full scope.
+  body = assemble(() => SMS_ADDRESS_FALLBACK_LEN, SMS_SCOPE_MAX_LEN);
   if (body.length <= SMS_MAX_CHARS) return body;
 
-  // Last resort: drop the lowest-ranked card.
+  // Third pass: also tighten the scope before shedding a whole lead.
+  body = assemble(() => SMS_ADDRESS_FALLBACK_LEN, SMS_SCOPE_FALLBACK_LEN);
+  if (body.length <= SMS_MAX_CHARS) return body;
+
+  // Last resort: drop the lowest-ranked card (still scoped) rather than silently
+  // omitting the scope field from every line.
   if (cards.length > 1) {
     return buildSmsBody(cards.slice(0, cards.length - 1), lgas, weekStart);
   }
