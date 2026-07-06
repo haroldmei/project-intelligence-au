@@ -132,6 +132,11 @@ export function isRepresentablePlan(plan: string): boolean {
 export const MAX_ACCESS_DAYS = 400;
 const MS_PER_DAY = 86_400_000;
 
+// Stripe rejects an absolute subscription `trial_end` that is less than 48 hours
+// in the future. A converter with under two days of trial left — or one already
+// past their signup window — therefore gets no trial and starts paying now.
+export const STRIPE_MIN_TRIAL_SECONDS = 48 * 60 * 60;
+
 export interface ClampedAccess {
   /** The clamped access-until instant, safe to persist to `User.accessUntil`. */
   accessUntil: Date;
@@ -177,14 +182,29 @@ export interface CheckoutSession {
 }
 
 /**
- * Create a Stripe Checkout session for subscription with 28-day trial.
- * AUD pricing; GST handled by Stripe Tax (NFR-029).
+ * Create a Stripe Checkout session for a subscription.
  *
- * Trial length 28 days (was 14) so subscribers get 4 Sunday digests during
+ * Trial length is 28 days (was 14) so subscribers get 4 Sunday digests during
  * trial instead of 2. The wedge cycle is "Sunday digest → tradie chases →
  * quote → win" which takes 4–6 weeks; 14 days didn't give the user time
  * to validate ROI before the cancel/pay decision.
  *
+ * The trial clock starts at SIGNUP, not at checkout (issue #198). The product
+ * grants a SINGLE 28-day window (subscriptionStatus:'trial' + entitlement from
+ * createdAt+28d); a self-signup trialer who converts mid-trial must get only the
+ * REMAINDER of that window, never a fresh 28 days. So the caller passes the
+ * absolute signup+28d deadline as `trialEndsAt` and we anchor Stripe with an
+ * absolute `subscription_data[trial_end]` rather than a rolling
+ * `trial_period_days`: first charge lands at signup+28d no matter when they
+ * check out, and the Stripe trial_end stays consistent with the webhook-derived
+ * accessUntil the trial-reminder cron anchors on.
+ *
+ * No `trialEndsAt` (a cancelled re-subscriber — they've already had their one
+ * trial), or a deadline Stripe won't accept (< 48h out, which also covers an
+ * already-elapsed signup window), means no trial: the customer is charged
+ * immediately.
+ *
+ * AUD pricing; GST handled by Stripe Tax (NFR-029).
  * FR-018 | contract.payments.trial = N-day full-access
  */
 export async function createCheckoutSession(
@@ -192,7 +212,7 @@ export async function createCheckoutSession(
   plan: "solo" | "team",
   successUrl: string,
   cancelUrl: string,
-  opts: { withTrial?: boolean } = {},
+  opts: { trialEndsAt?: Date } = {},
 ): Promise<CheckoutSession> {
   const priceId = PRICE_IDS[plan];
   const params: Record<string, string> = {
@@ -216,8 +236,16 @@ export async function createCheckoutSession(
     "subscription_data[metadata][advertised_currency]": PRICING.currency,
     "subscription_data[metadata][gst_inclusive]": String(PRICING.gstInclusive),
   };
-  if (opts.withTrial !== false) {
-    params["subscription_data[trial_period_days]"] = String(PRICING.trialDays);
+  // Anchor the trial to the absolute signup+28d deadline, not a rolling
+  // trial_period_days, so a mid-trial converter never gets a fresh 28-day
+  // window (issue #198). Stripe requires trial_end ≥ 48h out; a nearer deadline
+  // (or an already-elapsed one) is dropped and the customer is charged now.
+  if (opts.trialEndsAt) {
+    const trialEndSec = Math.floor(opts.trialEndsAt.getTime() / 1000);
+    const minTrialEndSec = Math.floor(Date.now() / 1000) + STRIPE_MIN_TRIAL_SECONDS;
+    if (trialEndSec >= minTrialEndSec) {
+      params["subscription_data[trial_end]"] = String(trialEndSec);
+    }
   }
   const session = await stripePost<{ url: string; id: string }>("/checkout/sessions", params);
   return { url: session.url, id: session.id };

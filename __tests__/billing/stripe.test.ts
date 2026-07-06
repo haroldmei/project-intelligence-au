@@ -4,6 +4,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   validateStripeWebhook,
   clampAccessUntil,
+  createCheckoutSession,
   getActiveSubscription,
   planFromPriceId,
   isRepresentablePlan,
@@ -117,6 +118,66 @@ describe("clampAccessUntil", () => {
     const { accessUntil, clamped } = clampAccessUntil(nowSec, now);
     expect(clamped).toBe("none");
     expect(accessUntil.getTime()).toBe(nowSec * 1000);
+  });
+});
+
+// ─── createCheckoutSession: one signup-anchored trial (issue #198) ──────────
+// The product grants a SINGLE 28-day trial that starts at signup. A mid-trial
+// converter must get only the remainder of that window, so the session anchors
+// Stripe to an absolute trial_end (signup+28d) rather than a rolling
+// trial_period_days that would hand out a fresh 28 days. A deadline Stripe won't
+// accept (<48h out, or already elapsed) and an absent deadline (cancelled
+// re-subscriber) both fall back to no trial → charged immediately.
+describe("createCheckoutSession — signup-anchored trial", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubCheckoutFetch(): URLSearchParams[] {
+    const bodies: URLSearchParams[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        bodies.push(new URLSearchParams(init?.body ?? ""));
+        return {
+          ok: true,
+          json: async () => ({ id: "cs_test", url: "https://checkout.stripe.com/test" }),
+        } as unknown as Response;
+      }),
+    );
+    return bodies;
+  }
+
+  it("anchors an absolute trial_end (not a rolling trial_period_days) for a future deadline", async () => {
+    const bodies = stubCheckoutFetch();
+    const trialEndsAt = new Date(Date.now() + 8 * 86_400_000); // 8 days out (≈ day-20 converter)
+    await createCheckoutSession("cus_1", "solo", "https://s", "https://c", { trialEndsAt });
+    expect(bodies[0]!.get("subscription_data[trial_end]")).toBe(
+      String(Math.floor(trialEndsAt.getTime() / 1000)),
+    );
+    expect(bodies[0]!.get("subscription_data[trial_period_days]")).toBeNull();
+  });
+
+  it("omits the trial entirely when no trialEndsAt is given (cancelled re-subscriber → charged now)", async () => {
+    const bodies = stubCheckoutFetch();
+    await createCheckoutSession("cus_2", "solo", "https://s", "https://c", {});
+    expect(bodies[0]!.get("subscription_data[trial_end]")).toBeNull();
+    expect(bodies[0]!.get("subscription_data[trial_period_days]")).toBeNull();
+  });
+
+  it("drops a deadline inside Stripe's 48h minimum (near-end converter → charged now)", async () => {
+    const bodies = stubCheckoutFetch();
+    const trialEndsAt = new Date(Date.now() + 12 * 60 * 60 * 1000); // 12h out
+    await createCheckoutSession("cus_3", "solo", "https://s", "https://c", { trialEndsAt });
+    expect(bodies[0]!.get("subscription_data[trial_end]")).toBeNull();
+    expect(bodies[0]!.get("subscription_data[trial_period_days]")).toBeNull();
+  });
+
+  it("drops an already-elapsed signup window (past-window trialer → charged now)", async () => {
+    const bodies = stubCheckoutFetch();
+    const trialEndsAt = new Date(Date.now() - 86_400_000); // yesterday
+    await createCheckoutSession("cus_4", "solo", "https://s", "https://c", { trialEndsAt });
+    expect(bodies[0]!.get("subscription_data[trial_end]")).toBeNull();
   });
 });
 
