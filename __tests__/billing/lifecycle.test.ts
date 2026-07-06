@@ -54,6 +54,7 @@ import {
   cancelSubscriptionAtPeriodEnd,
   reactivateSubscription,
 } from "@/modules/billing/stripe";
+import { TRIAL_WINDOW_MS } from "@/modules/billing/entitlement";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ interface SeedOpts {
   cancelAtPeriodEnd?: boolean;
   plan?: string | null;
   emailVerified?: boolean;
+  createdAt?: Date;
 }
 
 async function seedUser(opts: SeedOpts = {}): Promise<string> {
@@ -81,6 +83,7 @@ async function seedUser(opts: SeedOpts = {}): Promise<string> {
       accessUntil: opts.accessUntil ?? null,
       cancelAtPeriodEnd: opts.cancelAtPeriodEnd ?? false,
       plan: opts.plan ?? null,
+      ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
     },
   });
   return user.id;
@@ -257,7 +260,7 @@ describe("Subscription lifecycle", () => {
 
   // ── 2. Checkout creation ───────────────────────────────────────────────────
   describe("Stage 2 — checkout creation", () => {
-    it("first-time checkout creates customer + caches stripeCustomerId, withTrial=true", async () => {
+    it("first-time checkout creates customer + caches stripeCustomerId, trial anchored to signup+28d", async () => {
       const userId = await seedUser();
       setAuthedUser(userId);
       const { status, body } = await callCheckout("solo");
@@ -270,11 +273,32 @@ describe("Subscription lifecycle", () => {
         "solo",
         expect.stringContaining("/account?billing=success"),
         expect.stringContaining("/account?billing=cancelled"),
-        { withTrial: true },
+        { trialEndsAt: new Date(updated.createdAt.getTime() + TRIAL_WINDOW_MS) },
       );
     });
 
-    it("re-subscriber (status=cancelled) checkout uses withTrial=false", async () => {
+    // Issue #198: a self-signup trialer who converts partway through their trial
+    // must NOT get a fresh 28 days — the Stripe trial is anchored to the original
+    // signup+28d deadline, so first charge stays at signup+28d (≈8 days out for a
+    // day-20 converter), not checkout+28d (≈48 days out).
+    it("mid-trial converter's trial is anchored to signup+28d, not a fresh 28 days", async () => {
+      const signup = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000); // day 20 of trial
+      const userId = await seedUser({
+        status: "trial",
+        stripeCustomerId: "cus_midtrial",
+        accessUntil: null,
+        createdAt: signup,
+      });
+      setAuthedUser(userId);
+      // No live Stripe subscription — they never completed checkout before.
+      vi.mocked(getActiveSubscription).mockResolvedValue(null);
+      const { status } = await callCheckout("solo");
+      expect(status).toBe(200);
+      const opts = vi.mocked(createCheckoutSession).mock.calls[0]![4] as { trialEndsAt?: Date };
+      expect(opts.trialEndsAt!.getTime()).toBe(signup.getTime() + TRIAL_WINDOW_MS);
+    });
+
+    it("re-subscriber (status=cancelled) checkout passes no trial (charged now)", async () => {
       const userId = await seedUser({ status: "cancelled", stripeCustomerId: "cus_existing" });
       setAuthedUser(userId);
       const { status } = await callCheckout("solo");
@@ -284,7 +308,7 @@ describe("Subscription lifecycle", () => {
         "solo",
         expect.any(String),
         expect.any(String),
-        { withTrial: false },
+        { trialEndsAt: undefined },
       );
     });
 
@@ -357,12 +381,13 @@ describe("Subscription lifecycle", () => {
       vi.mocked(getActiveSubscription).mockResolvedValue(null);
       const { status } = await callCheckout("solo");
       expect(status).toBe(200);
+      const updated = await testDb.user.findUniqueOrThrow({ where: { id: userId } });
       expect(vi.mocked(createCheckoutSession)).toHaveBeenCalledWith(
         "cus_abandoned",
         "solo",
         expect.any(String),
         expect.any(String),
-        { withTrial: true },
+        { trialEndsAt: new Date(updated.createdAt.getTime() + TRIAL_WINDOW_MS) },
       );
     });
   });
@@ -702,7 +727,7 @@ describe("Subscription lifecycle", () => {
 
   // ── 8. Resubscribe ────────────────────────────────────────────────────────
   describe("Stage 8 — resubscribe", () => {
-    it("cancelled user → checkout reuses customer, withTrial=false, then subscription.created restores access", async () => {
+    it("cancelled user → checkout reuses customer, no fresh trial, then subscription.created restores access", async () => {
       const userId = await seedUser({
         stripeCustomerId: "cus_resub",
         status: "cancelled",
@@ -717,7 +742,7 @@ describe("Subscription lifecycle", () => {
         "solo",
         expect.any(String),
         expect.any(String),
-        { withTrial: false },
+        { trialEndsAt: undefined },
       );
 
       const newEnd = NOW_S() + ONE_MONTH;

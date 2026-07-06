@@ -10,6 +10,7 @@ import {
   createCheckoutSession,
   getActiveSubscription,
 } from "@/modules/billing/stripe";
+import { TRIAL_WINDOW_MS } from "@/modules/billing/entitlement";
 import { env } from "@/lib/env";
 
 const APP_BASE = env.NEXT_PUBLIC_APP_URL;
@@ -86,18 +87,27 @@ export async function POST(request: Request): Promise<NextResponse> {
     await db.user.update({ where: { id: user.id }, data: { stripeCustomerId: customerId } });
   }
 
-  // Re-subscribers (previously cancelled) don't get another 28-day trial —
-  // they've already had one. Everyone reaching here who isn't cancelled is a
-  // first-time subscriber (the guard above rejected anyone with a live
-  // subscription), so trial-eligible = not a cancelled re-subscriber.
-  const withTrial = user.subscriptionStatus !== "cancelled";
+  // The product grants a SINGLE 28-day trial that starts at SIGNUP, not at
+  // checkout (issue #198). A self-signup trialer who converts mid-trial must get
+  // only the REMAINDER of that window — so we anchor Stripe's trial to the
+  // original signup+28d deadline (createdAt + TRIAL_WINDOW_MS). Converting on
+  // day 20 therefore means first charge at signup+28d, not checkout+28d.
+  //
+  // A cancelled re-subscriber has already had their one trial and gets none
+  // (charged now). A trialer already past their signup window resolves to a
+  // past deadline, which the Stripe layer drops (trial_end must be ≥ 48h out) —
+  // so they, too, are charged immediately.
+  const trialEndsAt =
+    user.subscriptionStatus === "cancelled"
+      ? undefined
+      : new Date(user.createdAt.getTime() + TRIAL_WINDOW_MS);
 
   const session = await createCheckoutSession(
     customerId,
     parsed.data.plan,
     `${APP_BASE}/account?billing=success`,
     `${APP_BASE}/account?billing=cancelled`,
-    { withTrial },
+    { trialEndsAt },
   );
 
   return NextResponse.json({ checkout_url: session.url });
