@@ -123,26 +123,32 @@ git push          # CI is GitHub-based; pushing to main triggers Vercel
 scripts/deploy.sh deploy   # manual deploy from current local state
 ```
 
-Crons (`vercel.json`):
+Crons (`vercel.json`) — listed in registration order:
 - `/api/cron/digest` — Sunday 07:00 UTC (17:00 AEST) — weekly digest
 - `/api/cron/digest` — Sunday 10:00 UTC (20:00 AEST) — weekly digest retry
 - `/api/cron/ingest` — daily 13:00 UTC
+- `/api/cron/ingest-retry` — hourly at :15 (`15 * * * *`) — compensating ingestion retry (#125)
 - `/api/cron/trial-reminder` — daily 06:00 UTC
+- `/api/cron/verification-reminder` — daily 05:00 UTC (15:00 AEST) — unverified-signup nudge (FR-016)
 - `/api/cron/storm-brief` — daily 20:00 UTC (06:00 AEST)
 
 Vercel reads `vercel.json` on each deploy and registers the crons; check
 status with `vercel crons ls` after the first deploy.
 
-**Hobby cron constraint (#84).** The Vercel project is on the **Hobby** plan,
-which only permits crons that fire **at most once per day** — a more frequent
-expression (e.g. `0 */3 * * *`) makes *every* deployment fail with "Hobby
-accounts are limited to daily cron jobs", not just degrade. All five entries
-above are daily-or-less (the two digest rows each fire weekly, on Sunday). The
-storm-brief handler *wants* to run every 3 hours so warnings reach subbies
-while actionable, but is capped to a single daily run to keep deploys green. It
-is idempotent per warning-id (`StormBrief` unique constraint), so **on a Pro
-upgrade**, restoring the 3-hourly cadence is a one-line revert of the
-storm-brief `schedule` in `vercel.json` back to `0 */3 * * *` — no code change.
+**Hobby cron cadence limit (#84).** The Vercel **Hobby** plan only permits
+crons that fire **at most once per day** — a more frequent expression (e.g.
+`0 */3 * * *`) makes *every* deployment fail with "Hobby accounts are limited
+to daily cron jobs", not just degrade. Six of the seven entries above are
+daily-or-less (the two digest rows each fire weekly, on Sunday), so they deploy
+on Hobby unchanged. The lone **sub-daily** entry is `/api/cron/ingest-retry`
+(#125), which fires **hourly** (`15 * * * *`): it requires the **Pro** plan and
+on Hobby would fail every deploy exactly like the 3-hourly storm-brief did — so
+confirm the project is on Pro before relying on the retry. The storm-brief
+handler *wants* to run every 3 hours so warnings reach subbies while actionable,
+but is capped to a single daily run to keep Hobby deploys green. It is
+idempotent per warning-id (`StormBrief` unique constraint), so **on Pro**,
+restoring the 3-hourly cadence is a one-line revert of the storm-brief
+`schedule` in `vercel.json` back to `0 */3 * * *` — no code change.
 
 ---
 
