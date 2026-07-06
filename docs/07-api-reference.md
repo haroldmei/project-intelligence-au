@@ -541,6 +541,8 @@ All account endpoints require an active Lucia session.
 | `PUT` | `/account/lga-bundles` | Update selected LGA bundles | FR-020 |
 | `GET` | `/account/saved-query` | Get saved search query | FR-025 |
 | `PUT` | `/account/saved-query` | Update saved search query | FR-025 |
+| `POST` | `/account/email-opt-in` | Re-subscribe to the email digest | FR-022 |
+| `POST` | `/account/email-opt-out` | Opt out of the email digest | FR-022 |
 | `POST` | `/account/sms-opt-in` | Opt in to SMS digests | FR-022 |
 | `POST` | `/account/sms-opt-out` | Opt out of SMS digests | FR-022 |
 | `POST` | `/account/storm-brief` | Opt in/out of mid-week storm briefs | FR-020 |
@@ -795,6 +797,73 @@ curl -X PUT http://localhost:3000/api/account/saved-query \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{"saved_query_text": "Residential roof repairs and reroof work in Sydney"}'
+```
+
+---
+
+### POST /account/email-opt-in
+
+**Re-subscribe to the email digest.**
+
+Set the authenticated user's `emailOptIn` back to `true`. This is the
+in-product counterpart to the unauthenticated one-click unsubscribe at
+`POST /api/unsubscribe/{token}` — the only way a user who tapped an email
+unsubscribe link can get back onto the paid Sunday digest (issue #105).
+Surfaced as a toggle on the `/account/sms` notifications page.
+
+**Wedge FR-022:** Enable user email preferences.
+
+#### Request
+
+No request body required.
+
+#### Response
+
+**200 OK:** (returns updated account, with `emailOptIn: true`)
+
+#### Errors
+
+| Status | Code | Description |
+|--------|------|-------------|
+| `401` | — | Unauthorized (no active session) |
+
+#### Curl Example
+
+```bash
+curl -X POST http://localhost:3000/api/account/email-opt-in \
+  -b cookies.txt
+```
+
+---
+
+### POST /account/email-opt-out
+
+**Opt out of the email digest.**
+
+Set the authenticated user's `emailOptIn` to `false` from the portal — the
+authenticated equivalent of the Spam-Act unsubscribe link, so the notifications
+page can drive a single bidirectional toggle. Transactional billing/account
+notices are unaffected (they never gate on `emailOptIn`).
+
+#### Request
+
+No request body required.
+
+#### Response
+
+**200 OK:** (returns updated account, with `emailOptIn: false`)
+
+#### Errors
+
+| Status | Code | Description |
+|--------|------|-------------|
+| `401` | — | Unauthorized (no active session) |
+
+#### Curl Example
+
+```bash
+curl -X POST http://localhost:3000/api/account/email-opt-out \
+  -b cookies.txt
 ```
 
 ---
@@ -1987,7 +2056,7 @@ curl -X GET http://localhost:3000/s/abc123def456 \
 | FR-018 | Subscription checkout | `POST /billing/checkout` | ✅ Implemented |
 | FR-019 | Billing portal | `POST /billing/portal` | ✅ Implemented |
 | FR-020 | LGA selection & storm briefs | `GET/PUT /account/lga-bundles`, `POST /account/storm-brief`, `GET /cron/storm-brief` | ✅ Implemented |
-| FR-022 | SMS preferences | `POST /account/sms-opt-in`, `POST /account/sms-opt-out` | ✅ Implemented |
+| FR-022 | Email & SMS preferences | `POST /account/email-opt-in`, `POST /account/email-opt-out`, `POST /account/sms-opt-in`, `POST /account/sms-opt-out` | ✅ Implemented |
 | FR-023 | Email feedback & unsubscribe | `GET /feedback/{token}`, `GET /unsubscribe/{token}` | ✅ Implemented |
 | FR-024 | Portal feedback | `POST /feedback` | ✅ Implemented |
 | FR-025 | Saved query | `GET/PUT /account/saved-query` | ✅ Implemented |

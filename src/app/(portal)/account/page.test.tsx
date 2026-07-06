@@ -18,6 +18,7 @@ function baseAccount(overrides: Partial<AccountDTO> = {}): AccountDTO {
     email: "tradie@example.com",
     mobile_e164: null,
     emailVerified: true,
+    emailOptIn: true,
     smsOptIn: false,
     stormBriefOptIn: false,
     trade: "roofing",
