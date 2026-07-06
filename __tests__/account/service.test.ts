@@ -183,6 +183,38 @@ describe("smsOptIn / smsOptOut", () => {
   });
 });
 
+describe("emailOptIn / emailOptOut (#105)", () => {
+  it("re-enables emailOptIn after an unsubscribe left it false", async () => {
+    const userId = await seedTestUser({});
+    // Simulate the token unsubscribe having flipped the flag off.
+    await testDb.user.update({ where: { id: userId }, data: { emailOptIn: false } });
+
+    const { emailOptIn } = await import("@/modules/account/service");
+    const account = await emailOptIn(userId);
+
+    expect(account.emailOptIn).toBe(true);
+    const user = await testDb.user.findUnique({ where: { id: userId } });
+    expect(user?.emailOptIn).toBe(true);
+  });
+
+  it("sets emailOptIn=false on opt-out", async () => {
+    const userId = await seedTestUser({});
+    const { emailOptOut } = await import("@/modules/account/service");
+    const account = await emailOptOut(userId);
+
+    expect(account.emailOptIn).toBe(false);
+    const user = await testDb.user.findUnique({ where: { id: userId } });
+    expect(user?.emailOptIn).toBe(false);
+  });
+
+  it("surfaces emailOptIn in the account DTO so the portal can render the toggle", async () => {
+    const userId = await seedTestUser({});
+    const { getAccount } = await import("@/modules/account/service");
+    const account = await getAccount(userId);
+    expect(account?.emailOptIn).toBe(true); // schema default
+  });
+});
+
 describe("deleteAccount", () => {
   it("removes the user from the database", async () => {
     const userId = await seedTestUser();

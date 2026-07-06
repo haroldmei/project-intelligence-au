@@ -5,6 +5,11 @@ import Link from "next/link";
 import type { AccountDTO } from "@/modules/account/service";
 
 export default function SMSOptInPage() {
+  const [emailEnabled, setEmailEnabled] = useState(true);
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailToast, setEmailToast] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+
   const [smsEnabled, setSmsEnabled] = useState(false);
   const [hasMobile, setHasMobile] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -26,6 +31,7 @@ export default function SMSOptInPage() {
       })
       .then((data) => {
         if (cancelled) return;
+        setEmailEnabled(Boolean(data.emailOptIn));
         setSmsEnabled(Boolean(data.smsOptIn));
         setHasMobile(Boolean(data.mobile_e164));
         setLoaded(true);
@@ -37,6 +43,41 @@ export default function SMSOptInPage() {
       });
     return () => { cancelled = true; };
   }, []);
+
+  // Email digest opt-in/out (#105). This is the in-product recovery for a user
+  // who tapped the email unsubscribe link — without it they were permanently
+  // cut off from the paid Sunday digest while still being billed.
+  async function handleEmailToggle() {
+    const next = !emailEnabled;
+    setEmailEnabled(next); // optimistic
+    setEmailSaving(true);
+    setEmailError(null);
+    setEmailToast(null);
+    try {
+      const endpoint = next ? "/api/account/email-opt-in" : "/api/account/email-opt-out";
+      const res = await fetch(endpoint, { method: "POST" });
+      if (!res.ok) {
+        setEmailEnabled(!next); // revert
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setEmailError(body.error || "Failed to update. Please try again.");
+      } else {
+        setEmailToast(next ? "Email digest enabled." : "Email digest disabled.");
+      }
+      setTimeout(() => {
+        setEmailToast(null);
+        setEmailError(null);
+      }, 4000);
+    } catch {
+      setEmailEnabled(!next);
+      setEmailError("Network error. Please try again.");
+      setTimeout(() => {
+        setEmailToast(null);
+        setEmailError(null);
+      }, 4000);
+    } finally {
+      setEmailSaving(false);
+    }
+  }
 
   async function handleToggle() {
     const next = !smsEnabled;
@@ -72,6 +113,7 @@ export default function SMSOptInPage() {
   }
 
   const toggleDisabled = !loaded || isSaving || (!smsEnabled && !hasMobile);
+  const emailToggleDisabled = !loaded || emailSaving;
 
   return (
     <div className="px-4 py-6 space-y-6 max-w-xl">
@@ -89,6 +131,67 @@ export default function SMSOptInPage() {
       {error && (
         <div role="alert" aria-live="assertive" className="rounded-md bg-[#FEE2E2] text-[#7F1D1D] text-sm px-4 py-3">
           {error}
+        </div>
+      )}
+
+      {/* Email digest (#105) — the re-enable control the unsubscribe page promises. */}
+      <div className="bg-white rounded-md border border-[#E5E5E5] px-4 py-4">
+        <div className="flex items-center justify-between min-h-[44px] gap-4">
+          <div className="space-y-0.5">
+            <p className="text-sm font-semibold text-[#102A43]">
+              Sunday email digest
+            </p>
+            <p className="text-xs text-[#829AB1]">
+              Your weekly leads by email at 6 pm AEST
+            </p>
+          </div>
+
+          {/* Toggle switch */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={emailEnabled}
+            aria-label="Toggle Sunday email digest"
+            disabled={emailToggleDisabled}
+            onClick={handleEmailToggle}
+            className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-[150ms] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] focus-visible:ring-offset-2 disabled:opacity-50 min-h-[44px] min-w-[44px] justify-center ${
+              emailEnabled ? "bg-[#D97706]" : "bg-[#D4D4D4]"
+            }`}
+          >
+            <span
+              className={`pointer-events-none block h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-[150ms] ${
+                emailEnabled ? "translate-x-2.5" : "-translate-x-2.5"
+              }`}
+              aria-hidden="true"
+            />
+          </button>
+        </div>
+
+        {loaded && !emailEnabled && (
+          <p className="text-xs text-[#7F1D1D] mt-3 border-t border-[#F5F5F5] pt-3">
+            You&apos;re unsubscribed from the email digest — the core of your
+            subscription. Turn this back on to start receiving it again.
+          </p>
+        )}
+
+        <p className="text-xs text-[#829AB1] mt-3 border-t border-[#F5F5F5] pt-3">
+          Essential billing and account notices are always sent, regardless of this setting.
+        </p>
+      </div>
+
+      {emailError && (
+        <div role="alert" aria-live="assertive" className="rounded-md bg-[#FEE2E2] text-[#7F1D1D] text-sm px-4 py-3">
+          {emailError}
+        </div>
+      )}
+
+      {emailToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="text-sm text-[#14532D] bg-[#DCFCE7] rounded-md px-4 py-3"
+        >
+          {emailToast}
         </div>
       )}
 

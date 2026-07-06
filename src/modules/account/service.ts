@@ -19,6 +19,7 @@ export interface AccountDTO {
   email: string;
   mobile_e164: string | null;
   emailVerified: boolean;
+  emailOptIn: boolean;
   smsOptIn: boolean;
   stormBriefOptIn: boolean;
   trade: string;
@@ -170,6 +171,36 @@ export async function smsOptOut(userId: string): Promise<AccountDTO> {
 }
 
 /**
+ * Email opt-in (#105). The mirror of the token-based unsubscribe: once a user
+ * has tapped the email footer's one-click unsubscribe (emailOptIn=false), this
+ * is the ONLY in-product path back to the paid Sunday digest. Without it, a
+ * paying subscriber who unsubscribes keeps being billed while getting nothing —
+ * guaranteed churn. Authenticated because it's a session-scoped self-service
+ * control, unlike the unauthenticated Spam-Act opt-out link.
+ */
+export async function emailOptIn(userId: string): Promise<AccountDTO> {
+  const updated = await db.user.update({
+    where: { id: userId },
+    data: { emailOptIn: true },
+    include: { lgaBundles: true },
+  });
+  return toDTO(updated);
+}
+
+/**
+ * Email opt-out (#105). The authenticated equivalent of the unsubscribe link,
+ * so the /account notifications page can present a single bidirectional toggle.
+ */
+export async function emailOptOut(userId: string): Promise<AccountDTO> {
+  const updated = await db.user.update({
+    where: { id: userId },
+    data: { emailOptIn: false },
+    include: { lgaBundles: true },
+  });
+  return toDTO(updated);
+}
+
+/**
  * Set the per-user storm-brief opt-in (#20). Default is opted-in while the
  * feature stays globally gated behind STORM_BRIEF_ENABLED; this lets a user opt
  * out ahead of the global launch. Independent of the Spam Act email opt-out —
@@ -262,6 +293,7 @@ type UserWithBundles = {
   email: string;
   mobile_e164: string | null;
   emailVerified: boolean;
+  emailOptIn: boolean;
   smsOptIn: boolean;
   stormBriefOptIn: boolean;
   trade: string;
@@ -280,6 +312,7 @@ function toDTO(user: UserWithBundles): AccountDTO {
     email: user.email,
     mobile_e164: user.mobile_e164,
     emailVerified: user.emailVerified,
+    emailOptIn: user.emailOptIn,
     smsOptIn: user.smsOptIn,
     stormBriefOptIn: user.stormBriefOptIn,
     trade: user.trade,
