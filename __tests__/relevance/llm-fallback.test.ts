@@ -13,6 +13,7 @@ import {
   InternalServerError,
   AuthenticationError,
 } from "@anthropic-ai/sdk";
+import { DIGEST_EMAIL_MIN_CARDS } from "@/modules/digest/constants";
 
 vi.mock("@/lib/ai/cost-ledger", () => ({
   weeklyCostAud: vi.fn().mockResolvedValue(0), // under the cost cap
@@ -34,26 +35,34 @@ vi.mock("@sentry/nextjs", () => ({
   captureException: vi.fn(),
 }));
 
-// The embedding-only path re-runs these; return a real candidate so daCount > 0.
-const CANDIDATE = {
-  daId: "da-1",
-  council: "inner-west",
-  address: "1 Roof St",
-  description: "Re-roof, tile to Colorbond",
-  rawScopeText: null,
-  estimatedValue: 40000,
-  lodgementDate: "2026-04-20",
-  applicantName: "Acme",
-  portalUrl: "https://council.nsw.gov.au/da/da-1",
-  constructionCertifiedAt: null,
-  approvalPathway: "cdc",
-  cosineSimilarity: 0.9,
-};
+// The embedding-only path re-runs these. Return DIGEST_EMAIL_MIN_CARDS matches so
+// the degraded path clears the FR-006 quiet-week floor (issue #201) and surfaces
+// a real digest — a single card would (correctly) be gated to a quiet week, which
+// is exercised separately below.
+function candidate(i: number) {
+  return {
+    daId: `da-${i}`,
+    council: "inner-west",
+    address: `${i} Roof St`,
+    description: "Re-roof, tile to Colorbond",
+    rawScopeText: null,
+    estimatedValue: 40000,
+    lodgementDate: "2026-04-20",
+    applicantName: "Acme",
+    portalUrl: `https://council.nsw.gov.au/da/da-${i}`,
+    constructionCertifiedAt: null,
+    approvalPathway: "cdc",
+    cosineSimilarity: 0.9,
+  };
+}
+const CANDIDATES = Array.from({ length: DIGEST_EMAIL_MIN_CARDS }, (_, i) => candidate(i + 1));
+const ruleFilterMock = vi.fn().mockResolvedValue(CANDIDATES);
+const vectorRankMock = vi.fn().mockResolvedValue(CANDIDATES);
 vi.mock("@/modules/relevance/filters", () => ({
-  ruleFilter: vi.fn().mockResolvedValue([CANDIDATE]),
+  ruleFilter: (...args: unknown[]) => ruleFilterMock(...args),
 }));
 vi.mock("@/modules/relevance/vector", () => ({
-  vectorRank: vi.fn().mockResolvedValue([CANDIDATE]),
+  vectorRank: (...args: unknown[]) => vectorRankMock(...args),
 }));
 vi.mock("@/modules/relevance/thumbs", () => ({
   loadThumbsExamples: vi.fn().mockResolvedValue([]),
@@ -81,6 +90,8 @@ describe("relevance run — LLM-unavailable fallback (§7.3, issue #181)", () =>
   beforeEach(() => {
     vi.clearAllMocks();
     (db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(USER);
+    ruleFilterMock.mockResolvedValue(CANDIDATES);
+    vectorRankMock.mockResolvedValue(CANDIDATES);
   });
 
   const outages: Array<[string, unknown]> = [
@@ -99,13 +110,35 @@ describe("relevance run — LLM-unavailable fallback (§7.3, issue #181)", () =>
       expect(result).not.toBeNull();
       expect(result?.fallbackUsed).toBe(true);
       expect(result?.fallbackReason).toBe("llm_unavailable");
-      // Embedding-only produced at least one ranked lead — not an empty/failed run.
-      expect(result!.results.length).toBeGreaterThan(0);
+      // Enough cosine matches cleared the quiet-week floor → a real degraded digest.
+      expect(result!.results.length).toBeGreaterThanOrEqual(DIGEST_EMAIL_MIN_CARDS);
       // Degraded rows carry the spec's placeholder + are attributed to embedding-only.
       expect(result!.results[0].modelUsed).toBe("embedding-only");
       expect(result!.results[0].why).toBe("Matches your roofing query");
     });
   }
+
+  it.each([1, DIGEST_EMAIL_MIN_CARDS - 1])(
+    "sends a quiet week (no cards) when the outage leaves only %i cosine matches — never a thin sub-floor digest (issue #201)",
+    async (n) => {
+      (runRelevancePipeline as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new RateLimitError(429, undefined, "slow down", new Headers(), null),
+      );
+      const thin = Array.from({ length: n }, (_, i) => candidate(i + 1));
+      ruleFilterMock.mockResolvedValue(thin);
+      vectorRankMock.mockResolvedValue(thin);
+
+      const { runRelevanceForUser } = await import("@/modules/relevance/run");
+      const result = await runRelevanceForUser("u1");
+
+      // Degraded, but held to the FR-006 floor → surface nothing (FR-010 email).
+      expect(result?.fallbackUsed).toBe(true);
+      expect(result?.fallbackReason).toBe("llm_unavailable");
+      expect(result?.results).toEqual([]);
+      // …while still reporting how many DAs were actually checked.
+      expect(result?.stats.ruleFiltered).toBe(n);
+    },
+  );
 
   it("propagates a non-transient Anthropic error (401) — no silent basic-mode masking", async () => {
     (runRelevancePipeline as ReturnType<typeof vi.fn>).mockRejectedValue(
