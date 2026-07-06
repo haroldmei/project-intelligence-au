@@ -20,6 +20,7 @@ const { mockDb, relevanceMock, assembleMock, sentryMock } = vi.hoisted(() => ({
       update: vi.fn(),
     },
     digest: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    digestDa: { count: vi.fn() },
     user: { findMany: vi.fn() },
   },
   relevanceMock: vi.fn(),
@@ -54,6 +55,7 @@ beforeEach(() => {
   mockDb.digest.create.mockResolvedValue({ id: "audit" });
   mockDb.digest.update.mockResolvedValue({});
   mockDb.digest.findFirst.mockResolvedValue(null);
+  mockDb.digestDa.count.mockResolvedValue(0);
 });
 
 describe("runDigestCron — concurrent DigestRun creation (issue #93)", () => {

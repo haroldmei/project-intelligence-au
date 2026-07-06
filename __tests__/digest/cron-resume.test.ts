@@ -13,6 +13,7 @@ const { mockDb, relevanceMock, assembleMock, sentryMock } = vi.hoisted(() => ({
   mockDb: {
     digestRun: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     digest: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    digestDa: { count: vi.fn() },
     user: { findMany: vi.fn() },
   },
   relevanceMock: vi.fn(),
@@ -48,6 +49,9 @@ beforeEach(() => {
   mockDb.digest.create.mockResolvedValue({ id: "audit" });
   mockDb.digest.update.mockResolvedValue({});
   mockDb.digest.findFirst.mockResolvedValue(null);
+  // No cards persisted by default → the loop re-scores via runRelevanceForUser
+  // (issue #196 recovery path only triggers when DigestDa rows already exist).
+  mockDb.digestDa.count.mockResolvedValue(0);
 });
 
 describe("isDigestComplete", () => {
@@ -105,6 +109,27 @@ describe("runDigestCron — retry tick (resume)", () => {
     const processed = assembleMock.mock.calls.map((c) => c[0]);
     expect(processed).toEqual(expect.arrayContaining(["u2", "u3"]));
     expect(processed).not.toContain("u1");
+  });
+
+  it("recovers from PERSISTED cards without re-scoring when the primary persisted them (issue #196)", async () => {
+    // u1's primary tick persisted DigestDa cards but the email send failed. The
+    // retry must re-send from those frozen cards — NOT re-run the relevance
+    // pipeline, whose fresh non-deterministic score could diverge from the
+    // portal (or collapse to a quiet-week email). So runRelevanceForUser is
+    // skipped and assemble is invoked with relevance=null (the recovery signal).
+    mockDb.digestRun.findFirst.mockResolvedValue({ id: "run-1", status: "done" });
+    mockDb.user.findMany.mockResolvedValue(users("u1"));
+    mockDb.digest.findMany
+      .mockResolvedValueOnce([{ userId: "u1", emailStatus: "failed", smsStatus: "skipped" }])
+      .mockResolvedValueOnce([delivered("u1")]);
+    // Cards WERE persisted for u1 on the primary tick.
+    mockDb.digestDa.count.mockResolvedValue(5);
+
+    await runDigestCron();
+
+    expect(relevanceMock).not.toHaveBeenCalled(); // no fresh re-score
+    expect(assembleMock).toHaveBeenCalledTimes(1);
+    expect(assembleMock).toHaveBeenCalledWith("u1", "run-1", null); // recovery signal
   });
 
   it("is a NO-OP when the primary already served everyone", async () => {

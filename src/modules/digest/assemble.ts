@@ -12,7 +12,7 @@ import { issueFeedbackToken, issueUnsubscribeToken } from "@/lib/hmac/token";
 import { captureServer } from "@/lib/analytics/server";
 import { env } from "@/lib/env";
 import type { RelevanceRunResult } from "@/modules/relevance/run";
-import { classifyLeadClass, type LeadClass } from "@/modules/relevance/lead-class";
+import { classifyLeadClass, toLeadClass, type LeadClass } from "@/modules/relevance/lead-class";
 import { MIN_FEEDBACK_FOR_PERSONALISATION } from "@/modules/relevance/thumbs";
 import { DIGEST_EMAIL_MAX_CARDS, DIGEST_SMS_MAX_CARDS } from "./constants";
 import {
@@ -41,7 +41,7 @@ export interface DigestSendResult {
 export async function assembleAndSendDigest(
   userId: string,
   runId: string,
-  relevance: RelevanceRunResult,
+  relevance: RelevanceRunResult | null,
 ): Promise<DigestSendResult> {
   const user = await db.user.findUniqueOrThrow({
     where: { id: userId },
@@ -50,8 +50,14 @@ export async function assembleAndSendDigest(
     },
   });
 
-  const results = relevance.results.slice(0, DIGEST_EMAIL_MAX_CARDS);
-  const daCount = results.length;
+  // On the recovery/retry path (issue #196) `relevance` is null: once an earlier
+  // tick persisted this run's DigestDa cards they are the immutable source of
+  // truth for the email, SMS, portal, and CSV, and the email is rebuilt from
+  // THEM below rather than from a fresh, non-deterministic re-score that could
+  // list a different lead set (or collapse to a quiet-week email while ≥5 real
+  // leads sit persisted). On the first assembly — and the issue #161 audit-stub
+  // backfill — relevance is present and these are the leads to persist.
+  const results = relevance ? relevance.results.slice(0, DIGEST_EMAIL_MAX_CARDS) : [];
 
   // Freeze the service-area label as it stands right now (issue #138). This is
   // what the history list / detail header will show for THIS digest forever, so
@@ -86,7 +92,7 @@ export async function assembleAndSendDigest(
   // email each user at most once and never duplicate the DigestDa cards.
   const existing = await db.digest.findFirst({
     where: { userId, runId },
-    select: { id: true, emailStatus: true, smsStatus: true },
+    select: { id: true, emailStatus: true, smsStatus: true, fallbackUsed: true },
   });
 
   let digest: { id: string };
@@ -98,8 +104,10 @@ export async function assembleAndSendDigest(
         data: {
           userId,
           runId,
-          daCount,
-          fallbackUsed: relevance.fallbackUsed,
+          daCount: results.length,
+          // A create only happens when no Digest row existed yet, which is the
+          // fresh-assembly path — so `relevance` is always present here.
+          fallbackUsed: relevance?.fallbackUsed ?? false,
           areaLabel: areaSnapshot,
         },
       });
@@ -163,30 +171,46 @@ export async function assembleAndSendDigest(
 
   const weekStart = getWeekStartLabel();
 
-  // Build email cards from the relevance candidates we already have. No
-  // per-card DB roundtrip — the candidate carries everything we need
-  // (CandidateDA includes address, description, council, estimatedValue,
-  // applicantName, portalUrl).
-  const cards = results.map((r, i) => {
-    const c = r.candidate;
-    const thumbUpUrl = buildFeedbackUrl(userId, r.daId, 1);
-    const thumbDownUrl = buildFeedbackUrl(userId, r.daId, 0);
-    return {
-      id: r.daId,
-      address: c.address,
-      lga: c.council,
-      value: c.estimatedValue ? `AUD ${formatValue(c.estimatedValue)}` : undefined,
-      why: r.why,
-      scope: c.description.slice(0, 200),
-      applicant: c.applicantName ?? "",
-      relevanceScore: r.score * 2,
-      leadClass: leadClasses[i],
-      constructionCertifiedAt: c.constructionCertifiedAt,
-      portalUrl: c.portalUrl,
-      thumbUpUrl,
-      thumbDownUrl,
-    };
-  });
+  // Card source of truth (issue #196). When the cards were persisted on an
+  // earlier tick, rebuild the email/SMS from those DigestDa → DA rows so a
+  // recovery re-send lists EXACTLY the leads the portal, history, and CSV
+  // already show (same ids, order, why-text) — never a fresh re-score that
+  // diverges or collapses to a quiet week. Otherwise (first assembly or the
+  // issue #161 audit-stub backfill) build from the relevance candidates we
+  // already have, with no per-card DB roundtrip.
+  const cards = cardsAlreadyPersisted
+    ? await buildEmailCardsFromPersisted(digest.id, userId)
+    : results.map((r, i) => {
+        const c = r.candidate;
+        return {
+          id: r.daId,
+          address: c.address,
+          lga: c.council,
+          value: c.estimatedValue ? `AUD ${formatValue(c.estimatedValue)}` : undefined,
+          why: r.why,
+          scope: c.description.slice(0, 200),
+          applicant: c.applicantName ?? "",
+          relevanceScore: r.score * 2,
+          leadClass: leadClasses[i],
+          constructionCertifiedAt: c.constructionCertifiedAt,
+          portalUrl: c.portalUrl,
+          thumbUpUrl: buildFeedbackUrl(userId, r.daId, 1),
+          thumbDownUrl: buildFeedbackUrl(userId, r.daId, 0),
+        };
+      });
+
+  // Everything the email reports about digest size now derives from `cards`, so
+  // a recovered email can never claim a different lead count than the persisted
+  // rows. On recovery the degraded-mode flag comes from the persisted Digest row;
+  // fallbackReason isn't persisted, so the "basic mode" note falls back to the
+  // generic cost-cap wording on a recovered fallback week — a cosmetic edge that
+  // never changes the lead set. The fresh run supplies both directly.
+  const daCount = cards.length;
+  const fallbackUsed = cardsAlreadyPersisted
+    ? (existing?.fallbackUsed ?? false)
+    : (relevance?.fallbackUsed ?? false);
+  const fallbackReason = cardsAlreadyPersisted ? undefined : relevance?.fallbackReason;
+  const dasChecked = cardsAlreadyPersisted ? undefined : relevance?.stats.ruleFiltered;
 
   // Spam Act 2003 — opt-out takes effect IMMEDIATELY. A run iterates many
   // users in one invocation; a STOP (SMS) or unsubscribe (email) that lands
@@ -254,13 +278,13 @@ export async function assembleAndSendDigest(
           // pipeline actually scanned this week. `ruleFiltered` is the roofing-
           // relevant candidate pool in the user's LGAs after the rule pass —
           // the honest "we checked N DAs" number for a no-lead reassurance.
-          dasChecked: relevance.stats.ruleFiltered,
+          dasChecked,
           ratedLeadRecap,
           smsEnabled: smsOptIn,
-          fallbackUsed: relevance.fallbackUsed,
+          fallbackUsed,
           // Distinguish the cost-cap throttle from a transient Anthropic outage
           // (system-design §7.3) so the two degraded weeks read differently.
-          fallbackReason: relevance.fallbackReason,
+          fallbackReason,
           personalisationActivated: showPersonalisationNote,
           unsubscribeUrl,
         },
@@ -329,7 +353,7 @@ export async function assembleAndSendDigest(
   if (emailStatus === "sent" && !emailAlreadyDelivered) {
     captureServer(userId, "digest_sent", {
       cardCount: daCount,
-      fallbackUsed: relevance.fallbackUsed,
+      fallbackUsed,
     });
 
     // Burn the one-time personalisation note only once it's actually gone out
@@ -344,6 +368,55 @@ export async function assembleAndSendDigest(
   }
 
   return { digestId: digest.id, daCount, emailStatus, smsStatus };
+}
+
+/**
+ * Rebuild the email/SMS cards for a run from its persisted DigestDa → DA rows
+ * (issue #196). These rows were frozen on the primary tick, so on a recovery
+ * re-send we ship exactly them rather than a fresh, non-deterministic re-score.
+ *
+ * The projection + per-field mapping mirror the fresh path's card build (and the
+ * portal loader's DA → card mapping) field-for-field — same 0–10 relevanceScore,
+ * same `AUD Nk` value formatting, same yyyy-mm-dd CC date, same 200-char scope —
+ * so the recovered email is byte-equivalent to the persisted portal digest.
+ * Ordered by rank so lead order matches too.
+ */
+async function buildEmailCardsFromPersisted(digestId: string, userId: string) {
+  const rows = await db.digestDa.findMany({
+    where: { digestId },
+    orderBy: { rank: "asc" },
+    include: {
+      da: {
+        select: {
+          address: true,
+          council: true,
+          estimatedValue: true,
+          description: true,
+          applicantName: true,
+          portalUrl: true,
+          constructionCertifiedAt: true,
+        },
+      },
+    },
+  });
+  return rows.map((dd) => ({
+    id: dd.daId,
+    address: dd.da.address,
+    lga: dd.da.council,
+    value: dd.da.estimatedValue
+      ? `AUD ${formatValue(Number(dd.da.estimatedValue))}`
+      : undefined,
+    why: dd.whyMatched,
+    scope: dd.da.description.slice(0, 200),
+    applicant: dd.da.applicantName ?? "",
+    relevanceScore: dd.relevanceScore,
+    leadClass: toLeadClass(dd.leadClass),
+    constructionCertifiedAt:
+      dd.da.constructionCertifiedAt?.toISOString().slice(0, 10) ?? null,
+    portalUrl: dd.da.portalUrl,
+    thumbUpUrl: buildFeedbackUrl(userId, dd.daId, 1),
+    thumbDownUrl: buildFeedbackUrl(userId, dd.daId, 0),
+  }));
 }
 
 function buildFeedbackUrl(userId: string, daId: string, vote: 1 | 0): string {

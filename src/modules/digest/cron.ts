@@ -164,14 +164,30 @@ export async function runDigestCron(): Promise<DigestCronResult> {
 
   for (const user of pending) {
     try {
-      const relevance = await runRelevanceForUser(user.id, run.id);
-      if (!relevance) {
-        // Persist a Digest row anyway so observability queries can answer
-        // "did Sunday work for everyone?" — null relevance means the user
-        // is missing prerequisites (saved query embedding, LGAs, etc.).
-        await recordAuditDigest(user.id, run.id, "skipped");
-        log.warn({ userId: user.id }, "[digest] no relevance result — skipping user");
-        continue;
+      // Recovery source-of-truth (issue #196): if an earlier tick already
+      // persisted this run's DA cards, they are immutable — rebuild the failed
+      // channel(s) from them (assembleAndSendDigest with relevance=null) rather
+      // than re-running the non-deterministic relevance pipeline, whose fresh
+      // score could surface a different lead set or collapse to a quiet-week
+      // "nothing strong" email while ≥5 real leads sit persisted in the portal.
+      // Re-score ONLY when no cards were ever persisted: a fresh user on the
+      // primary tick, or the issue #161 audit-stub backfill case.
+      const hasPersistedCards =
+        (await db.digestDa.count({
+          where: { digest: { userId: user.id, runId: run.id } },
+        })) > 0;
+
+      let relevance: Awaited<ReturnType<typeof runRelevanceForUser>> = null;
+      if (!hasPersistedCards) {
+        relevance = await runRelevanceForUser(user.id, run.id);
+        if (!relevance) {
+          // Persist a Digest row anyway so observability queries can answer
+          // "did Sunday work for everyone?" — null relevance means the user
+          // is missing prerequisites (saved query embedding, LGAs, etc.).
+          await recordAuditDigest(user.id, run.id, "skipped");
+          log.warn({ userId: user.id }, "[digest] no relevance result — skipping user");
+          continue;
+        }
       }
       const result = await assembleAndSendDigest(user.id, run.id, relevance);
       if (result.emailStatus === "sent") {

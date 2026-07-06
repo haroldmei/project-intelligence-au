@@ -11,7 +11,7 @@ const { mockDb, sendSmsMock, sendEmailMock } = vi.hoisted(() => ({
   mockDb: {
     user: { findUniqueOrThrow: vi.fn(), findUnique: vi.fn() },
     digest: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn() },
-    digestDa: { create: vi.fn(), count: vi.fn() },
+    digestDa: { create: vi.fn(), count: vi.fn(), findMany: vi.fn() },
     daFeedback: { findMany: vi.fn(), count: vi.fn() },
     shortUrl: { upsert: vi.fn() },
   },
@@ -73,6 +73,28 @@ beforeEach(() => {
   // already persisted, so the default reflects that. The issue #161 audit-stub
   // case (no cards yet) overrides this to 0 in its own test.
   mockDb.digestDa.count.mockResolvedValue(1);
+  // Recovery path (issue #196): when cards are already persisted the email/SMS
+  // are rebuilt from the DigestDa → DA rows, not the fresh relevance run. This
+  // default mirrors the single RELEVANCE lead so the retried channel still
+  // carries it.
+  mockDb.digestDa.findMany.mockResolvedValue([
+    {
+      daId: "da-1",
+      whyMatched: "metal reroof in your area",
+      relevanceScore: 5,
+      rank: 1,
+      leadClass: "builder_pipeline",
+      da: {
+        address: "1 Test St, Blacktown",
+        council: "Blacktown",
+        estimatedValue: 500000,
+        description: "Reroof of existing dwelling with Colorbond.",
+        applicantName: "ACME Roofing",
+        portalUrl: "https://portal.example/da-1",
+        constructionCertifiedAt: null,
+      },
+    },
+  ]);
   mockDb.daFeedback.findMany.mockResolvedValue([]);
   mockDb.digestDa.create.mockResolvedValue({});
   mockDb.shortUrl.upsert.mockResolvedValue({});
