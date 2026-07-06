@@ -4,6 +4,24 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { AccountDTO } from "@/modules/account/service";
 
+// Mask an E.164 mobile for display so the tradie can confirm the destination
+// (wireframe 7.9) without exposing the full number on a shared/over-shoulder
+// screen. Always preserves the last 3 digits — the part a user recognises to
+// spot a wrong/stale handset.
+function maskMobile(e164: string): string {
+  const digits = e164.replace(/\D/g, "");
+  if (digits.length < 3) return e164;
+  const last3 = digits.slice(-3);
+  // AU E.164 (+61 + 9 national digits, grouped 4XX XXX XXX): keep the leading
+  // "4" so it reads as a mobile, mask the middle, reveal the last 3.
+  if (e164.startsWith("+61") && digits.length === 11) {
+    const first = digits.slice(2, 3);
+    return `+61 ${first}•• ••• ${last3}`;
+  }
+  // Fallback for any other saved format: mask all but the last 3 digits.
+  return `${"•".repeat(digits.length - 3)}${last3}`;
+}
+
 export default function SMSOptInPage() {
   const [emailEnabled, setEmailEnabled] = useState(true);
   const [emailSaving, setEmailSaving] = useState(false);
@@ -12,6 +30,7 @@ export default function SMSOptInPage() {
 
   const [smsEnabled, setSmsEnabled] = useState(false);
   const [hasMobile, setHasMobile] = useState(false);
+  const [mobile, setMobile] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -34,6 +53,7 @@ export default function SMSOptInPage() {
         setEmailEnabled(Boolean(data.emailOptIn));
         setSmsEnabled(Boolean(data.smsOptIn));
         setHasMobile(Boolean(data.mobile_e164));
+        setMobile(data.mobile_e164 ?? null);
         setLoaded(true);
       })
       .catch(() => {
@@ -204,6 +224,19 @@ export default function SMSOptInPage() {
             <p className="text-xs text-[#829AB1]">
               Top 3 leads via SMS at 6 pm AEST
             </p>
+            {loaded && hasMobile && mobile && (
+              <p className="text-xs text-[#627D98]">
+                Sent to{" "}
+                <span className="font-medium text-[#334E68]">{maskMobile(mobile)}</span>
+                {" · "}
+                <Link
+                  href="/account/profile"
+                  className="font-semibold text-[#B45309] hover:text-[#92400E] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] rounded"
+                >
+                  Change number
+                </Link>
+              </p>
+            )}
           </div>
 
           {/* Toggle switch */}
