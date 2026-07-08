@@ -7,7 +7,7 @@ import { CancelSubscriptionDialog } from "@/components/cancel-subscription-dialo
 import { DeleteAccountDialog } from "@/components/delete-account-dialog";
 import { Button } from "@/components/ui/button";
 import type { AccountDTO } from "@/modules/account/service";
-import { SOLO_PLAN_LABEL } from "@/lib/pricing";
+import { PRICE_MONTHLY_INC_GST, SOLO_PLAN_LABEL } from "@/lib/pricing";
 
 // Solo is the only plan — multi-seat ("Team") is deferred until it ships, so
 // every current subscription maps to the single Solo label/seat count.
@@ -347,6 +347,21 @@ export default function AccountPage() {
                     {resumeError}
                   </p>
                 )}
+              </>
+            ) : isTrial ? (
+              <>
+                <p className="text-sm text-[#627D98]">
+                  Your card is charged {PRICE_MONTHLY_INC_GST} on{" "}
+                  {formatDate(account.accessUntil)} unless you cancel before
+                  then.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setCancelOpen(true)}
+                  className="text-sm text-[#627D98] underline hover:text-[#DC2626] transition-colors duration-[150ms] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D97706] rounded min-h-[44px] flex items-center"
+                >
+                  Cancel subscription
+                </button>
               </>
             ) : isPastDue ? (
               <>

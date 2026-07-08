@@ -257,3 +257,53 @@ describe("AccountPage — re-subscribe ?billing=success (churned user, #197)", (
     expect(screen.getByText(/payment received/i)).toBeTruthy();
   }, 10_000);
 });
+
+// Issue #238 — the trial view must disclose that the card will be
+// auto-charged AUD 99/mo inc GST on the trial-end date. During a 28-day
+// card-on-file trial this is the one place a worried tradie checks before
+// their card is hit; omitting it is a surprise-charge / chargeback risk.
+describe("AccountPage — trial charge disclosure (#238)", () => {
+  const TRIAL_AMOUNT = "AUD 99/mo inc GST";
+  const TRIAL_DATE = "1 August 2026";
+
+  it("renders the charge amount in the disclosure when subscriptionStatus is 'trial'", async () => {
+    mockFetch(
+      baseAccount({ subscriptionStatus: "trial", accessUntil: "2026-08-01T00:00:00.000Z" }),
+    );
+    render(<AccountPage />);
+
+    // The disclosure paragraph contains the charge amount alongside the
+    // "Your card is charged" prefix, distinguishing it from the Plan row.
+    const needle = new RegExp(`your card is charged.*${TRIAL_AMOUNT}`, "i");
+    expect(await screen.findByText(needle)).toBeTruthy();
+  });
+
+  it("renders the trial-end date in the disclosure", async () => {
+    mockFetch(
+      baseAccount({ subscriptionStatus: "trial", accessUntil: "2026-08-01T00:00:00.000Z" }),
+    );
+    render(<AccountPage />);
+
+    // Match the date inside the disclosure paragraph, not the Trial ends row.
+    const needle = new RegExp(`charged.*${TRIAL_DATE}`, "i");
+    expect(await screen.findByText(needle)).toBeTruthy();
+  });
+
+  it("does not render the charge disclosure when the subscription is active (regression)", async () => {
+    mockFetch(baseAccount({ subscriptionStatus: "active" }));
+    render(<AccountPage />);
+
+    await screen.findByRole("button", { name: /cancel subscription/i });
+    expect(screen.queryByText(/your card is charged/i)).toBeNull();
+    expect(screen.queryByText(/unless you cancel before then/i)).toBeNull();
+  });
+
+  it("renders the cancel subscription button alongside the disclosure in trial state", async () => {
+    mockFetch(
+      baseAccount({ subscriptionStatus: "trial", accessUntil: "2026-08-01T00:00:00.000Z" }),
+    );
+    render(<AccountPage />);
+
+    expect(await screen.findByRole("button", { name: /cancel subscription/i })).toBeTruthy();
+  });
+});
