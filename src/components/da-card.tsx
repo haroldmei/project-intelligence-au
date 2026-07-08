@@ -121,18 +121,31 @@ export function DACard({
 
   function handleUndo() {
     const prev = undoQueue;
+    const prevFeedback = feedback;
     setFeedback(prev);
     setUndoQueue(null);
     setShowUndo(false);
     startTransition(async () => {
-      await fetch("/api/feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          da_id: daId,
-          feedback: prev === null ? "remove" : prev,
-        }),
-      });
+      try {
+        const res = await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            da_id: daId,
+            feedback: prev === null ? "remove" : prev,
+          }),
+        });
+        if (!res.ok) throw new Error(`undo POST failed: ${res.status}`);
+      } catch {
+        // Revert on failure: the server still holds the pre-undo state, so put
+        // feedback back to what it was before Undo was tapped. Surface a visible
+        // error so the displayed thumb never silently diverges from the server.
+        setFeedback(prevFeedback);
+        setUndoQueue(null);
+        setShowUndo(false);
+        setLiveMessage("");
+        setErrorMessage("Couldn't undo that — tap again to retry");
+      }
     });
   }
 

@@ -196,6 +196,66 @@ describe("DACard", () => {
     expect(screen.queryByText("Feedback saved")).toBeNull();
   });
 
+  // Issue #222: handleUndo must have the same resilience as handleThumb — a
+  // failed undo POST must revert the card state and surface a visible error so
+  // the displayed thumb never silently diverges from what the server holds.
+  it("reverts feedback and shows a visible error when the undo POST rejects", async () => {
+    render(<DACard {...PROPS} />);
+    const thumbUp = screen.getByRole("button", { name: /thumb up for/i });
+
+    // Thumb up to create an undo-able action. Default mock succeeds.
+    fireEvent.click(thumbUp);
+    expect(thumbUp.getAttribute("aria-pressed")).toBe("true");
+
+    // Wait for the undo toast to appear
+    expect(screen.getByText("Feedback saved")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /undo/i })).toBeTruthy();
+
+    // Stub the undo POST to reject
+    (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("network down")
+    );
+
+    // Click Undo
+    fireEvent.click(screen.getByRole("button", { name: /undo/i }));
+
+    // Assert: feedback reverts to its pre-undo value (thumb still pressed)
+    await waitFor(() =>
+      expect(thumbUp.getAttribute("aria-pressed")).toBe("true")
+    );
+
+    // Assert: visible error shown
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/tap again to retry/i);
+    expect(alert.className).not.toMatch(/sr-only/);
+  });
+
+  it("reverts feedback and shows a visible error when the undo POST returns a non-OK status", async () => {
+    render(<DACard {...PROPS} />);
+    const thumbUp = screen.getByRole("button", { name: /thumb up for/i });
+
+    // Thumb up to create undo-able state
+    fireEvent.click(thumbUp);
+    expect(screen.getByText("Feedback saved")).toBeTruthy();
+
+    // Stub undo POST to return 500
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({ ok: false }),
+    });
+
+    // Click Undo
+    fireEvent.click(screen.getByRole("button", { name: /undo/i }));
+
+    // Assert: feedback reverted, error shown
+    await waitFor(() =>
+      expect(thumbUp.getAttribute("aria-pressed")).toBe("true")
+    );
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/tap again to retry/i);
+  });
+
   // FR-031 da_card_clicked: clicking through to the council portal is the core
   // wedge signal (which leads a tradie actually pursues).
   it("captures da_card_clicked when the View DA link is clicked", () => {
