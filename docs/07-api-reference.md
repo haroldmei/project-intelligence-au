@@ -1740,16 +1740,17 @@ No request body (Vercel Cron issues a GET with the auth header only).
 Vercel Cron handler — **daily 13:00 UTC (23:00 AEST)**.
 
 Nightly ETL of newly lodged DAs — and, additively, NSW CDC records — from the NSW Planning Portal API and council aggregator feeds (15 LGAs):
-1. Fetch new DAs from each LGA feed. **Additively fetch NSW CDC (Complying Development Certificate) records** for the same councils (issue #10) — the pathway that actually carries material-change re-roofs (tile→metal), which never file a DA (docs/24 G1). CDC records are ingested as **first-class applications** tagged `approvalPathway: "cdc"`, and flow through the same rule → vector → rerank → classify pipeline as DAs (CDC → `fast_track` lead class). **Default ON.** Reuses `NSW_PLANNING_API_KEY` (a single ePlanning subscription covers both feeds) and no-ops without it. Set `CDC_INGEST_ENABLED=false` (or `0`) to disable — the flag is read at call time, so it need not be set at boot.
+1. Fetch new DAs from each LGA feed. When `NSW_PLANNING_API_KEY` is set, the DA feed uses the NSW ePlanning Online DA Data API; otherwise it falls back to the no-key DA Exhibitions public register HTML scrape (`DAEX_INGEST_ENABLED`, default off — see the flags table below). **Additively fetch NSW CDC (Complying Development Certificate) records** for the same councils (issue #10) — the pathway that actually carries material-change re-roofs (tile→metal), which never file a DA (docs/24 G1). CDC records are ingested as **first-class applications** tagged `approvalPathway: "cdc"`, and flow through the same rule → vector → rerank → classify pipeline as DAs (CDC → `fast_track` lead class). **Default ON.** Reuses `NSW_PLANNING_API_KEY` (a single ePlanning subscription covers both feeds) and no-ops without it. Set `CDC_INGEST_ENABLED=false` (or `0`) to disable — the flag is read at call time, so it need not be set at boot.
 2. Normalise and validate
 3. Upsert into `development_applications` table (both DA and CDC records, keyed on `(daId, council)`; CDC ids are namespaced with a `CDC-` prefix so a CDC number can never overwrite a DA of the same council-issued reference)
 4. Log ingestion results and drift detection — **one `ingestion_log` row per `(council, approval_pathway)`** (`da`, `cdc`, …), and drift is checked per pathway, so a CDC-feed outage is detected independently of healthy DA volume (and vice versa)
 5. Link the day's Construction Certificates (PCCs) to their DAs (issue #13). Runs after the DA upsert so the referenced DAs already exist. No-op (returns `skipped: true`, all counts `0`) unless **both** `PCC_INGEST_ENABLED` and `NSW_PLANNING_API_KEY` are set — inert until the feed is switched on. A CC with no matching DA is counted as `unmatched` and skipped, not created as a new DA.
 
-**Ingest feed flags** — the two additive expansion feeds have opposite defaults:
+**Ingest feed flags** — three additive expansion feeds, each gated by its own flag:
 
 | Flag | Default | Depends on | Effect |
 |------|---------|------------|--------|
+| `DAEX_INGEST_ENABLED` | **off** | — (no‑key fallback) | DA Exhibitions public register HTML scrape (`planningportal.nsw.gov.au/daexhibitions`). The no‑key DA feed covering all 15 LGAs when `NSW_PLANNING_API_KEY` is unset. Set to `true` to enable (see docs/22 Path A). |
 | `CDC_INGEST_ENABLED` | **on** | `NSW_PLANNING_API_KEY` | Ingest NSW CDC records as `approvalPathway: "cdc"` applications (issue #10). Set to `false`/`0` to disable. |
 | `PCC_INGEST_ENABLED` | **off** | `NSW_PLANNING_API_KEY` | Link the day's Construction Certificates to existing DAs (issue #13). Set to `true` to enable. |
 
