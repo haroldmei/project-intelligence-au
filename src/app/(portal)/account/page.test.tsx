@@ -360,3 +360,76 @@ describe("AccountPage — resubscribe checkout failure error (#231)", () => {
     expect(screen.getByRole("button", { name: /resubscribe/i })).not.toBeDisabled();
   });
 });
+
+// Issue #220 — the past-due 'Update your card' button and the general 'Manage
+// billing' link call POST /api/billing/portal, but any failure (Stripe error,
+// rate limit 429, missing customer 404) was silently swallowed: the spinner
+// stopped and the button reverted with no error message. The user had no
+// signal anything went wrong and no recovery path, turning a transient failure
+// into involuntary churn.
+describe("AccountPage — billing portal failure error (#220)", () => {
+  function mockFetchWithBillingFail(account: AccountDTO) {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    global.fetch = vi.fn((url: FetchArgs[0], init?: FetchArgs[1]) => {
+      const u = String(url);
+      calls.push({ url: u, init: init as RequestInit });
+      if (u === "/api/account/me") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(account),
+        } as Response);
+      }
+      if (u === "/api/billing/portal") {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({ error: "server error" }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    }) as unknown as typeof fetch;
+    return calls;
+  }
+
+  it("renders a role=alert error when the portal POST fails in past_due state and re-enables the button", async () => {
+    mockFetchWithBillingFail(
+      baseAccount({ subscriptionStatus: "past_due" }),
+    );
+    render(<AccountPage />);
+
+    // Wait for the past_due UI to render.
+    const updateBtn = await screen.findByRole("button", { name: /update your card/i });
+    expect(updateBtn).toBeTruthy();
+
+    // Click 'Update your card' — triggers handleManageBilling which posts to portal.
+    fireEvent.click(updateBtn);
+
+    // Wait for the error alert to appear.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/couldn't open the billing page/i);
+
+    // The button should be re-enabled (isPortalLoading=false) so the user can retry.
+    expect(screen.getByRole("button", { name: /update your card/i })).not.toBeDisabled();
+  });
+
+  it("renders a role=alert error when the portal POST fails from the Manage billing link", async () => {
+    mockFetchWithBillingFail(
+      baseAccount({ subscriptionStatus: "active" }),
+    );
+    render(<AccountPage />);
+
+    // Wait for the active-state UI to render the Manage billing link.
+    const manageBtn = await screen.findByRole("button", { name: /manage billing/i });
+    expect(manageBtn).toBeTruthy();
+
+    // Click 'Manage billing' — triggers handleManageBilling.
+    fireEvent.click(manageBtn);
+
+    // Wait for the error alert to appear.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/couldn't open the billing page/i);
+
+    // The link should be re-enabled (isPortalLoading=false).
+    expect(screen.getByRole("button", { name: /manage billing/i })).not.toBeDisabled();
+  });
+});
