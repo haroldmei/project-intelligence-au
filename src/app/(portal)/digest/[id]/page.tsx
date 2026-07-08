@@ -49,7 +49,9 @@ export default async function DigestDetailPage({
       </div>
       <DigestView
         digest={digest}
-        areaLabel={buildAreaLabel(area)}
+        // Prefer this digest's send-time area snapshot; fall back to the live
+        // area only for legacy digests that predate it (issue #138).
+        areaLabel={digest.areaLabel ?? buildAreaLabel(area)}
         weeksOfHistory={history.filter((h) => h.sentAt).length}
       />
     </div>

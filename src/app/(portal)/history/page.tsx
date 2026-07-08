@@ -33,7 +33,10 @@ export default async function HistoryPage() {
     getDigestHistory(auth.user.id, 50),
     getMyArea(auth.user.id),
   ]);
-  const areaLabel = buildAreaLabel(area);
+  // Live area, used ONLY as a fallback for legacy digests that predate the
+  // send-time snapshot (issue #138). Each row below prefers its own stored
+  // areaLabel so a past digest keeps the area it actually covered.
+  const currentAreaLabel = buildAreaLabel(area);
 
   return (
     <div className="px-4 py-6 space-y-4">
@@ -50,6 +53,7 @@ export default async function HistoryPage() {
         <ul className="space-y-3" aria-label="Past digests">
           {digests.map((digest) => {
             const dateLabel = formatRunDate(digest.sentAt ?? digest.runDate);
+            const areaLabel = digest.areaLabel ?? currentAreaLabel;
             const sendIssue =
               digest.emailStatus === "failed" || digest.smsStatus === "failed";
             return (

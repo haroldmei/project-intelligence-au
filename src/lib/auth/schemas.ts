@@ -57,6 +57,14 @@ export const OtpVerifySchema = z.object({
 });
 export type OtpVerifyInput = z.infer<typeof OtpVerifySchema>;
 
+// ── Change pending email (pre-verification) ──────────────────────────────────
+// Lets a signed-in but unverified user correct a mistyped signup address so the
+// OTP can actually reach them (issue #92). Same email rules as signup.
+export const ChangeEmailSchema = z.object({
+  email: z.string().email("Invalid email address.").max(254, "Email must be at most 254 characters (RFC 5321)."),
+});
+export type ChangeEmailInput = z.infer<typeof ChangeEmailSchema>;
+
 // ── Password-reset request ────────────────────────────────────────────────────
 export const PasswordResetRequestSchema = z.object({
   email: z.string().email("Invalid email address.").max(254, "Email must be at most 254 characters (RFC 5321)."),
@@ -65,8 +73,13 @@ export type PasswordResetRequestInput = z.infer<typeof PasswordResetRequestSchem
 
 // ── Password-reset confirm ────────────────────────────────────────────────────
 export const PasswordResetConfirmSchema = z.object({
-  /** Opaque reset token from the email link. */
+  /** Opaque reset token from the email link (the 6-digit OTP in V1). */
   token: z.string().min(1, "Reset token is required."),
+  /**
+   * Account email — identifies the user for the OTP lookup, since the reset
+   * flow has no session. Carried through the emailed reset link, not typed.
+   */
+  email: z.string().email("Invalid email address.").max(254, "Email must be at most 254 characters (RFC 5321)."),
   password: passwordSchema,
 });
 export type PasswordResetConfirmInput = z.infer<typeof PasswordResetConfirmSchema>;

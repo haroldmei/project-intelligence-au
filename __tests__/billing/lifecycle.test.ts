@@ -54,6 +54,7 @@ import {
   cancelSubscriptionAtPeriodEnd,
   reactivateSubscription,
 } from "@/modules/billing/stripe";
+import { TRIAL_WINDOW_MS } from "@/modules/billing/entitlement";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ interface SeedOpts {
   cancelAtPeriodEnd?: boolean;
   plan?: string | null;
   emailVerified?: boolean;
+  createdAt?: Date;
 }
 
 async function seedUser(opts: SeedOpts = {}): Promise<string> {
@@ -81,6 +83,7 @@ async function seedUser(opts: SeedOpts = {}): Promise<string> {
       accessUntil: opts.accessUntil ?? null,
       cancelAtPeriodEnd: opts.cancelAtPeriodEnd ?? false,
       plan: opts.plan ?? null,
+      ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
     },
   });
   return user.id;
@@ -257,7 +260,7 @@ describe("Subscription lifecycle", () => {
 
   // ── 2. Checkout creation ───────────────────────────────────────────────────
   describe("Stage 2 — checkout creation", () => {
-    it("first-time checkout creates customer + caches stripeCustomerId, withTrial=true", async () => {
+    it("first-time checkout creates customer + caches stripeCustomerId, trial anchored to signup+28d", async () => {
       const userId = await seedUser();
       setAuthedUser(userId);
       const { status, body } = await callCheckout("solo");
@@ -270,11 +273,32 @@ describe("Subscription lifecycle", () => {
         "solo",
         expect.stringContaining("/account?billing=success"),
         expect.stringContaining("/account?billing=cancelled"),
-        { withTrial: true },
+        { trialEndsAt: new Date(updated.createdAt.getTime() + TRIAL_WINDOW_MS) },
       );
     });
 
-    it("re-subscriber (status=cancelled) checkout uses withTrial=false", async () => {
+    // Issue #198: a self-signup trialer who converts partway through their trial
+    // must NOT get a fresh 28 days — the Stripe trial is anchored to the original
+    // signup+28d deadline, so first charge stays at signup+28d (≈8 days out for a
+    // day-20 converter), not checkout+28d (≈48 days out).
+    it("mid-trial converter's trial is anchored to signup+28d, not a fresh 28 days", async () => {
+      const signup = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000); // day 20 of trial
+      const userId = await seedUser({
+        status: "trial",
+        stripeCustomerId: "cus_midtrial",
+        accessUntil: null,
+        createdAt: signup,
+      });
+      setAuthedUser(userId);
+      // No live Stripe subscription — they never completed checkout before.
+      vi.mocked(getActiveSubscription).mockResolvedValue(null);
+      const { status } = await callCheckout("solo");
+      expect(status).toBe(200);
+      const opts = vi.mocked(createCheckoutSession).mock.calls[0]![4] as { trialEndsAt?: Date };
+      expect(opts.trialEndsAt!.getTime()).toBe(signup.getTime() + TRIAL_WINDOW_MS);
+    });
+
+    it("re-subscriber (status=cancelled) checkout passes no trial (charged now)", async () => {
       const userId = await seedUser({ status: "cancelled", stripeCustomerId: "cus_existing" });
       setAuthedUser(userId);
       const { status } = await callCheckout("solo");
@@ -284,7 +308,7 @@ describe("Subscription lifecycle", () => {
         "solo",
         expect.any(String),
         expect.any(String),
-        { withTrial: false },
+        { trialEndsAt: undefined },
       );
     });
 
@@ -292,6 +316,79 @@ describe("Subscription lifecycle", () => {
       clearAuth();
       const { status } = await callCheckout("solo");
       expect(status).toBe(401);
+    });
+
+    // ── Issue #109: never stack a second subscription / re-grant a trial ──────
+    // An active/past_due/trialing subscriber who re-hits checkout must be sent
+    // to the portal (409), NOT handed a fresh mode=subscription session that
+    // double-bills and mints another 28-day trial.
+    it("active subscriber re-hitting checkout → 409, no second subscription", async () => {
+      const userId = await seedUser({
+        status: "active",
+        stripeCustomerId: "cus_active",
+        plan: "solo",
+      });
+      setAuthedUser(userId);
+      const { status, body } = await callCheckout("solo");
+      expect(status).toBe(409);
+      expect(body.error).toMatch(/already have an active subscription/i);
+      expect(vi.mocked(createCheckoutSession)).not.toHaveBeenCalled();
+    });
+
+    it("past_due subscriber re-hitting checkout → 409, no second subscription", async () => {
+      const userId = await seedUser({
+        status: "past_due",
+        stripeCustomerId: "cus_pastdue",
+        plan: "solo",
+      });
+      setAuthedUser(userId);
+      const { status } = await callCheckout("solo");
+      expect(status).toBe(409);
+      expect(vi.mocked(createCheckoutSession)).not.toHaveBeenCalled();
+    });
+
+    it("trialing subscriber with a live Stripe sub → 409, no second subscription", async () => {
+      const userId = await seedUser({
+        status: "trial",
+        stripeCustomerId: "cus_trialing",
+        plan: "solo",
+        accessUntil: new Date(Date.now() + FOURTEEN_DAYS * 1000),
+      });
+      setAuthedUser(userId);
+      // Stripe reports a real trialing subscription for this customer.
+      vi.mocked(getActiveSubscription).mockResolvedValue({
+        id: "sub_trialing",
+        status: "trialing",
+        current_period_end: NOW_S() + FOURTEEN_DAYS,
+        cancel_at_period_end: false,
+      });
+      const { status } = await callCheckout("solo");
+      expect(status).toBe(409);
+      expect(vi.mocked(createCheckoutSession)).not.toHaveBeenCalled();
+    });
+
+    it("fresh self-signup trial (no Stripe sub) still reaches checkout with a trial", async () => {
+      // A user who has entered checkout once (customer cached) but never
+      // completed it has NO live subscription — Stripe returns null. They must
+      // still be able to subscribe, and are still trial-eligible.
+      const userId = await seedUser({
+        status: "trial",
+        stripeCustomerId: "cus_abandoned",
+        plan: null,
+        accessUntil: null,
+      });
+      setAuthedUser(userId);
+      vi.mocked(getActiveSubscription).mockResolvedValue(null);
+      const { status } = await callCheckout("solo");
+      expect(status).toBe(200);
+      const updated = await testDb.user.findUniqueOrThrow({ where: { id: userId } });
+      expect(vi.mocked(createCheckoutSession)).toHaveBeenCalledWith(
+        "cus_abandoned",
+        "solo",
+        expect.any(String),
+        expect.any(String),
+        { trialEndsAt: new Date(updated.createdAt.getTime() + TRIAL_WINDOW_MS) },
+      );
     });
   });
 
@@ -412,6 +509,68 @@ describe("Subscription lifecycle", () => {
       const u = await testDb.user.findUniqueOrThrow({ where: { id: userId } });
       expect(u.subscriptionStatus).toBe("trial");
       expect(u.cancelAtPeriodEnd).toBe(true);
+    });
+
+    // Issue #96 A5: the cancel dialog now collects a churn reason and the
+    // DELETE handler persists it (was log-only before).
+    it("persists a supplied cancellation reason (A5 churn signal)", async () => {
+      const userId = await seedUser({
+        stripeCustomerId: "cus_reason",
+        status: "active",
+        accessUntil: new Date(Date.now() + ONE_MONTH * 1000),
+        plan: "solo",
+      });
+      setAuthedUser(userId);
+
+      const sub = {
+        id: "sub_reason",
+        status: "active",
+        current_period_end: NOW_S() + ONE_MONTH,
+        cancel_at_period_end: true,
+      };
+      vi.mocked(getActiveSubscription).mockResolvedValue(sub);
+      vi.mocked(cancelSubscriptionAtPeriodEnd).mockResolvedValue(sub);
+
+      const req = new Request("http://localhost/api/billing/subscription", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: "not_enough_leads" }),
+      });
+      const res = await cancelDELETE(req);
+      expect(res.status).toBe(200);
+
+      const u = await testDb.user.findUniqueOrThrow({ where: { id: userId } });
+      expect(u.cancellationReason).toBe("not_enough_leads");
+    });
+
+    it("rejects an out-of-enum reason but still cancels (reason left null)", async () => {
+      const userId = await seedUser({
+        stripeCustomerId: "cus_badreason",
+        status: "active",
+        accessUntil: new Date(Date.now() + ONE_MONTH * 1000),
+        plan: "solo",
+      });
+      setAuthedUser(userId);
+
+      const sub = {
+        id: "sub_badreason",
+        status: "active",
+        current_period_end: NOW_S() + ONE_MONTH,
+        cancel_at_period_end: true,
+      };
+      vi.mocked(getActiveSubscription).mockResolvedValue(sub);
+      vi.mocked(cancelSubscriptionAtPeriodEnd).mockResolvedValue(sub);
+
+      const req = new Request("http://localhost/api/billing/subscription", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: "i-hate-it" }),
+      });
+      const res = await cancelDELETE(req);
+      expect(res.status).toBe(200); // cancel still succeeds
+
+      const u = await testDb.user.findUniqueOrThrow({ where: { id: userId } });
+      expect(u.cancellationReason).toBeNull();
     });
   });
 
@@ -568,7 +727,7 @@ describe("Subscription lifecycle", () => {
 
   // ── 8. Resubscribe ────────────────────────────────────────────────────────
   describe("Stage 8 — resubscribe", () => {
-    it("cancelled user → checkout reuses customer, withTrial=false, then subscription.created restores access", async () => {
+    it("cancelled user → checkout reuses customer, no fresh trial, then subscription.created restores access", async () => {
       const userId = await seedUser({
         stripeCustomerId: "cus_resub",
         status: "cancelled",
@@ -583,7 +742,7 @@ describe("Subscription lifecycle", () => {
         "solo",
         expect.any(String),
         expect.any(String),
-        { withTrial: false },
+        { trialEndsAt: undefined },
       );
 
       const newEnd = NOW_S() + ONE_MONTH;

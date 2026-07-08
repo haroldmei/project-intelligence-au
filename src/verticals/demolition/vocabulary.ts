@@ -5,7 +5,7 @@
 // a DA or CDC is mandatory for nearly all demolition (Codes SEPP General
 // Demolition Code), so the explicit tier alone catches most real jobs. Terms
 // were refined against the DA description language already present in the
-// roofing gold set (evals/rerank/dataset.jsonl) — e.g. "Demolition only —
+// roofing gold set (evals/rerank/roofing-nsw.jsonl) — e.g. "Demolition only —
 // removal of existing dwelling and outbuildings. Site to be left clear."
 //
 // DELIBERATELY EXCLUDED: "strip out" / "strip-out". In DA language that phrase

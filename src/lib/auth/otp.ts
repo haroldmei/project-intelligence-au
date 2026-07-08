@@ -1,12 +1,29 @@
 // OTP generation, storage, and consumption.
 // contract.auth.mfa = email-otp-or-sms-otp
-// System-design §6.1: email OTP, 6-digit, 15-minute expiry.
+// System-design §6.1: email OTP, 6-digit; expiry varies by purpose (see below).
 // The schema uses argon2id to hash the code before persisting (same lib as passwords.ts).
 import crypto from "node:crypto";
 import argon2 from "argon2";
 import { db } from "@/lib/db";
 
-const OTP_EXPIRY_MINUTES = 10; // system-design §6.1 (≤ 15 min)
+type OtpPurpose = "verify" | "reset" | "login";
+
+// Per-purpose OTP lifetimes. A single shared constant used to cap every purpose
+// at 10 min, which broke FR-017's 1-hour reset window (a user opening the email
+// even 12 min late hit a dead link). Widening the shared value would over-extend
+// the short-lived verify/login codes, so each purpose carries its own window.
+//   verify — FR-016 / design §6.1: 15 min
+//   reset  — FR-017 / design §6.1: 1 hour
+//   login  — short-lived magic-login code
+const OTP_EXPIRY_MINUTES: Record<OtpPurpose, number> = {
+  verify: 15,
+  reset: 60,
+  login: 10,
+};
+// Failed-guess ceiling per OTP (issue #126). After this many wrong codes the
+// OTP is consumed, so a single 6-digit code (10^6 space) can't be brute-forced
+// within its window even if the per-request rate-limit budget resets.
+const MAX_OTP_ATTEMPTS = 5;
 const ARGON2_OPTS: argon2.Options & { raw?: false } = {
   type: argon2.argon2id,
   memoryCost: 19456,
@@ -33,11 +50,11 @@ export function generateOtpCode(): string {
  */
 export async function createOtp(
   userId: string,
-  purpose: "verify" | "reset" | "login" = "verify"
+  purpose: OtpPurpose = "verify"
 ): Promise<string> {
   const code = generateOtpCode();
   const codeHash = await argon2.hash(code, ARGON2_OPTS);
-  const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+  const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES[purpose] * 60 * 1000);
 
   // Consume any existing live OTPs for this user + purpose (prevent accumulation)
   await db.emailOtp.updateMany({
@@ -60,7 +77,7 @@ export async function createOtp(
 export async function verifyAndConsumeOtp(
   userId: string,
   code: string,
-  purpose: "verify" | "reset" | "login" = "verify"
+  purpose: OtpPurpose = "verify"
 ): Promise<boolean> {
   const otp = await db.emailOtp.findFirst({
     where: {
@@ -75,7 +92,20 @@ export async function verifyAndConsumeOtp(
   if (!otp) return false;
 
   const valid = await argon2.verify(otp.codeHash, code, ARGON2_OPTS);
-  if (!valid) return false;
+  if (!valid) {
+    // Count the wrong guess and burn the OTP once the ceiling is reached, so a
+    // single live code can't be hammered even if a rate-limit window rolls over
+    // (issue #126). consumedAt is stamped in the same write as the final count.
+    const attemptCount = otp.attemptCount + 1;
+    await db.emailOtp.update({
+      where: { id: otp.id },
+      data: {
+        attemptCount,
+        ...(attemptCount >= MAX_OTP_ATTEMPTS ? { consumedAt: new Date() } : {}),
+      },
+    });
+    return false;
+  }
 
   // Consume the OTP — idempotent via consumedAt timestamp
   await db.emailOtp.update({

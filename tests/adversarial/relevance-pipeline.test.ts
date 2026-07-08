@@ -8,9 +8,11 @@ import {
 } from "@/lib/ai/relevance-pipeline";
 import { priceFor, weekStartAEST } from "@/lib/ai/cost-ledger";
 
-// Stub the rerank module to avoid live network calls.
-vi.mock("@/lib/ai/rerank", () => ({
-  rerankCandidates: vi.fn(async (input, _opts) => {
+// Stub the rerank module to avoid live network calls. Must re-export the real
+// DIGEST_MIN_RERANK_SCORE constant — relevance-pipeline imports it for its floor
+// default (issue #163), and a mock that omits it makes that import throw.
+const { rerankMock } = vi.hoisted(() => ({
+  rerankMock: vi.fn(async (input: { candidates: { daId: string }[] }, _opts) => {
     // Echo every candidate back with a score = its index (deterministic).
     return input.candidates.map((c: { daId: string }, i: number) => ({
       daId: c.daId,
@@ -20,6 +22,10 @@ vi.mock("@/lib/ai/rerank", () => ({
       modelUsed: "stub",
     }));
   }),
+}));
+vi.mock("@/lib/ai/rerank", () => ({
+  rerankCandidates: rerankMock,
+  DIGEST_MIN_RERANK_SCORE: 2,
 }));
 
 function makeCandidate(over: Partial<CandidateDA> = {}): CandidateDA {
@@ -227,6 +233,30 @@ describe("runRelevancePipeline — adversarial inputs", () => {
     expect(out.results.length).toBeLessThanOrEqual(30);
     // Stub returns all 30. The pipeline did not enforce maxDigestSize.
     // Document gap: defence-in-depth slice on results to maxDigestSize.
+  });
+
+  it("defaults the rerank floor to the FR-006 threshold, not 0 (issue #163)", async () => {
+    // Regression: the pipeline used to default minScoreForDigest to 0, so every
+    // DA the LLM scored — down to 0/10 — was passed to rerankCandidates with
+    // minScore 0 and surfaced. It must now default to DIGEST_MIN_RERANK_SCORE
+    // (rubric 2 = relevance_score 4).
+    rerankMock.mockClear();
+    await runRelevancePipeline(
+      {
+        userId: "u1",
+        savedQueryText: "roofing",
+        savedQueryEmbedding: Array(1536).fill(0),
+        userLgaCouncilSlugs: ["blacktown"],
+        // NOTE: minScoreForDigest deliberately omitted — exercise the default.
+      },
+      makeDeps({
+        ruleFilter: async () => [makeCandidate()],
+        vectorRank: async ({ candidates }) => candidates,
+      }),
+    );
+    const opts = rerankMock.mock.calls.at(-1)?.[1] as { minScore?: number };
+    expect(opts.minScore).toBe(2);
+    expect(opts.minScore).not.toBe(0);
   });
 });
 

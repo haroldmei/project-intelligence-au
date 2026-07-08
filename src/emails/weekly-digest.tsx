@@ -108,12 +108,23 @@ export function WeeklyDigestTemplate(props: {
   // no-lead week reads as "we looked, nothing strong" rather than a broken
   // "0 leads" email. Optional so pre-#58 callers still typecheck; absent → 0.
   dasChecked?: number;
-  precisionBadge?: { precision: number; weeks: number };
+  // Trailing-window rated-lead recap (issue #186): the user's own on-target rate
+  // over the leads they rated — NOT FR-013 ground-truth precision, so it is never
+  // labelled "precision". onTarget = 👍 count (N), rated = 👍+👎 count (M).
+  ratedLeadRecap?: { onTarget: number; rated: number; rate: number; weeks: number };
   smsEnabled: boolean;
   fallbackUsed?: boolean;
+  // Why the embedding-only path ran, when fallbackUsed (system-design §7.3):
+  // "cost_cap" = weekly AI cost ceiling hit; "llm_unavailable" = the Claude
+  // ranker was briefly down and we degraded rather than drop the digest. Drives
+  // distinct copy; absent → the generic cost-cap wording (back-compat).
+  fallbackReason?: "cost_cap" | "llm_unavailable";
+  // One-time note the week a user's thumbs personalisation activates (FR-025,
+  // ≥25 feedback rows). Sent once, then suppressed via User.personalisationNotifiedAt.
+  personalisationActivated?: boolean;
   unsubscribeUrl?: string;
 }): { subject: string; html: string } {
-  const { weekStart, leadCount, lgas, cards, dasChecked, precisionBadge, smsEnabled, fallbackUsed, unsubscribeUrl } = props;
+  const { weekStart, leadCount, lgas, cards, dasChecked, ratedLeadRecap, smsEnabled, fallbackUsed, fallbackReason, personalisationActivated, unsubscribeUrl } = props;
   // Spam Act 2003: a functional, no-login unsubscribe in every commercial email.
   // Falls back to the account page if a caller omits the token URL.
   const unsubHref = unsubscribeUrl ?? "/account";
@@ -262,19 +273,56 @@ export function WeeklyDigestTemplate(props: {
         </td>
       </tr>
 
-      <!-- Precision badge (week 4+) -->
+      <!-- Rated-lead recap proof (week 4+, issue #186), or the <4-week onboarding
+           nudge before there's enough signal to be honest (CF-1.7, design pillar
+           P4). This is the user's own on-target rate over the leads they rated,
+           not a ground-truth score. Mirrors the portal header: the badge whenever
+           we have a stat, otherwise the same "tap 👍/👎" tip so both surfaces stay
+           in lockstep. Suppressed on a quiet week — the no-lead reassurance below
+           carries that week instead. -->
       ${
-        precisionBadge
+        ratedLeadRecap
           ? `
       <tr>
         <td style="padding: 0 16px;">
           <table style="margin: 12px 0; width: 100%; border: 1px solid #FEF3C7; background-color: #FFFBEB; border-radius: 6px;">
             <tr>
               <td style="padding: 12px 16px; font-size: 14px; color: #78350F; font-weight: 600;">
-                ✓ Last ${precisionBadge.weeks} weeks: ${precisionBadge.precision}% precision
+                ✓ Last ${ratedLeadRecap.weeks} weeks: you marked ${ratedLeadRecap.onTarget} of ${ratedLeadRecap.rated} rated leads on-target (${ratedLeadRecap.rate}%)
               </td>
             </tr>
           </table>
+        </td>
+      </tr>
+      `
+          : !isQuietWeek
+            ? `
+      <tr>
+        <td style="padding: 0 16px;">
+          <p style="margin: 12px 0 0 0; font-size: 13px; color: #829AB1;">
+            Your lead recap unlocks after 4 weeks — tap 👍 or 👎 on each lead to teach your digest.
+          </p>
+        </td>
+      </tr>
+      `
+            : ""
+      }
+
+      ${
+        fallbackUsed
+          ? `
+      <!-- Fallback indicator: embedding-only ranking. Two distinct causes
+           (system-design §7.3): a transient Anthropic outage vs the weekly AI
+           cost cap. Default (no reason) keeps the original cost-cap copy. -->
+      <tr>
+        <td style="padding: 8px 16px; background-color: #FFFBEB;">
+          <p style="margin: 0; font-size: 12px; color: #78350F;">
+            ${
+              fallbackReason === "llm_unavailable"
+                ? "⚠ Relevance ranking ran in basic mode this week (our AI ranker was briefly unavailable). Leads are ordered by keyword and similarity match; relevance may be rougher than usual."
+                : "⚠ Embedding-only ranking this week (AI cost cap reached). Cards may be less relevance-filtered than usual."
+            }
+          </p>
         </td>
       </tr>
       `
@@ -282,15 +330,19 @@ export function WeeklyDigestTemplate(props: {
       }
 
       ${
-        fallbackUsed
+        personalisationActivated
           ? `
-      <!-- Fallback indicator: weekly cost cap hit, embedding-only ranking -->
+      <!-- One-time personalisation-on note (FR-025): the user has rated enough
+           leads that their 👍/👎 now shape the ranking. Sent once. -->
       <tr>
-        <td style="padding: 8px 16px; background-color: #FFFBEB;">
-          <p style="margin: 0; font-size: 12px; color: #78350F;">
-            ⚠ Embedding-only ranking this week (AI cost cap reached).
-            Cards may be less relevance-filtered than usual.
-          </p>
+        <td style="padding: 0 16px;">
+          <table style="margin: 12px 0; width: 100%; border: 1px solid #C6F6D5; background-color: #F0FFF4; border-radius: 6px;">
+            <tr>
+              <td style="padding: 12px 16px; font-size: 14px; color: #22543D;">
+                🎯 <strong>Your digest is now personalised.</strong> You&apos;ve rated enough leads that we now tune each week&apos;s ranking to your 👍/👎. Keep rating to sharpen it further.
+              </td>
+            </tr>
+          </table>
         </td>
       </tr>
       `

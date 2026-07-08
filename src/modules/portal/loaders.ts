@@ -9,6 +9,7 @@ import {
   toLeadClass,
   type LeadClass,
 } from "@/modules/relevance/lead-class";
+import { computeRatedLeadRecap, type RatedLeadRecap } from "@/modules/digest/recap";
 
 export type LeadClassCounts = Record<LeadClass, number>;
 
@@ -47,6 +48,12 @@ export interface DigestSummary {
   runDate: string;
   // Per-class breakdown (issue #14) — powers the history list's class chips.
   leadClassCounts: LeadClassCounts;
+  // Send-time service-area snapshot (issue #138): the area label frozen when this
+  // digest was sent, so the history/detail views show what the digest actually
+  // covered rather than the user's current area. NULL for legacy digests sent
+  // before the snapshot column existed — the portal falls back to the live area
+  // only for those.
+  areaLabel: string | null;
 }
 
 export interface DigestCard {
@@ -75,6 +82,12 @@ export interface DigestCard {
 
 export interface DigestDetail extends DigestSummary {
   cards: DigestCard[];
+  // Weekly rated-lead recap (CF-1.7, issue #186): the user's own on-target rate
+  // over the leads they rated in the trailing 4-week window (NOT FR-013
+  // ground-truth precision), or undefined when they've rated nothing yet. The
+  // portal header only surfaces it from week 4 (weeksOfHistory >= 4); until then,
+  // or when this is undefined, the onboarding tip renders instead.
+  ratedLeadRecap?: RatedLeadRecap;
 }
 
 export interface MyArea {
@@ -90,7 +103,12 @@ export interface MyArea {
  */
 export async function getCurrentDigest(userId: string): Promise<DigestDetail | null> {
   const digest = await db.digest.findFirst({
-    where: { userId },
+    // sentAt IS NULL rows are "skipped" audit stubs (a subscriber who cleared
+    // every LGA bundle, or a doubly-failed week — src/modules/digest/cron.ts
+    // recordAuditDigest). They must never surface as the current digest.
+    // Postgres sorts NULLS FIRST on a DESC order, so without this filter a
+    // never-sent audit row would mask the user's real most-recent delivery.
+    where: { userId, sentAt: { not: null } },
     orderBy: { sentAt: "desc" },
     include: {
       run: { select: { runDate: true } },
@@ -117,7 +135,10 @@ export async function getCurrentDigest(userId: string): Promise<DigestDetail | n
   });
   if (!digest) return null;
 
-  const feedbackMap = await getUserFeedbackMap(userId, digest.digestDas.map((d) => d.daId));
+  const [feedbackMap, recap] = await Promise.all([
+    getUserFeedbackMap(userId, digest.digestDas.map((d) => d.daId)),
+    computeRatedLeadRecap(userId),
+  ]);
 
   return {
     id: digest.id,
@@ -127,6 +148,8 @@ export async function getCurrentDigest(userId: string): Promise<DigestDetail | n
     smsStatus: digest.smsStatus,
     fallbackUsed: digest.fallbackUsed,
     runDate: digest.run.runDate.toISOString().slice(0, 10),
+    areaLabel: digest.areaLabel,
+    ratedLeadRecap: recap ?? undefined,
     leadClassCounts: tallyLeadClasses(digest.digestDas),
     cards: digest.digestDas.map((dd) => ({
       daId: dd.daId,
@@ -158,7 +181,14 @@ export async function getDigestHistory(
   limit = 20,
 ): Promise<DigestSummary[]> {
   const digests = await db.digest.findMany({
-    where: { userId },
+    // Exclude never-sent audit stubs (sentAt IS NULL — a subscriber who cleared
+    // every LGA bundle, or a doubly-failed week; src/modules/digest/cron.ts
+    // recordAuditDigest). Those are internal "did Sunday run?" bookkeeping rows
+    // with 0 cards that the user was never actually delivered — surfacing them
+    // in the history list renders a phantom "—" entry. A delivered quiet week
+    // (0 leads but the email WAS sent, FR-010) has sentAt set, so it still
+    // shows. Same predicate as getCurrentDigest.
+    where: { userId, sentAt: { not: null } },
     orderBy: { sentAt: "desc" },
     take: limit,
     include: {
@@ -175,6 +205,7 @@ export async function getDigestHistory(
     smsStatus: d.smsStatus,
     fallbackUsed: d.fallbackUsed,
     runDate: d.run.runDate.toISOString().slice(0, 10),
+    areaLabel: d.areaLabel,
     leadClassCounts: tallyLeadClasses(d.digestDas),
   }));
 }
@@ -211,7 +242,10 @@ export async function getDigestById(userId: string, digestId: string): Promise<D
   });
   if (!digest) return null;
 
-  const feedbackMap = await getUserFeedbackMap(userId, digest.digestDas.map((d) => d.daId));
+  const [feedbackMap, recap] = await Promise.all([
+    getUserFeedbackMap(userId, digest.digestDas.map((d) => d.daId)),
+    computeRatedLeadRecap(userId),
+  ]);
 
   return {
     id: digest.id,
@@ -221,6 +255,8 @@ export async function getDigestById(userId: string, digestId: string): Promise<D
     smsStatus: digest.smsStatus,
     fallbackUsed: digest.fallbackUsed,
     runDate: digest.run.runDate.toISOString().slice(0, 10),
+    areaLabel: digest.areaLabel,
+    ratedLeadRecap: recap ?? undefined,
     leadClassCounts: tallyLeadClasses(digest.digestDas),
     cards: digest.digestDas.map((dd) => ({
       daId: dd.daId,

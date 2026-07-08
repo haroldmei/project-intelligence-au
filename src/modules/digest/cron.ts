@@ -14,6 +14,7 @@ import { db } from "@/lib/db";
 import { cronWeekStartUtc } from "@/lib/cron/retry";
 import { runRelevanceForUser } from "@/modules/relevance/run";
 import { assembleAndSendDigest } from "./assemble";
+import { entitledDigestWhere } from "@/modules/billing/entitlement";
 import { digestWeekWindow, getJurisdictionConfig } from "@/modules/ingestion/jurisdictions/config";
 import pino from "pino";
 
@@ -72,21 +73,34 @@ export async function runDigestCron(): Promise<DigestCronResult> {
   // Idempotent resume (issue #12): the retry tick (Sun 10:00 UTC) must reuse
   // the primary tick's (Sun 07:00 UTC) DigestRun, not start a fresh one. Both
   // ticks share `cronWeekStartUtc`, so this finds the week's run if it exists.
+  //
+  // The lookup + create is also the concurrency guard (issue #93): the week key
+  // is UNIQUE, so two overlapping invocations that both miss the findFirst can't
+  // both create a run — the loser's create hits P2002 and re-reads the winner's
+  // run. Without this the two invocations would run under different runIds and
+  // the per-(user,run) Digest unique could never dedupe them.
   const weekStart = cronWeekStartUtc();
-  const existing = await db.digestRun.findFirst({
-    where: { triggeredAt: { gte: weekStart } },
-    orderBy: { triggeredAt: "asc" },
-  });
-  const resumed = existing !== null;
+  let run = await db.digestRun.findFirst({ where: { weekKey: weekStart } });
+  let resumed = run !== null;
 
-  const run =
-    existing ??
-    (await db.digestRun.create({
-      data: {
-        runDate: new Date(),
-        status: "running",
-      },
-    }));
+  if (!run) {
+    try {
+      run = await db.digestRun.create({
+        data: {
+          runDate: new Date(),
+          weekKey: weekStart,
+          status: "running",
+        },
+      });
+    } catch (err) {
+      if ((err as { code?: string }).code !== "P2002") throw err;
+      // A concurrent invocation just created this week's run — adopt it and
+      // proceed as a resume (we'll only touch users it hasn't served yet).
+      run = await db.digestRun.findFirstOrThrow({ where: { weekKey: weekStart } });
+      resumed = true;
+    }
+  }
+
   if (resumed) {
     // Reopen the run for this pass (it was marked done/failed by the primary).
     await db.digestRun.update({
@@ -113,7 +127,11 @@ export async function runDigestCron(): Promise<DigestCronResult> {
   const users = await db.user.findMany({
     where: {
       emailVerified: true,
-      subscriptionStatus: { in: ["trial", "active"] },
+      // Entitlement gate (issue #87): an unexpired paid/trial WINDOW, not just
+      // the status string — otherwise a self-signup trial (accessUntil:null, no
+      // Stripe subscription) that never enters checkout gets the digest free
+      // forever, because nothing ever transitions it off "trial".
+      ...entitledDigestWhere(),
       // Spam Act 2003: skip users who have unsubscribed. assembleAndSendDigest
       // also re-checks at send time to catch opt-outs that land mid-run, but
       // filtering here avoids the wasted assembly work up front.
@@ -146,14 +164,30 @@ export async function runDigestCron(): Promise<DigestCronResult> {
 
   for (const user of pending) {
     try {
-      const relevance = await runRelevanceForUser(user.id);
-      if (!relevance) {
-        // Persist a Digest row anyway so observability queries can answer
-        // "did Sunday work for everyone?" — null relevance means the user
-        // is missing prerequisites (saved query embedding, LGAs, etc.).
-        await recordAuditDigest(user.id, run.id, "skipped");
-        log.warn({ userId: user.id }, "[digest] no relevance result — skipping user");
-        continue;
+      // Recovery source-of-truth (issue #196): if an earlier tick already
+      // persisted this run's DA cards, they are immutable — rebuild the failed
+      // channel(s) from them (assembleAndSendDigest with relevance=null) rather
+      // than re-running the non-deterministic relevance pipeline, whose fresh
+      // score could surface a different lead set or collapse to a quiet-week
+      // "nothing strong" email while ≥5 real leads sit persisted in the portal.
+      // Re-score ONLY when no cards were ever persisted: a fresh user on the
+      // primary tick, or the issue #161 audit-stub backfill case.
+      const hasPersistedCards =
+        (await db.digestDa.count({
+          where: { digest: { userId: user.id, runId: run.id } },
+        })) > 0;
+
+      let relevance: Awaited<ReturnType<typeof runRelevanceForUser>> = null;
+      if (!hasPersistedCards) {
+        relevance = await runRelevanceForUser(user.id, run.id);
+        if (!relevance) {
+          // Persist a Digest row anyway so observability queries can answer
+          // "did Sunday work for everyone?" — null relevance means the user
+          // is missing prerequisites (saved query embedding, LGAs, etc.).
+          await recordAuditDigest(user.id, run.id, "skipped");
+          log.warn({ userId: user.id }, "[digest] no relevance result — skipping user");
+          continue;
+        }
       }
       const result = await assembleAndSendDigest(user.id, run.id, relevance);
       if (result.emailStatus === "sent") {

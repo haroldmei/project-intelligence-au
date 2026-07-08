@@ -23,6 +23,18 @@ export default defineConfig({
       // tracked separately.
       "src/app/(marketing)/**/*.test.{ts,tsx}",
       "src/app/(auth)/**/*.test.{ts,tsx}",
+      // Escaped like the (portal) glob below so THIS feature's verify page test
+      // actually runs (issue #92 — email display + change-email affordance).
+      "src/app/\\(auth\\)/verify/**/*.test.{ts,tsx}",
+      // Escaped so the signup page test runs (issue #88 — FR-022 SMS opt-in
+      // disclosure, since SMS is opted-IN by default at signup).
+      "src/app/\\(auth\\)/signup/**/*.test.{ts,tsx}",
+      // Escaped so the login page test runs (issue #137 — honour ?returnTo so an
+      // email feedback tap lands back on /digest after the login wall).
+      "src/app/\\(auth\\)/login/**/*.test.{ts,tsx}",
+      // Escaped so the onboarding area/query page tests run (issue #139 — Back
+      // navigation + bundle pre-fill across the wizard steps).
+      "src/app/\\(auth\\)/onboarding/**/*.test.{ts,tsx}",
       "src/app/\\(portal\\)/**/*.test.{ts,tsx}",
       "src/components/**/*.test.{ts,tsx}",
       // Transactional email templates (#14) — pure string builders, no DB / no

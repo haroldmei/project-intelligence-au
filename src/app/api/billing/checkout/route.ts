@@ -5,7 +5,12 @@ import { z } from "zod";
 import { validateRequest } from "@/lib/auth/session";
 import { rateLimitMutatingByUser } from "@/lib/auth/rate-limit";
 import { db } from "@/lib/db";
-import { ensureStripeCustomer, createCheckoutSession } from "@/modules/billing/stripe";
+import {
+  ensureStripeCustomer,
+  createCheckoutSession,
+  getActiveSubscription,
+} from "@/modules/billing/stripe";
+import { TRIAL_WINDOW_MS } from "@/modules/billing/entitlement";
 import { env } from "@/lib/env";
 
 const APP_BASE = env.NEXT_PUBLIC_APP_URL;
@@ -45,22 +50,64 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const user = await db.user.findUniqueOrThrow({ where: { id: auth.user.id } });
+
+  // Guard against stacking a second subscription. A user who already has a
+  // live Stripe subscription must manage it through the billing portal — a
+  // fresh Checkout session would spin up a SECOND subscription (double-billing)
+  // AND mint another 28-day trial. Only genuinely un-subscribed users reach
+  // createCheckoutSession: a never-checked-out self-signup trial, or a
+  // previously cancelled re-subscriber.
+  //
+  // `active` / `past_due` are unambiguous — those statuses are only ever set by
+  // webhooks about a real Stripe subscription. `trial` is ambiguous: it is also
+  // the default self-signup state (schema `@default("trial")`) for a user who
+  // has never entered checkout and has no Stripe subscription, so we must NOT
+  // block their first checkout. We disambiguate by asking Stripe: a real
+  // active/trialing subscription means they've already subscribed.
+  const hasLiveSubscription =
+    user.subscriptionStatus === "active" ||
+    user.subscriptionStatus === "past_due" ||
+    (user.subscriptionStatus === "trial" &&
+      user.stripeCustomerId != null &&
+      (await getActiveSubscription(user.stripeCustomerId)) != null);
+
+  if (hasLiveSubscription) {
+    return NextResponse.json(
+      {
+        error: "You already have an active subscription. Manage it from the billing portal.",
+        code: "already_subscribed",
+      },
+      { status: 409 },
+    );
+  }
+
   const customerId = await ensureStripeCustomer(user.id, user.email, user.stripeCustomerId);
 
   if (!user.stripeCustomerId) {
     await db.user.update({ where: { id: user.id }, data: { stripeCustomerId: customerId } });
   }
 
-  // Re-subscribers (previously cancelled) don't get another 28-day trial —
-  // they've already had one. Trial-eligible: anyone who hasn't cancelled.
-  const withTrial = user.subscriptionStatus !== "cancelled";
+  // The product grants a SINGLE 28-day trial that starts at SIGNUP, not at
+  // checkout (issue #198). A self-signup trialer who converts mid-trial must get
+  // only the REMAINDER of that window — so we anchor Stripe's trial to the
+  // original signup+28d deadline (createdAt + TRIAL_WINDOW_MS). Converting on
+  // day 20 therefore means first charge at signup+28d, not checkout+28d.
+  //
+  // A cancelled re-subscriber has already had their one trial and gets none
+  // (charged now). A trialer already past their signup window resolves to a
+  // past deadline, which the Stripe layer drops (trial_end must be ≥ 48h out) —
+  // so they, too, are charged immediately.
+  const trialEndsAt =
+    user.subscriptionStatus === "cancelled"
+      ? undefined
+      : new Date(user.createdAt.getTime() + TRIAL_WINDOW_MS);
 
   const session = await createCheckoutSession(
     customerId,
     parsed.data.plan,
     `${APP_BASE}/account?billing=success`,
     `${APP_BASE}/account?billing=cancelled`,
-    { withTrial },
+    { trialEndsAt },
   );
 
   return NextResponse.json({ checkout_url: session.url });

@@ -8,9 +8,9 @@ import { describe, test, expect } from "vitest";
 import { VerifyEmailTemplate } from "@/emails/verify-email";
 import { PasswordResetTemplate } from "@/emails/password-reset";
 import { WeeklyDigestTemplate } from "@/emails/weekly-digest";
-import { DigestFallbackNoticeTemplate } from "@/emails/digest-fallback-notice";
 import { WelcomeAfterVerifyTemplate } from "@/emails/welcome-after-verify";
 import { StormBriefTemplate } from "@/emails/storm-brief";
+import { PaymentFailedTemplate } from "@/emails/payment-failed";
 
 const templates = [
   {
@@ -52,8 +52,10 @@ const templates = [
             thumbDownUrl: "https://pi-au.example.com/api/feedback?id=da-001&v=0&token=abc123",
           },
         ],
-        precisionBadge: {
-          precision: 93,
+        ratedLeadRecap: {
+          onTarget: 14,
+          rated: 15,
+          rate: 93,
           weeks: 4,
         },
         smsEnabled: true,
@@ -76,15 +78,6 @@ const templates = [
       }),
   },
   {
-    name: "digest-fallback-notice",
-    fn: () =>
-      DigestFallbackNoticeTemplate({
-        lgas: ["Western Sydney", "Hills"],
-        daCount: 87,
-        appBaseUrl: "https://pi-au.example.com",
-      }),
-  },
-  {
     name: "welcome-after-verify",
     fn: () =>
       WelcomeAfterVerifyTemplate({
@@ -103,6 +96,15 @@ const templates = [
         warningUrl: "http://www.bom.gov.au/products/IDN21031.html",
         manageUrl: "https://pi-au.example.com/account/storm-brief",
         unsubscribeUrl: "https://pi-au.example.com/api/unsubscribe/tok123",
+      }),
+  },
+  {
+    // Dunning email (FR-018, FR-030): card-update CTA must be absolute and the
+    // template must satisfy every email invariant.
+    name: "payment-failed",
+    fn: () =>
+      PaymentFailedTemplate({
+        manageBillingUrl: "https://pi-au.example.com/account",
       }),
   },
 ];

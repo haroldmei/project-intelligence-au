@@ -15,7 +15,7 @@ Environment=PATH=/home/hmei/.local/share/pnpm:/home/hmei/.nvm/versions/node/v22.
 EnvironmentFile=-/home/hmei/.anthropic-env
 Environment=SCOUT_BASE=develop
 # ALL engines each tick. Quote: systemd splits an unquoted Environment= on whitespace.
-Environment="SCOUT_ENGINES=bug ux req journey docs"
+Environment="SCOUT_ENGINES=bug ux req journey docs security"
 Environment=SCOUT_DEPS=symlink
 # Lock + logdir + worktrees are namespaced PER REPO by the script itself (it derives a key
 # from the git common dir), so this scout never collides with another repo's scout.

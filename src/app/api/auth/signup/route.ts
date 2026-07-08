@@ -71,6 +71,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   const autoVerify = isE2EAutoVerifyEmail(normalizedEmail);
 
   // ── Create user (trade locked to 'roofing' — V1 wedge constraint) ─────────
+  // smsOptIn is set true at the consent point: a verified AU mobile is required
+  // and collected above, and the landing page sells "Email + SMS" (issue #89,
+  // spec SF-3.4 / UX §7.9). STOP + the /account toggle are the opt-out path.
   const user = await db.user.create({
     data: {
       email: normalizedEmail,
@@ -79,6 +82,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       trade: "roofing",
       subscriptionStatus: "trial",
       emailVerified: autoVerify,
+      smsOptIn: true,
     },
   });
 

@@ -3,9 +3,18 @@
 // most once per (warning, user). No-op when STORM_BRIEF_ENABLED is off.
 // WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs.
 // STACK: docs/00-tech-stack.md @ 2026-Q2
+//
+// CADENCE: the intended schedule is every 3 hours (`0 */3 * * *`) so a warning
+// issued mid-morning reaches subbies while it's still actionable. Vercel's
+// Hobby plan (#84) caps crons at once-per-day, so vercel.json runs this daily
+// (`0 20 * * *` = 06:00 AEST). The handler is idempotent per warning-id (the
+// StormBrief unique constraint below), so restoring the 3-hourly cadence on a
+// Pro upgrade is a one-line vercel.json revert — no code change here.
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { entitledDigestWhere } from "@/modules/billing/entitlement";
 import { sendEmail } from "@/lib/email/client";
+import { buildListUnsubscribeHeaders } from "@/lib/email/list-unsubscribe";
 import { issueUnsubscribeToken } from "@/lib/hmac/token";
 import { fetchStormWarnings, isStormBriefEnabled } from "./feed";
 import { selectBriefs, briefKey, type StormBriefUser } from "./select";
@@ -67,7 +76,10 @@ export async function runStormBriefCron(): Promise<StormBriefCronResult> {
   const users = await db.user.findMany({
     where: {
       emailVerified: true,
-      subscriptionStatus: { in: ["trial", "active"] },
+      // Entitlement gate (issue #87): an unexpired paid/trial window, not just
+      // the status string — an expired self-signup trial must not keep getting
+      // the paid storm brief for free. Shared with the digest cron.
+      ...entitledDigestWhere(),
       emailOptIn: true,
       stormBriefOptIn: true,
     },
@@ -119,9 +131,13 @@ export async function runStormBriefCron(): Promise<StormBriefCronResult> {
 
     try {
       const names = lgaNames(task.matchedLgaIds);
+      const unsubscribeUrl = `${appUrl}/api/unsubscribe/${encodeURIComponent(issueUnsubscribeToken(task.user.id))}`;
       await sendEmail({
         to: task.user.email,
         template: "storm-brief",
+        // RFC-8058 one-click unsubscribe on the storm-brief bulk blast too
+        // (issue #179): POST-only opt-out, prefetch-GET-safe.
+        headers: buildListUnsubscribeHeaders(unsubscribeUrl),
         props: {
           warningTitle: task.warning.title,
           areasLabel: task.warning.areas[0] ?? names.join(", "),
@@ -129,7 +145,7 @@ export async function runStormBriefCron(): Promise<StormBriefCronResult> {
           issuedAtLabel: formatIssuedAt(task.warning.issuedAt),
           warningUrl: task.warning.url,
           manageUrl: `${appUrl}/account/storm-brief`,
-          unsubscribeUrl: `${appUrl}/api/unsubscribe/${encodeURIComponent(issueUnsubscribeToken(task.user.id))}`,
+          unsubscribeUrl,
         },
       });
       sent++;

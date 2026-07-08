@@ -13,14 +13,30 @@ import type { DigestDetail, DigestCard } from "@/modules/portal/loaders";
 // quote, or a line break; embedded double quotes are escaped by doubling.
 const NEEDS_QUOTING = /["\r\n,]/;
 
+// CSV / formula injection (OWASP): Excel, Google Sheets and LibreOffice treat a
+// cell whose text begins with one of these as a live formula and execute it on
+// open — e.g. `=cmd|'/c calc'!A1` or a `=HYPERLINK(...)` exfil. Our free-text DA
+// fields (description, address, applicant, council) come from external council
+// portals and an applicant controls the lodged description, so the value is
+// attacker-plantable. We neutralise by prefixing a single quote, which every
+// major spreadsheet renders as a literal text marker (the standard defence).
+// Tab (0x09) and CR (0x0d) are included: a leading whitespace control char can
+// be stripped by the importer, re-exposing the trigger char behind it.
+const FORMULA_TRIGGER = /^[=+\-@\t\r]/;
+
 /**
- * Escape a single value for inclusion as one CSV field (RFC 4180).
- * Nullish → empty string. Numbers are stringified. Fields needing quoting are
- * wrapped in double quotes with internal quotes doubled.
+ * Escape a single value for inclusion as one CSV field (RFC 4180) and neutralise
+ * spreadsheet formula injection. Nullish → empty string. Numbers are stringified
+ * (never treated as formulas). A free-text value beginning with a formula-trigger
+ * char is prefixed with a single quote so it opens as inert text; then fields
+ * needing quoting are wrapped in double quotes with internal quotes doubled.
  */
 export function csvField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "";
-  const s = typeof value === "number" ? String(value) : value;
+  // Numbers are our own, non-injectable values; stringify and skip the guard so
+  // a legitimate negative estimate isn't corrupted with a leading quote.
+  if (typeof value === "number") return String(value);
+  const s = FORMULA_TRIGGER.test(value) ? `'${value}` : value;
   if (NEEDS_QUOTING.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }

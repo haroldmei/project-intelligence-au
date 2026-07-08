@@ -33,6 +33,7 @@ function digest(cards: DigestCard[], runDate = "2026-07-05"): DigestDetail {
     daCount: cards.length,
     emailStatus: "sent",
     smsStatus: null,
+    areaLabel: "Western Sydney",
     fallbackUsed: false,
     runDate,
     leadClassCounts: { fast_track: 0, strata_heritage: 0, builder_pipeline: cards.length },
@@ -134,6 +135,45 @@ describe("csvField escaping", () => {
     expect(csvField("line1\r\nline2")).toBe('"line1\r\nline2"');
   });
 
+  describe("neutralises spreadsheet formula injection (CSV injection, OWASP)", () => {
+    // A field a spreadsheet must NOT evaluate as a formula: leading trigger char
+    // neutralised. csvField('=1+1') must not begin with =/+/-/@/tab/CR.
+    it("does not leave a formula-trigger char at the start of the cell", () => {
+      for (const payload of ["=1+1", "+1", "-1", "@SUM(A1)", "\t=1", "\r=1"]) {
+        expect(csvField(payload)).not.toMatch(/^[=+\-@\t\r]/);
+      }
+    });
+
+    it("prefixes a single quote so the value opens as inert text", () => {
+      expect(csvField("=cmd|'/c calc'!A1")).toBe("'=cmd|'/c calc'!A1");
+      expect(csvField("+1+1")).toBe("'+1+1");
+      expect(csvField("-2+3")).toBe("'-2+3");
+      expect(csvField("@import")).toBe("'@import");
+    });
+
+    it("neutralises inside RFC 4180 quoting when the payload also needs quoting", () => {
+      // `=HYPERLINK("http://evil","lead")` contains a comma and quotes, so it is
+      // both formula-injection AND needs RFC quoting. The apostrophe must land
+      // first, then the whole thing is quote-wrapped.
+      const payload = '=HYPERLINK("http://evil","lead")';
+      const out = csvField(payload);
+      expect(out.startsWith('"\'=')).toBe(true); // opening quote, then apostrophe
+      // Round-trips back to the neutralised (apostrophe-prefixed) text.
+      expect(parseCsv(out)[0][0]).toBe(`'${payload}`);
+    });
+
+    it("leaves non-triggering values unchanged (no false positives)", () => {
+      for (const safe of ["Newtown", "1 Smith St", "New pitched roof", "0.87", "e=mc2"]) {
+        expect(csvField(safe)).toBe(safe);
+      }
+    });
+
+    it("never prefixes numeric fields (negative estimates round-trip)", () => {
+      expect(csvField(-5)).toBe("-5");
+      expect(csvField(250000)).toBe("250000");
+    });
+  });
+
   it("handles the acceptance string `\", \\n`", () => {
     const raw = '", \n';
     const escaped = csvField(raw);
@@ -193,6 +233,32 @@ describe("buildDigestCsv", () => {
     expect(rows).toHaveLength(2); // header + 1 — embedded newline did NOT split rows
     expect(rows[1][7]).toBe(nasty); // Description column
     expect(rows[1][6]).toBe('why, "quoted", ok'); // Why This Matched column
+  });
+
+  it("neutralises a formula-injection payload in a free-text DA field", () => {
+    // A council-sourced description an applicant controls. On open, Excel must
+    // not evaluate it. After export the Description cell must not begin with a
+    // formula-trigger char; address/whyMatched get the same guard.
+    const csv = buildDigestCsv(
+      digest([
+        card({
+          description: '=HYPERLINK("http://evil","lead")',
+          address: "=cmd|'/c calc'!A1",
+          whyMatched: "@SUM(1+1)",
+          council: "-2+3",
+        }),
+      ]),
+    );
+    const rows = parseCsv(csv);
+    expect(rows).toHaveLength(2); // header + 1 row (payload did not break structure)
+    const [address, council] = [rows[1][0], rows[1][1]];
+    const whyMatched = rows[1][6];
+    const description = rows[1][7];
+    for (const cell of [address, council, whyMatched, description]) {
+      expect(cell).not.toMatch(/^[=+\-@\t\r]/);
+    }
+    // The apostrophe is the neutralising marker — payload text is otherwise intact.
+    expect(description).toBe('\'=HYPERLINK("http://evil","lead")');
   });
 
   it("blanks a null estimated value", () => {

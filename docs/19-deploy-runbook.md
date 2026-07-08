@@ -67,7 +67,8 @@ Then in the Vercel dashboard:
 
 1. https://app.posthog.com → Create project → name: `pi-au`.
 2. Project settings → copy "Project API key" → `NEXT_PUBLIC_POSTHOG_KEY`.
-3. `NEXT_PUBLIC_POSTHOG_HOST=https://app.posthog.com` (default).
+3. `NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com` (default; the ingest
+   host, distinct from the `app.posthog.com` dashboard URL above).
 4. Cookie consent is wired in `src/components/cookie-consent.tsx` — events
    only fire after the user accepts the banner.
 
@@ -122,13 +123,25 @@ git push          # CI is GitHub-based; pushing to main triggers Vercel
 scripts/deploy.sh deploy   # manual deploy from current local state
 ```
 
-Crons (`vercel.json`):
-- `/api/cron/digest` — Sunday 07:00 UTC (17:00 AEST)
+Crons (`vercel.json`) — listed in registration order:
+- `/api/cron/digest` — Sunday 07:00 UTC (17:00 AEST) — weekly digest
+- `/api/cron/digest` — Sunday 10:00 UTC (20:00 AEST) — weekly digest retry
 - `/api/cron/ingest` — daily 13:00 UTC
 - `/api/cron/trial-reminder` — daily 06:00 UTC
+- `/api/cron/verification-reminder` — daily 05:00 UTC (15:00 AEST) — unverified-signup nudge (FR-016)
+- `/api/cron/storm-brief` — daily 20:00 UTC (06:00 AEST)
 
 Vercel reads `vercel.json` on each deploy and registers the crons; check
 status with `vercel crons ls` after the first deploy.
+
+**Cron cadence.** All six entries above fire at most once per day (the two digest
+entries fire weekly on Sunday), so no sub-daily schedule exists — there is no
+Hobby/Pro plan constraint. The compensating ingestion retry (#125) was
+previously a separate hourly cron (`15 * * * *`) but was folded into the
+`/api/cron/ingest` handler as an inline retry pass after the main fetch. The
+storm-brief handler wants to run every 3 hours (idempotent per warning-id via
+`StormBrief` unique constraint), but restoring `0 */3 * * *` is a one-line
+revert in `vercel.json` if the cadence requirement returns.
 
 ---
 

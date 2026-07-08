@@ -337,7 +337,7 @@ The system SHALL deliver a weekly email digest to each active subscriber via Res
 *Acceptance criteria:*
 - Email is sent via Resend API using a React Email template rendered server-side.
 - Subject line: `"Your Sydney Roofing Digest — [N] leads this week"` where N is the count of DA cards in the digest.
-- Template contains, in order: (a) precision recap stat header (if ≥ 4 weeks of history; else onboarding tip), (b) full-width stacked DA cards (5–15 items on mobile; 2-column grid at md: on desktop), (c) footer with opt-out link and PI-AU branding.
+- Template contains, in order: (a) rated-lead recap stat header (if ≥ 4 weeks of history; else onboarding tip), (b) full-width stacked DA cards (5–15 items on mobile; 2-column grid at md: on desktop), (c) footer with opt-out link and PI-AU branding.
 - Each DA card includes: street address, LGA, estimated value (if available, else "value not disclosed"), scope summary (≤ 2 sentences from `why_matched`), applicant name, "View DA →" deep link to council portal URL.
 - If no DAs meet the relevance threshold (score ≥ 4), a "quiet week" email is sent with the raw count of DAs checked that week and the message "No strong re-roof leads this week — we checked [N] DAs across your 15 LGAs."
 - Email renders correctly (no broken layout, no clipped content) in: iOS Mail (iPhone 14), Gmail Mobile Android, Gmail Web. Tested via Resend preview and/or Litmus/Email on Acid.
@@ -385,15 +385,17 @@ The system SHALL provide a direct deep link to the source council DA portal page
 ---
 
 **FR-013** `[wedge-critical]`
-**Weekly precision recap stat — email header**
+**Weekly rated-lead recap stat — email header**
 
-The system SHALL display a precision recap stat at the top of the weekly email digest for users with ≥ 4 weeks of digest history.
+The system SHALL display a rated-lead recap stat at the top of the weekly email digest (and mirrored in the portal digest header) for users with ≥ 4 weeks of digest history.
 
 *Acceptance criteria:*
-- Stat text: `"Last 4 weeks: you saw [N] of [M] re-roof DAs in your area — [P]% precision"` where N = user thumbs-up count, M = total relevant DAs in user's LGAs per ops-maintained ground-truth labels, P = N/M × 100 (rounded to nearest integer).
-- Ground-truth M is maintained by ops in a `da_ground_truth` table (updated weekly; ops admin process, not automated in V1).
-- Stat is absent for users with < 4 weeks of history; replaced with: `"Your digest is new — we'll show your precision stats after 4 weeks of digests."`.
+- Stat text: `"Last 4 weeks: you marked [N] of [M] rated leads on-target ([P]%)"` where N = the user's thumbs-up count over the trailing 4-week window, M = the user's total rated leads (👍 + 👎) over that window, P = N/M × 100 (rounded to nearest integer).
+- The stat measures the user's **own** feedback (their on-target rate over the leads they judged). It is NOT information-retrieval precision and MUST NOT be labelled "precision": the denominator is the user's rated total, not a ground-truth census, so the word "precision" would misrepresent it (issue #186). The numerator, denominator and label all trace to this single definition on every surface (email + portal).
+- Stat is absent for users with < 4 weeks of history, and for users who have rated nothing in the window; in the ≥ 4-week-with-no-ratings and < 4-week cases the email/portal instead nudges: `"Your lead recap unlocks after 4 weeks — tap 👍 or 👎 on each lead to teach your digest."`.
 - Stat is the first content block in the email, above DA cards.
+
+*Deferred (ground-truth precision variant):* A true N-of-M ground-truth precision stat — `"you saw N of M re-roof DAs in your area — P% precision"`, with M = the count of genuine re-roof DAs in the user's LGAs per an ops-maintained `da_ground_truth` census (weekly ops admin process) — is deferred until that per-LGA ground-truth census exists at production scale. Today `da_ground_truth` holds only the small eval gold set (docs/19), so this variant would be null for nearly every user. Only that variant may use the word "precision".
 
 *Priority:* Must-have
 *Effort:* M
@@ -1074,7 +1076,7 @@ The web portal and email templates SHALL meet WCAG 2.1 AA accessibility standard
 3. System performs rule pass for the user's LGA bundle + roofing vocabulary (FR-004).
 4. System embeds passing DAs and ranks via pgvector cosine similarity (FR-005).
 5. System sends top-30 to claude-haiku-4-5 for rerank + one-line summaries (FR-006).
-6. System assembles 5–15-item digest with precision recap stat header if applicable (FR-013).
+6. System assembles 5–15-item digest with rated-lead recap stat header if applicable (FR-013).
 7. Resend sends the mobile-first email digest at ≈ 18:00 AEST (FR-010).
 8. Twilio sends SMS top-3 if user has sms_opt_in = true (FR-011).
 9. Eli opens email, taps 👍/👎 on DA cards (FR-023).

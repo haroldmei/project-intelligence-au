@@ -10,7 +10,7 @@ import { db } from "@/lib/db";
 // thumb rate a user clears 25 labels in ~4–6 weeks (the wedge doc's activation
 // window), whereas 200 would have taken ~1.6 years — the feedback moat never
 // activated. See docs/24-market-gap-analysis-and-q3-roadmap.md (G6).
-const MIN_FEEDBACK_FOR_PERSONALISATION = 25;
+export const MIN_FEEDBACK_FOR_PERSONALISATION = 25;
 const MAX_EXAMPLES_PER_SIDE = 5;
 
 /**

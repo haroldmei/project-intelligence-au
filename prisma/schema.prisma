@@ -21,7 +21,13 @@ model User {
   passwordHash  String   @map("password_hash")
   mobile_e164   String?
   emailVerified Boolean  @default(false) @map("email_verified")
-  smsOptIn      Boolean  @default(false) @map("sms_opt_in")
+  // Signup requires and collects a verified AU mobile and the landing page
+  // sells "Email + SMS" — so the SMS channel is opted-IN by default, matching
+  // spec SF-3.4 ("toggle … defaulting to ON") and UX §7.9 ("[◑ ON]"). The
+  // signup route also sets this explicitly at the consent point; STOP (Twilio
+  // webhook) and the /account toggle are the opt-out path. Changing this
+  // default only affects new rows — existing users keep their stored value.
+  smsOptIn      Boolean  @default(true) @map("sms_opt_in")
   // Spam Act 2003: a functional unsubscribe honoured with no login/fee.
   // Defaults true (commercial email flows from signup); the token-based
   // /api/unsubscribe/[token] link flips it false, gated in the digest +
@@ -43,6 +49,15 @@ model User {
   // Day-26 trial-reminder dedupe. Cron sets when sent so a redelivery or
   // timezone drift can't double-send.
   trialReminderSentAt DateTime? @map("trial_reminder_sent_at")
+  // FR-016 verification-reminder dedupe. An unverified signup receives no
+  // digest (the Sunday cron gates on emailVerified). The daily
+  // verification-reminder cron nudges them once, before the Thursday preceding
+  // their first expected Sunday digest; this stamp ensures at most one nudge.
+  verificationReminderSentAt DateTime? @map("verification_reminder_sent_at")
+  // Churn signal captured by the in-product cancel dialog (#96 A5). A closed
+  // set of reason codes ("too_expensive" | "not_enough_leads" | ...), never
+  // free-text PII. Last cancel wins; a resume leaves it in place as history.
+  cancellationReason  String?   @map("cancellation_reason")
 
   // Saved roofing query (LGA bundle ids stored in LgaBundleSubscription)
   savedQueryText String? @map("saved_query_text")
@@ -87,6 +102,10 @@ model EmailOtp {
   expiresAt   DateTime  @map("expires_at")
   consumedAt  DateTime? @map("consumed_at")
   purpose     String    @default("verify") // verify|reset|login
+  // Failed-guess counter (issue #126). verifyAndConsumeOtp increments this on a
+  // wrong code and burns the OTP once it crosses the limit, so a single 6-digit
+  // code can't be brute-forced even if a rate-limit window rolls over.
+  attemptCount Int      @default(0) @map("attempt_count")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -228,6 +247,12 @@ model DaGroundTruth {
   council     String
   isRelevant  Boolean  @map("is_relevant")
   labelledBy  String   @map("labelled_by")
+  // The (trade, region) the label was made under (#31). A gold set is scoped to
+  // one (vertical, jurisdiction) so every future launch inherits the same GA
+  // gate; existing rows are the roofing/NSW wedge, hence the defaults (which
+  // also backfill in place at migration time).
+  vertical     String  @default("roofing")
+  jurisdiction String  @default("nsw")
   // Provenance of the label (#19): `manual` = a human labelled it in the
   // scripts/label-das.ts CLI; `thumb` = imported from a DaFeedback thumbs-up/down
   // as a *candidate* label pending human review before it counts toward the gate.
@@ -253,6 +278,14 @@ model DigestRun {
   userCount   Int       @default(0) @map("user_count")
   status      String    @default("running") // running|done|failed
   fallbackUsed Boolean  @default(false) @map("fallback_used")
+  // Stable per-week idempotency key: the UTC-Sunday 00:00 instant for weekly
+  // cron runs (= cronWeekStartUtc(), src/lib/cron/retry.ts). Two overlapping
+  // cron ticks for the same week compute the identical key, so the unique
+  // constraint lets them share ONE run instead of each creating a fresh one
+  // and double-sending (issue #93). NULL for ad-hoc preview runs
+  // (src/modules/digest/preview.ts) — Postgres treats NULLs as distinct, so
+  // any number of previews coexist without ever colliding here.
+  weekKey     DateTime? @unique @map("week_key")
 
   digests Digest[]
 
@@ -268,13 +301,26 @@ model Digest {
   emailStatus String?   @map("email_status")
   smsStatus   String?   @map("sms_status")
   fallbackUsed Boolean  @default(false) @map("fallback_used")
+  // Send-time snapshot of the user's service-area label, e.g. "Western Sydney +
+  // Northern Sydney" (issue #138). The history list and digest-detail header must
+  // show what a PAST digest actually covered, not the user's CURRENT area — a
+  // tradie who later widened their area would otherwise see old digests falsely
+  // relabelled. Frozen here at create time so it never drifts. NULL for digests
+  // sent before this column existed; the portal falls back to the live area only
+  // for those legacy rows.
+  areaLabel   String?   @map("area_label")
 
   user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   run     DigestRun @relation(fields: [runId], references: [id])
   digestDas DigestDa[]
   digestCandidates DigestCandidate[]
 
-  @@index([userId])
+  // At most one Digest per (user, run). Enforces re-send protection at the DB
+  // level (issue #93): two overlapping cron invocations for the same week can't
+  // both create a Digest and both email the user — the loser of the create race
+  // hits this constraint (P2002) and backs off without sending. The composite
+  // also serves the userId-prefix lookups that the old @@index([userId]) did.
+  @@unique([userId, runId])
   @@map("digests")
 }
 

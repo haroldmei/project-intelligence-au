@@ -420,7 +420,7 @@ sequenceDiagram
   end
   alt any LGA failure
     Ing->>DB: mark failed LGAs in ingestion_log (success=false)
-    Note over Ing,Cron: Retry handled by secondary Vercel Cron at<br/>`15 * * * *` which re-checks ingestion_log for pending/failed LGAs
+    Note over Ing,Cron: Retry handled inline after the nightly ingest fetch<br/>which re-checks ingestion_log for pending/failed LGAs
   end
 ```
 
@@ -553,7 +553,7 @@ Key topology facts (every one cites the contract):
 - **No Kubernetes, no Cloud Run, no service mesh** (`not_in_stack.kubernetes`, wedge §6).
 - **Single Postgres node** (`database.pooler: prisma-accelerate`, `not_in_stack.qdrant`, `not_in_stack.pinecone`).
 - **No multi-region** — preview tier is single-region.
-- **Cron** is `vercel-cron` (`contract.deploy.cron_target`). Three scheduled jobs: digest (`0 7 * * 0`), nightly ingestion (`0 13 * * *`), and daily trial-reminder check (`0 6 * * *`). A fourth secondary cron (`15 * * * *`) handles ingestion retry by re-checking `ingestion_log` for failed LGAs from the prior hour — Vercel Cron does not support dynamic retry scheduling, so this is a separate polling entry rather than a dynamic re-fire.
+- **Cron** is `vercel-cron` (`contract.deploy.cron_target`). Three scheduled jobs: digest (`0 7 * * 0`), nightly ingestion (`0 13 * * *`), and daily trial-reminder check (`0 6 * * *`). The nightly ingest handler also runs a compensating retry pass inline after the main fetch — no separate cron entry (issue #125) — re-checking `ingestion_log` for failed LGAs and re-fetching them so a transient upstream failure is healed before the digest reads the data.
 - **Cloud provider** is GCP (`contract.cloud.provider`) — used only for Postgres (Cloud SQL), Secret Manager, and Cloud Storage. No GKE, no Cloud Run, no GCP Load Balancer.
 
 ### 5.2 CI/CD Pipeline
@@ -705,8 +705,10 @@ Per `contract.cache.engine: redis, required: false`. **No application cache in V
 Fallback notification policy (Anthropic Claude rate-limited):
 - If LLM rerank is unavailable for an entire digest send, the digest header includes:
   "Note: relevance ranking ran in basic mode this week."
-- Precision-recap stats (FR-013) MUST exclude any digest sent in basic mode from the
-  precision computation; basic-mode digests are tagged in `digest_send.fallback_used = true`.
+- The deferred ground-truth precision variant of FR-013 MUST exclude any digest sent in
+  basic mode from its computation; basic-mode digests are tagged in
+  `digest_send.fallback_used = true`. (The shipped rated-lead recap is over the user's own
+  thumbs, independent of which mode surfaced a lead, so this exclusion does not apply to it.)
 - Resume condition: next nightly cron retry; once a successful LLM rerank completes,
   fallback flag clears.
 - Alert: any single digest sent in basic mode triggers a Sentry warning.
@@ -790,7 +792,7 @@ Should any future requirement surface that the contract cannot satisfy (e.g. a r
 | FR-010 | React Email template via `lib/email/render.tsx`; Resend SDK send | digest, email | `email.provider`, `email.templates` |
 | FR-011 | Twilio SDK send; HMAC-token-shortened links via internal `/s/:slug` | digest, sms | `email.sms_provider` |
 | FR-012 | DA card stores `portal_url`; rendered as plain `<a>` in email and portal | digest, portal | `database.engine` |
-| FR-013 | `da_ground_truth` table; SQL aggregate over user thumbs vs ground-truth labels | digest | `database.engine` |
+| FR-013 | `src/modules/digest/recap.ts` — aggregate over the user's own trailing-4-week thumbs (N marked 👍 of M rated) as their on-target rate; deliberately NOT labelled "precision" and NOT joined to `da_ground_truth` (issue #186). The ground-truth-precision variant is deferred until an ops-maintained per-LGA census exists. | digest | `database.engine` |
 | FR-014 | `/api/auth/signup` Lucia user creation; OTP dispatched; redirect to LGA setup | auth | `auth.default`, `auth.password_hashing` |
 | FR-015 | LGA bundles seeded as static config; `users.saved_query_embedding` computed at signup via OpenAI | auth, relevance | `ai.embedding_model`, `ai.vector_store` |
 | FR-016 | `email_otps` table; 6-digit code; `/api/auth/otp` consume | auth | `auth.mfa`, `email.provider` |

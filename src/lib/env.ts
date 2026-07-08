@@ -134,6 +134,12 @@ const baseShape = {
     // snapshot, so a single process/test can toggle it. When off, the cron is a
     // no-op (no feed fetch, no send).
     STORM_BRIEF_ENABLED: z.coerce.boolean().default(false),
+    // Overrides the default BOM NSW warnings feed URL for staging/fixtures
+    // (default www.bom.gov.au/fwo/IDZ00060.warnings_nsw.xml). Leave unset in
+    // prod. Like the flags above, the feed reads the RAW env at CALL TIME via
+    // `bomWarningsUrl()` (src/modules/weather/feed.ts), not this frozen
+    // snapshot; declared here so it lives in the schema + .env.example.
+    BOM_WARNINGS_URL: z.string().url().optional(),
 
     // ── Observability (optional Month 1) ────────────────────────────────────
     SENTRY_DSN: z.string().url().optional(),

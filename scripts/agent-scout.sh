@@ -67,7 +67,7 @@ PROPOSED_LABEL="${SCOUT_LABEL:-proposed}"   # the review label
 SPECULATIVE_LABEL="${SCOUT_SPECULATIVE_LABEL:-proposed-speculative}" # low-confidence tier
 MODEL="${SCOUT_MODEL:-opus}"                # producer model alias
 CRITIC_MODEL="${SCOUT_CRITIC_MODEL:-sonnet}" # critic model — DIFFERENT from the producer
-ENGINES="${SCOUT_ENGINES:-bug ux req journey docs}"          # which engines to run this tick (bug ux req journey docs)
+ENGINES="${SCOUT_ENGINES:-bug ux req journey docs security}"          # which engines to run this tick (bug ux req journey docs security)
 MAX_ISSUES="${SCOUT_MAX_ISSUES:-15}"         # global cap on issues filed per run
 MAX_PER_ENGINE="${SCOUT_MAX_PER_ENGINE:-5}" # per-engine cap (base; dynamic budget may adjust)
 SINCE="${SCOUT_SINCE:-}"                     # optional git ref: scope the bug/journey scan to its diff
@@ -146,7 +146,7 @@ existing_fps="$(jq -r '.[].body // "" | capture("scout-fp: (?<fp>[a-z0-9._-]+)";
 seen_fp() { [ -n "$existing_fps" ] && grep -qxF "$1" <<<"$existing_fps"; }
 
 # ── helper: derive an engine/severity/confidence triple from an issue's labels+body ─
-issue_engine()   { jq -r '[.labels[]?.name] | map(select(.=="bug" or .=="ux-customer" or .=="ux-business" or .=="req" or .=="journey" or .=="docs")) | .[0] // "bug"'; }
+issue_engine()   { jq -r '[.labels[]?.name] | map(select(.=="bug" or .=="ux-customer" or .=="ux-business" or .=="req" or .=="journey" or .=="docs" or .=="security")) | .[0] // "bug"'; }
 issue_severity() { jq -r '[.labels[]?.name] | map(select(.=="p0" or .=="p1" or .=="p2")) | .[0] // "p2"'; }
 
 # ── #1 OUTCOME LEDGER — record accept/reject per fingerprint, persisted across runs.
@@ -179,7 +179,7 @@ update_ledger() {
 
 # group an engine label into its run-engine bucket: ux-customer/ux-business → ux;
 # bug/req/journey/docs are their own bucket.
-bucket() { case "$1" in ux-*) echo ux ;; req|journey|docs) echo "$1" ;; *) echo bug ;; esac; }
+bucket() { case "$1" in ux-*) echo ux ;; req|journey|docs|security) echo "$1" ;; *) echo bug ;; esac; }
 
 # accepted/rejected counts for a run-engine bucket, read from the ledger.
 # jq mirror of bucket(): collapse ux-* → ux, keep bug/req/journey/docs as-is.
@@ -194,7 +194,7 @@ ledger_counts() { # $1=bucket → "accepted rejected"
 # ── #1 print rolling accept-rate (the phased-confidence telemetry) ────────────────
 print_accept_rate() {
   local any=0 line="accept-rate (rolling):"
-  for b in bug ux req journey docs; do
+  for b in bug ux req journey docs security; do
     read -r a r <<<"$(ledger_counts "$b")"
     local tot=$((a + r))
     if [ "$tot" -gt 0 ]; then
@@ -557,6 +557,38 @@ handlers (where missing docs hurt most). Categories:
 For each item, tag the exact block (file:line where it exists) + a one-line 'make it say X' rewrite
 in proposed_fix. Mostly static/cheap — only judge CLARITY on the survivors."
     ;;
+  security)
+    engine_values="security"
+    focus="ENGINE: SECURITY (find exploitable weaknesses before an attacker does). Hunt REAL,
+concrete security defects in THIS repository's OWN code, its dependencies, and its
+deployment/runtime configuration — the OWASP Top 10 and, above all, the classes that lead to
+remote server compromise. Look for, at minimum:
+ • NETWORK EXPOSURE: a service/container/dev-server bound to 0.0.0.0 or published to the host/LAN
+   (docker-compose ports, HOST/HOSTNAME=0.0.0.0, listen addresses), a dev-only compose/port/env
+   OVERRIDE that a real deployment loads, an admin/internal/debug endpoint reachable without auth,
+   and dev-bypass flags (NODE_ENV, *_DEV_AUTH_BYPASS, *_DEBUG, seed/demo logins) that can leak into
+   a deployed build.
+ • VULNERABLE DEPENDENCIES: a pinned package/image version with a KNOWN CVE — check package.json /
+   lockfiles / requirements.txt / Dockerfile base images against the fixed version. Cite the
+   package, the pinned version, the CVE id, and the fixed version (e.g. next@15.1.0 → CVE-2025-29927,
+   fixed 15.2.3). Only claim a CVE you are confident maps to the pinned range.
+ • INJECTION / RCE: attacker-influenced input reaching child_process/exec/spawn/eval/new Function,
+   unsafe deserialization, template/SQL/command injection, path traversal, or SSRF in a server-side
+   fetch/proxy handler.
+ • BROKEN AUTH / ACCESS CONTROL: missing or spoofable authn/authz, IDOR (one tenant/user reading or
+   mutating another's data), auth-bypass via a trusted-but-attacker-controlled header, weak
+   session/cookie flags (missing HttpOnly/Secure/SameSite), unsigned/again-verifiable tokens.
+ • SECRETS: hardcoded credentials / API keys / tokens in source or committed env files, secrets
+   written to logs or error responses, over-broad service-account or IAM scopes.
+Ground EVERY item in checkable evidence: file:line for code/config, the exact dependency+version
+line for a CVE, or the compose/env line for an exposure. REPRODUCTION-FIRST: prefer a concrete
+attack sketch (the request/header/input that exploits it) or a failing security test; if you cannot
+back it with checkable evidence, DROP it. Inherit severity from blast radius: remote-unauthenticated
+code-exec or data exposure → p0; authenticated privilege-escalation / IDOR → p1;
+hardening / defense-in-depth → p2.${changed_files:+
+Focus on these changed files (post-merge diff):
+${changed_files}}"
+    ;;
   *)
     engine_values="$engine"
     focus="ENGINE: ${engine}."
@@ -716,7 +748,7 @@ that BOTH passes surface." \
       log "  · drop ${fp} (critic refuted)"; audit "$fp" "$eng" "$sev" "$conf" "false" "${cr:-refuted}" "dropped-critic" ""; continue
     fi
     # #7 independent file:line re-verification (bug-style evidence only)
-    if [ "$eng" = "bug" ] && ! verify_evidence "$(jq -r '.evidence // ""' <<<"$c")"; then
+    if { [ "$eng" = "bug" ] || [ "$eng" = "security" ]; } && ! verify_evidence "$(jq -r '.evidence // ""' <<<"$c")"; then
       log "  · drop ${fp} (evidence-not-found)"; audit "$fp" "$eng" "$sev" "$conf" "true" "$cr" "evidence-not-found" "cited file:line absent in worktree"; continue
     fi
     if seen_fp "$fp"; then
@@ -825,7 +857,7 @@ file_survivors() {
 
 for engine in $ENGINES; do
   case "$engine" in
-    bug|ux|req|journey|docs) collect_engine "$engine" ;;
+    bug|ux|req|journey|docs|security) collect_engine "$engine" ;;
     *) log "unknown engine '${engine}' — skipping" ;;
   esac
 done

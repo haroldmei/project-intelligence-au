@@ -8,10 +8,11 @@ import { env } from "@/lib/env";
 import { VerifyEmailTemplate } from "@/emails/verify-email";
 import { PasswordResetTemplate } from "@/emails/password-reset";
 import { WeeklyDigestTemplate } from "@/emails/weekly-digest";
-import { DigestFallbackNoticeTemplate } from "@/emails/digest-fallback-notice";
 import { WelcomeAfterVerifyTemplate } from "@/emails/welcome-after-verify";
 import { TrialReminderTemplate } from "@/emails/trial-reminder";
 import { StormBriefTemplate } from "@/emails/storm-brief";
+import { PaymentFailedTemplate } from "@/emails/payment-failed";
+import { VerificationReminderTemplate } from "@/emails/verification-reminder";
 
 const logger = pino({ name: "email" });
 
@@ -21,10 +22,11 @@ const TEMPLATES: Record<string, TemplateFn> = {
   "verify-email": VerifyEmailTemplate as TemplateFn,
   "password-reset": PasswordResetTemplate as TemplateFn,
   "weekly-digest": WeeklyDigestTemplate as TemplateFn,
-  "digest-fallback-notice": DigestFallbackNoticeTemplate as TemplateFn,
   "welcome-after-verify": WelcomeAfterVerifyTemplate as TemplateFn,
   "trial-reminder": TrialReminderTemplate as TemplateFn,
   "storm-brief": StormBriefTemplate as TemplateFn,
+  "payment-failed": PaymentFailedTemplate as TemplateFn,
+  "verification-reminder": VerificationReminderTemplate as TemplateFn,
 };
 
 const resend = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
@@ -46,15 +48,21 @@ const fromAddress = `${fromName} <noreply@resend.dev>`;
 
 export interface EmailProps {
   to: string;
-  template: "verify-email" | "password-reset" | "weekly-digest" | "digest-fallback-notice" | "welcome-after-verify" | "trial-reminder" | "storm-brief";
+  template: "verify-email" | "password-reset" | "weekly-digest" | "welcome-after-verify" | "trial-reminder" | "storm-brief" | "payment-failed" | "verification-reminder";
   props: Record<string, unknown>;
+  /**
+   * Extra SMTP headers to attach to this send (Resend `headers` option). Used
+   * for the RFC-8058 List-Unsubscribe / List-Unsubscribe-Post pair on bulk
+   * sends — see `buildListUnsubscribeHeaders` in `./list-unsubscribe`.
+   */
+  headers?: Record<string, string>;
 }
 
 /**
  * Send email via Resend with idempotent retry on 5xx errors.
  * No-op (logged at info level) when RESEND_API_KEY is unset (dev mode).
  */
-export async function sendEmail({ to, template, props }: EmailProps): Promise<void> {
+export async function sendEmail({ to, template, props, headers }: EmailProps): Promise<void> {
   if (!resend) {
     logger.info({ to, template }, "[email] dev-mode stub — RESEND_API_KEY unset, not sending");
     return;
@@ -75,6 +83,7 @@ export async function sendEmail({ to, template, props }: EmailProps): Promise<vo
         to,
         subject: subjectPrefix + subject,
         html,
+        ...(headers ? { headers } : {}),
       });
 
       logger.info({ to, template }, "Email sent successfully");

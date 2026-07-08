@@ -21,10 +21,16 @@ export interface AnalyticsEventProperties {
   trial_started: { source: "signup" | "checkout" };
   /** Subscription transitioned into `active` from a non-active state. */
   trial_converted: Record<string, never>;
-  /** Subscription deleted at Stripe (hard cancel). */
-  subscription_cancelled: { cancelAtPeriodEnd: boolean };
+  /** Subscription deleted at Stripe (hard cancel), or scheduled to cancel at
+   *  period end from the in-product dialog. `reason` is the optional churn
+   *  signal the cancel dialog now collects (issue #96 A5) — a small closed set,
+   *  never free-text PII. */
+  subscription_cancelled: { cancelAtPeriodEnd: boolean; reason?: string };
   /** One user's weekly digest was assembled + sent. */
   digest_sent: { cardCount: number; fallbackUsed: boolean };
+  /** Thumbs personalisation crossed its activation threshold (FR-025) and the
+   *  one-time in-digest note was sent (issue #96 A3). */
+  personalisation_activated: { feedbackCount: number };
   /** Thumb up/down on a DA card (portal or email link). */
   da_feedback: { vote: "up" | "down"; source: "email" | "portal" };
   /** Portal "View DA →" click-out to a council portal (FR-031 `da_card_clicked`).

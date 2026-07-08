@@ -4,12 +4,37 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { AccountDTO } from "@/modules/account/service";
 
+// Mask an E.164 mobile for display so the tradie can confirm the destination
+// (wireframe 7.9) without exposing the full number on a shared/over-shoulder
+// screen. Always preserves the last 3 digits — the part a user recognises to
+// spot a wrong/stale handset.
+function maskMobile(e164: string): string {
+  const digits = e164.replace(/\D/g, "");
+  if (digits.length < 3) return e164;
+  const last3 = digits.slice(-3);
+  // AU E.164 (+61 + 9 national digits, grouped 4XX XXX XXX): keep the leading
+  // "4" so it reads as a mobile, mask the middle, reveal the last 3.
+  if (e164.startsWith("+61") && digits.length === 11) {
+    const first = digits.slice(2, 3);
+    return `+61 ${first}•• ••• ${last3}`;
+  }
+  // Fallback for any other saved format: mask all but the last 3 digits.
+  return `${"•".repeat(digits.length - 3)}${last3}`;
+}
+
 export default function SMSOptInPage() {
+  const [emailEnabled, setEmailEnabled] = useState(true);
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailToast, setEmailToast] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+
   const [smsEnabled, setSmsEnabled] = useState(false);
   const [hasMobile, setHasMobile] = useState(false);
+  const [mobile, setMobile] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Load real state from the API. Without this, the toggle defaulted to
@@ -25,8 +50,10 @@ export default function SMSOptInPage() {
       })
       .then((data) => {
         if (cancelled) return;
+        setEmailEnabled(Boolean(data.emailOptIn));
         setSmsEnabled(Boolean(data.smsOptIn));
         setHasMobile(Boolean(data.mobile_e164));
+        setMobile(data.mobile_e164 ?? null);
         setLoaded(true);
       })
       .catch(() => {
@@ -37,33 +64,76 @@ export default function SMSOptInPage() {
     return () => { cancelled = true; };
   }, []);
 
+  // Email digest opt-in/out (#105). This is the in-product recovery for a user
+  // who tapped the email unsubscribe link — without it they were permanently
+  // cut off from the paid Sunday digest while still being billed.
+  async function handleEmailToggle() {
+    const next = !emailEnabled;
+    setEmailEnabled(next); // optimistic
+    setEmailSaving(true);
+    setEmailError(null);
+    setEmailToast(null);
+    try {
+      const endpoint = next ? "/api/account/email-opt-in" : "/api/account/email-opt-out";
+      const res = await fetch(endpoint, { method: "POST" });
+      if (!res.ok) {
+        setEmailEnabled(!next); // revert
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setEmailError(body.error || "Failed to update. Please try again.");
+      } else {
+        setEmailToast(next ? "Email digest enabled." : "Email digest disabled.");
+      }
+      setTimeout(() => {
+        setEmailToast(null);
+        setEmailError(null);
+      }, 4000);
+    } catch {
+      setEmailEnabled(!next);
+      setEmailError("Network error. Please try again.");
+      setTimeout(() => {
+        setEmailToast(null);
+        setEmailError(null);
+      }, 4000);
+    } finally {
+      setEmailSaving(false);
+    }
+  }
+
   async function handleToggle() {
     const next = !smsEnabled;
     // Optimistic update — revert on failure.
     setSmsEnabled(next);
     setIsSaving(true);
     setError(null);
+    setSaveError(null);
     try {
       const endpoint = next ? "/api/account/sms-opt-in" : "/api/account/sms-opt-out";
       const res = await fetch(endpoint, { method: "POST" });
       if (!res.ok) {
         setSmsEnabled(!next); // revert
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setToast(body.error || "Failed to update. Please try again.");
+        setSaveError(body.error || "Failed to update. Please try again.");
       } else {
         setToast(next ? "SMS enabled." : "SMS disabled.");
       }
-      setTimeout(() => setToast(null), 4000);
+      setTimeout(() => {
+        setToast(null);
+        setSaveError(null);
+      }, 4000);
     } catch {
       setSmsEnabled(!next);
-      setToast("Network error. Please try again.");
-      setTimeout(() => setToast(null), 4000);
+      setSaveError("Network error. Please try again.");
+      setTimeout(() => {
+        setToast(null);
+        setSaveError(null);
+      }, 4000);
     } finally {
       setIsSaving(false);
     }
   }
 
   const toggleDisabled = !loaded || isSaving || (!smsEnabled && !hasMobile);
+  const emailToggleDisabled = !loaded || emailSaving;
 
   return (
     <div className="px-4 py-6 space-y-6 max-w-xl">
@@ -84,6 +154,67 @@ export default function SMSOptInPage() {
         </div>
       )}
 
+      {/* Email digest (#105) — the re-enable control the unsubscribe page promises. */}
+      <div className="bg-white rounded-md border border-[#E5E5E5] px-4 py-4">
+        <div className="flex items-center justify-between min-h-[44px] gap-4">
+          <div className="space-y-0.5">
+            <p className="text-sm font-semibold text-[#102A43]">
+              Sunday email digest
+            </p>
+            <p className="text-xs text-[#829AB1]">
+              Your weekly leads by email at 6 pm AEST
+            </p>
+          </div>
+
+          {/* Toggle switch */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={emailEnabled}
+            aria-label="Toggle Sunday email digest"
+            disabled={emailToggleDisabled}
+            onClick={handleEmailToggle}
+            className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-[150ms] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] focus-visible:ring-offset-2 disabled:opacity-50 min-h-[44px] min-w-[44px] justify-center ${
+              emailEnabled ? "bg-[#D97706]" : "bg-[#D4D4D4]"
+            }`}
+          >
+            <span
+              className={`pointer-events-none block h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-[150ms] ${
+                emailEnabled ? "translate-x-2.5" : "-translate-x-2.5"
+              }`}
+              aria-hidden="true"
+            />
+          </button>
+        </div>
+
+        {loaded && !emailEnabled && (
+          <p className="text-xs text-[#7F1D1D] mt-3 border-t border-[#F5F5F5] pt-3">
+            You&apos;re unsubscribed from the email digest — the core of your
+            subscription. Turn this back on to start receiving it again.
+          </p>
+        )}
+
+        <p className="text-xs text-[#829AB1] mt-3 border-t border-[#F5F5F5] pt-3">
+          Essential billing and account notices are always sent, regardless of this setting.
+        </p>
+      </div>
+
+      {emailError && (
+        <div role="alert" aria-live="assertive" className="rounded-md bg-[#FEE2E2] text-[#7F1D1D] text-sm px-4 py-3">
+          {emailError}
+        </div>
+      )}
+
+      {emailToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="text-sm text-[#14532D] bg-[#DCFCE7] rounded-md px-4 py-3"
+        >
+          {emailToast}
+        </div>
+      )}
+
       <div className="bg-white rounded-md border border-[#E5E5E5] px-4 py-4">
         <div className="flex items-center justify-between min-h-[44px] gap-4">
           <div className="space-y-0.5">
@@ -93,6 +224,19 @@ export default function SMSOptInPage() {
             <p className="text-xs text-[#829AB1]">
               Top 3 leads via SMS at 6 pm AEST
             </p>
+            {loaded && hasMobile && mobile && (
+              <p className="text-xs text-[#627D98]">
+                Sent to{" "}
+                <span className="font-medium text-[#334E68]">{maskMobile(mobile)}</span>
+                {" · "}
+                <Link
+                  href="/account/profile"
+                  className="font-semibold text-[#B45309] hover:text-[#92400E] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] rounded"
+                >
+                  Change number
+                </Link>
+              </p>
+            )}
           </div>
 
           {/* Toggle switch */}
@@ -117,15 +261,27 @@ export default function SMSOptInPage() {
         </div>
 
         {loaded && !hasMobile && !smsEnabled && (
-          <p className="text-xs text-[#7F1D1D] mt-3 border-t border-[#F5F5F5] pt-3">
-            Add a mobile number first — your account doesn&apos;t have one yet.
-          </p>
+          <div className="text-xs text-[#7F1D1D] mt-3 border-t border-[#F5F5F5] pt-3">
+            <p>Add a mobile number first — your account doesn&apos;t have one yet.</p>
+            <Link
+              href="/account/profile"
+              className="inline-flex items-center min-h-[44px] font-semibold text-[#B45309] hover:text-[#92400E] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] rounded"
+            >
+              Add your mobile number →
+            </Link>
+          </div>
         )}
 
         <p className="text-xs text-[#829AB1] mt-3 border-t border-[#F5F5F5] pt-3">
           Reply STOP to any SMS to opt out immediately.
         </p>
       </div>
+
+      {saveError && (
+        <div role="alert" aria-live="assertive" className="rounded-md bg-[#FEE2E2] text-[#7F1D1D] text-sm px-4 py-3">
+          {saveError}
+        </div>
+      )}
 
       {toast && (
         <div

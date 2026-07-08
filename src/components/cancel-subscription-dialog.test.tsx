@@ -69,6 +69,33 @@ describe("CancelSubscriptionDialog — Undo/reactivate", () => {
     );
   });
 
+  it("sends the selected cancellation reason in the DELETE body (issue #96 A5)", async () => {
+    const fetchMock = mockFetch(async () => jsonResponse({ accessUntil: PERIOD_END }));
+
+    render(<CancelSubscriptionDialog open onOpenChange={() => {}} periodEnd={PERIOD_END} />);
+
+    fireEvent.change(screen.getByLabelText(/mind telling us why/i), {
+      target: { value: "not_enough_leads" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^cancel subscription$/i }));
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("DELETE");
+    expect(JSON.parse(init.body as string)).toEqual({ reason: "not_enough_leads" });
+  });
+
+  it("omits the body when no reason is chosen (reason is optional)", async () => {
+    const fetchMock = mockFetch(async () => jsonResponse({ accessUntil: PERIOD_END }));
+
+    render(<CancelSubscriptionDialog open onOpenChange={() => {}} periodEnd={PERIOD_END} />);
+    fireEvent.click(screen.getByRole("button", { name: /^cancel subscription$/i }));
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.body).toBeUndefined();
+  });
+
   it("keeps a resume path when the [Undo] POST fails", async () => {
     mockFetch(async (_url, init) => {
       if (init?.method === "DELETE") return jsonResponse({ accessUntil: PERIOD_END });

@@ -16,6 +16,13 @@
 // `cronWeekStartUtc`, so the retry only re-processes users the primary left
 // unserved. A failed primary tick gets recovered by the retry tick; the
 // resume logic lives in src/modules/digest/cron.ts.
+//
+// Nightly ingestion has the same shape (issue #125): a per-LGA transient
+// upstream failure can't be re-fired in-process, so `retryFailedIngest` is
+// called inline at the end of the nightly `/api/cron/ingest` handler to re-fetch
+// just the unrecovered failures, scoped to the run window via
+// `mostRecentNightlyIngestUtc`. The recovery logic lives in
+// `retryFailedIngest` in src/modules/ingestion/ingest.ts.
 import { env } from "@/lib/env";
 
 /** Verify the Vercel Cron secret header. Returns 401 Response if invalid. */
@@ -43,4 +50,33 @@ export function cronWeekStartUtc(now: Date = new Date()): Date {
   return new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - dow, 0, 0, 0, 0),
   );
+}
+
+/** UTC hour of the nightly ingestion cron (vercel.json: `0 13 * * *`). */
+export const NIGHTLY_INGEST_UTC_HOUR = 13;
+
+/**
+ * The UTC instant of the most recent nightly-ingest fire (13:00 UTC) at or
+ * before `now`. Used by the inline ingest retry pass (issue #125) to
+ * scope "which councils failed tonight" to the current night's run — a failure
+ * written at Sat 13:00 UTC stays in-window for every hourly retry tick right up
+ * to the Sunday 07:00 UTC digest, and correctly rolls to the new boundary once
+ * the next nightly tick fires. Handrolled (not a calendar-day floor) so the
+ * window spans UTC midnight rather than resetting at 00:00 UTC mid-night.
+ */
+export function mostRecentNightlyIngestUtc(now: Date = new Date()): Date {
+  const boundary = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      NIGHTLY_INGEST_UTC_HOUR,
+      0,
+      0,
+      0,
+    ),
+  );
+  // Before 13:00 UTC today, the most recent nightly run was yesterday's.
+  if (boundary.getTime() > now.getTime()) boundary.setUTCDate(boundary.getUTCDate() - 1);
+  return boundary;
 }

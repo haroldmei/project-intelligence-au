@@ -7,7 +7,7 @@
 // promptfoo case shape and dedupes against the existing hand-written gold set.
 // Safe to import from the always-on jsdom suite.
 
-/** One promptfoo test case in evals/rerank/dataset.jsonl. */
+/** One promptfoo test case in evals/rerank/<vertical>-<jurisdiction>.jsonl. */
 export interface EvalCase {
   da_text: string;
   saved_query: string;

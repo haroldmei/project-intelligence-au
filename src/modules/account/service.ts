@@ -19,6 +19,7 @@ export interface AccountDTO {
   email: string;
   mobile_e164: string | null;
   emailVerified: boolean;
+  emailOptIn: boolean;
   smsOptIn: boolean;
   stormBriefOptIn: boolean;
   trade: string;
@@ -42,25 +43,69 @@ export async function getAccount(userId: string): Promise<AccountDTO | null> {
 
 export async function updateProfile(
   userId: string,
-  data: { mobile_e164?: string; name?: string },
+  data: { mobile_e164?: string | null },
 ): Promise<AccountDTO> {
   const updated = await db.user.update({
     where: { id: userId },
     data: {
-      ...(data.mobile_e164 ? { mobile_e164: data.mobile_e164 } : {}),
+      // Tri-state on mobile_e164 (#166): `undefined` means "not submitted" →
+      // leave the column alone; a string sets it; `null` explicitly removes it.
+      // The old `? {..} : {}` collapsed null and undefined together, so clearing
+      // the field silently no-opped while the UI reported "Saved."
+      ...(data.mobile_e164 !== undefined
+        ? {
+            mobile_e164: data.mobile_e164,
+            // A number that's gone can't receive SMS — clear the opt-in with it
+            // so we never keep a dangling smsOptIn=true against a null mobile.
+            ...(data.mobile_e164 === null ? { smsOptIn: false } : {}),
+          }
+        : {}),
     },
     include: { lgaBundles: true },
   });
   return toDTO(updated);
 }
 
+/**
+ * Thrown when a submitted bundle id doesn't reference a real LgaBundle row.
+ * The route maps this to a 422 client error instead of a 500 (#134).
+ */
+export class UnknownLgaBundleError extends Error {
+  readonly bundleIds: string[];
+  constructor(bundleIds: string[]) {
+    super(`Unknown LGA bundle id(s): ${bundleIds.join(", ")}`);
+    this.name = "UnknownLgaBundleError";
+    this.bundleIds = bundleIds;
+  }
+}
+
 export async function updateLgaBundles(userId: string, bundleIds: string[]): Promise<AccountDTO> {
-  // Replace all subscriptions (delete + create)
-  await db.lgaBundleSubscription.deleteMany({ where: { userId } });
-  await db.lgaBundleSubscription.createMany({
-    data: bundleIds.map((bundleId) => ({ userId, bundleId })),
-    skipDuplicates: true,
-  });
+  // Validate every submitted id references a real LgaBundle up front (#134).
+  // Zod only checks the ids are non-empty strings — it can't know whether they
+  // reference real rows. Without this, a stale/bogus id (a client bug, a bundle
+  // deleted between page load and submit) throws P2003 from createMany AFTER
+  // deleteMany has already wiped the user's coverage. Reject cleanly instead.
+  const uniqueIds = [...new Set(bundleIds)];
+  if (uniqueIds.length > 0) {
+    const existing = await db.lgaBundle.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true },
+    });
+    const known = new Set(existing.map((b) => b.id));
+    const unknown = uniqueIds.filter((id) => !known.has(id));
+    if (unknown.length > 0) throw new UnknownLgaBundleError(unknown);
+  }
+
+  // Replace all subscriptions atomically (#134): if createMany fails, the
+  // deleteMany rolls back so the user is never stranded with zero coverage
+  // (which would silently drop them from the Sunday digest — the paid product).
+  await db.$transaction([
+    db.lgaBundleSubscription.deleteMany({ where: { userId } }),
+    db.lgaBundleSubscription.createMany({
+      data: bundleIds.map((bundleId) => ({ userId, bundleId })),
+      skipDuplicates: true,
+    }),
+  ]);
   const user = await db.user.findUniqueOrThrow({
     where: { id: userId },
     include: { lgaBundles: true },
@@ -126,6 +171,36 @@ export async function smsOptOut(userId: string): Promise<AccountDTO> {
 }
 
 /**
+ * Email opt-in (#105). The mirror of the token-based unsubscribe: once a user
+ * has tapped the email footer's one-click unsubscribe (emailOptIn=false), this
+ * is the ONLY in-product path back to the paid Sunday digest. Without it, a
+ * paying subscriber who unsubscribes keeps being billed while getting nothing —
+ * guaranteed churn. Authenticated because it's a session-scoped self-service
+ * control, unlike the unauthenticated Spam-Act opt-out link.
+ */
+export async function emailOptIn(userId: string): Promise<AccountDTO> {
+  const updated = await db.user.update({
+    where: { id: userId },
+    data: { emailOptIn: true },
+    include: { lgaBundles: true },
+  });
+  return toDTO(updated);
+}
+
+/**
+ * Email opt-out (#105). The authenticated equivalent of the unsubscribe link,
+ * so the /account notifications page can present a single bidirectional toggle.
+ */
+export async function emailOptOut(userId: string): Promise<AccountDTO> {
+  const updated = await db.user.update({
+    where: { id: userId },
+    data: { emailOptIn: false },
+    include: { lgaBundles: true },
+  });
+  return toDTO(updated);
+}
+
+/**
  * Set the per-user storm-brief opt-in (#20). Default is opted-in while the
  * feature stays globally gated behind STORM_BRIEF_ENABLED; this lets a user opt
  * out ahead of the global launch. Independent of the Spam Act email opt-out —
@@ -163,7 +238,8 @@ export async function deleteAccount(userId: string): Promise<void> {
     log.error({ userId, err }, "[account] deleteAccount — could not fetch stripe customer id; proceeding");
   }
 
-  // Step 2: Cancel any active/trialing Stripe subscription before erasure (AT-005a).
+  // Step 2: Cancel any live Stripe subscription — active, trialing, or dunning
+  // (past_due/unpaid/paused, #132) — before erasure (AT-005a).
   if (stripeCustomerId) {
     try {
       const sub = await getActiveSubscription(stripeCustomerId);
@@ -217,6 +293,7 @@ type UserWithBundles = {
   email: string;
   mobile_e164: string | null;
   emailVerified: boolean;
+  emailOptIn: boolean;
   smsOptIn: boolean;
   stormBriefOptIn: boolean;
   trade: string;
@@ -235,6 +312,7 @@ function toDTO(user: UserWithBundles): AccountDTO {
     email: user.email,
     mobile_e164: user.mobile_e164,
     emailVerified: user.emailVerified,
+    emailOptIn: user.emailOptIn,
     smsOptIn: user.smsOptIn,
     stormBriefOptIn: user.stormBriefOptIn,
     trade: user.trade,

@@ -28,6 +28,18 @@ function formatDate(iso: string) {
   });
 }
 
+// Closed set of churn reason codes — must match CANCELLATION_REASONS in
+// src/app/api/billing/subscription/route.ts. The value is persisted + sent to
+// analytics, so it's a fixed enum (no free-text PII). Collecting it is the
+// cheapest churn instrument the product has (issue #96 A5); it stays optional.
+const CANCELLATION_REASONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "too_expensive", label: "Too expensive" },
+  { value: "not_enough_leads", label: "Not enough leads" },
+  { value: "leads_not_relevant", label: "Leads weren't relevant" },
+  { value: "found_another_tool", label: "Found another tool" },
+  { value: "other", label: "Other" },
+];
+
 /** A toast that may carry a single inline action (e.g. [Undo]). */
 interface ToastState {
   message: string;
@@ -45,12 +57,20 @@ export function CancelSubscriptionDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [isUndoing, setIsUndoing] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [reason, setReason] = useState("");
 
   async function handleConfirm() {
     setIsLoading(true);
     try {
       const res = await fetch("/api/billing/subscription", {
         method: "DELETE",
+        // Reason is optional — only send a body when the user picked one.
+        ...(reason
+          ? {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ reason }),
+            }
+          : {}),
       });
       if (!res.ok) throw new Error("Request failed");
       const json = (await res.json().catch(() => ({}))) as { accessUntil?: string };
@@ -105,6 +125,28 @@ export function CancelSubscriptionDialog({
               Your saved LGAs and feedback history stay for 90 days, then we
               delete them.
             </p>
+            <div className="mt-4">
+              <label
+                htmlFor="cancel-reason"
+                className="block text-sm text-[#627D98] mb-1"
+              >
+                Mind telling us why? (optional)
+              </label>
+              <select
+                id="cancel-reason"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                disabled={isLoading}
+                className="w-full rounded-md border border-[#CBD2D9] px-3 py-2 text-sm text-[#102A43] bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] disabled:opacity-50"
+              >
+                <option value="">Prefer not to say</option>
+                {CANCELLATION_REASONS.map((r) => (
+                  <option key={r.value} value={r.value}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </>
         }
         confirmLabel="Cancel subscription"

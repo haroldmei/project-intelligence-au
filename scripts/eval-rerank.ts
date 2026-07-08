@@ -1,31 +1,45 @@
-// Rerank eval harness (issue #19) — `pnpm eval:rerank`.
+// Rerank eval harness (issue #19, parameterised by (vertical, jurisdiction) in
+// issue #31) — `pnpm eval:rerank`.
 //
-// Runs the roofing rerank prompt over the gold set (evals/rerank/dataset.jsonl)
-// and reports precision, recall and F1 at the digest-inclusion threshold plus
-// the existing within-±1 score / keyword / schema assertions. Writes a dated,
-// committed result to evals/rerank/eval-results/<date>.json.
+// Runs a vertical's rerank prompt over its gold set
+// (evals/rerank/<vertical>-<jurisdiction>.jsonl) and reports precision, recall
+// and F1 at the digest-inclusion threshold plus the within-±1 score / keyword /
+// schema assertions. Writes a dated, committed result to
+// evals/rerank/eval-results/<vertical>-<jurisdiction>-<date>.json.
 //
-// Faithful to production: reuses composeRerankSystemPrompt (base + roofing
-// fragment) and the rerank.user.md template, and calls the same Anthropic model
-// the runtime does. Skips gracefully (exit 0) when ANTHROPIC_API_KEY is absent
-// so quality gates never depend on it.
+// Faithful to production: composeRerankSystemPrompt pulls the *chosen* vertical's
+// pack from the registry (so each trade is graded against the prompt it actually
+// runs with), reuses rerank.user.md, and calls the same Anthropic model the
+// runtime does. Skips gracefully (exit 0) when ANTHROPIC_API_KEY is absent so
+// quality gates never depend on it.
 //
 // Usage:
-//   pnpm eval:rerank                 # haiku primary, 22-case gold set
-//   pnpm eval:rerank --model sonnet  # run against the sonnet fallback
+//   pnpm eval:rerank                              # every vertical that has a dataset file
+//   pnpm eval:rerank --vertical roofing           # single target (jurisdiction defaults to nsw)
+//   pnpm eval:rerank --vertical demolition --jurisdiction nsw
+//   pnpm eval:rerank --model sonnet               # run against the sonnet fallback
 //   EVAL_INCLUSION_THRESHOLD=4 pnpm eval:rerank
 import Anthropic from "@anthropic-ai/sdk";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { parseJsonl } from "@/modules/evals/export";
 import { resolveThreshold, type ModelScore } from "@/modules/evals/metrics";
 import { runRerankEval, type ModelCaller } from "@/modules/evals/eval-runner";
+import {
+  DEFAULT_VERTICAL,
+  DEFAULT_JURISDICTION,
+  datasetFilename,
+  resultFilename,
+  discoverTargets,
+  targetLabel,
+  type EvalTarget,
+} from "@/modules/evals/targets";
 
 const PRIMARY_MODEL = "claude-haiku-4-5";
 const FALLBACK_MODEL = "claude-sonnet-4-6";
 
-const DATASET_PATH = path.join(process.cwd(), "evals", "rerank", "dataset.jsonl");
-const RESULTS_DIR = path.join(process.cwd(), "evals", "rerank", "eval-results");
+const RERANK_DIR = path.join(process.cwd(), "evals", "rerank");
+const RESULTS_DIR = path.join(RERANK_DIR, "eval-results");
 
 function pickModel(argv: string[]): string {
   const i = argv.indexOf("--model");
@@ -35,6 +49,31 @@ function pickModel(argv: string[]): string {
     if (v === "haiku" || v === PRIMARY_MODEL) return PRIMARY_MODEL;
   }
   return PRIMARY_MODEL;
+}
+
+function flag(argv: string[], name: string): string | undefined {
+  const i = argv.indexOf(name);
+  return i >= 0 ? argv[i + 1] : undefined;
+}
+
+/**
+ * Which (vertical, jurisdiction) sets to run. If either axis is passed
+ * explicitly, run that single target (filling the other with its default). With
+ * no axis flags, sweep every dataset file on disk.
+ */
+function resolveTargets(argv: string[]): EvalTarget[] {
+  const vertical = flag(argv, "--vertical");
+  const jurisdiction = flag(argv, "--jurisdiction");
+  if (vertical || jurisdiction) {
+    return [
+      {
+        vertical: vertical ?? DEFAULT_VERTICAL,
+        jurisdiction: jurisdiction ?? DEFAULT_JURISDICTION,
+      },
+    ];
+  }
+  const names = existsSync(RERANK_DIR) ? readdirSync(RERANK_DIR) : [];
+  return discoverTargets(names);
 }
 
 function parseModelOutput(raw: string): ModelScore {
@@ -64,22 +103,17 @@ async function main(): Promise<void> {
     console.log("eval:rerank SKIPPED — ANTHROPIC_API_KEY not set. (This is expected in CI/quality gates.)");
     return;
   }
-  if (!existsSync(DATASET_PATH)) {
-    console.log(`eval:rerank SKIPPED — no dataset at ${DATASET_PATH}.`);
-    return;
-  }
 
-  const cases = parseJsonl(readFileSync(DATASET_PATH, "utf-8"));
-  if (cases.length === 0) {
-    console.log("eval:rerank SKIPPED — dataset.jsonl is empty.");
+  const targets = resolveTargets(argv);
+  if (targets.length === 0) {
+    console.log(`eval:rerank SKIPPED — no dataset files in ${RERANK_DIR}.`);
     return;
   }
 
   const model = pickModel(argv);
   const threshold = resolveThreshold(process.env.EVAL_INCLUSION_THRESHOLD);
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-  console.log(`Running rerank eval — model=${model}, ${cases.length} cases, inclusion threshold=${threshold}\n`);
+  const date = isoDate();
 
   const call: ModelCaller = async ({ system, user }) => {
     const res = await client.messages.create({
@@ -94,25 +128,69 @@ async function main(): Promise<void> {
     return parseModelOutput(text.text);
   };
 
-  const report = await runRerankEval(cases, call, { threshold, model });
-
-  const m = report.metrics;
   const pct = (x: number) => (x * 100).toFixed(1) + "%";
-  console.log("─── Metrics @ inclusion threshold " + threshold + " ───");
-  console.log(`  precision : ${m.precision.toFixed(3)}  (tp=${m.tp} fp=${m.fp})`);
-  console.log(`  recall    : ${m.recall.toFixed(3)}  (tp=${m.tp} fn=${m.fn})`);
-  console.log(`  F1        : ${m.f1.toFixed(3)}`);
-  console.log(`  gate      : precision ≥ ${report.gate.precisionTarget} & recall ≥ ${report.gate.recallTarget} → ${report.gate.passed ? "PASS" : "not met"}`);
-  console.log("─── Assertions ───");
-  console.log(`  within ±1 : ${pct(report.assertions.within1Rate)}  ${report.assertions.within1Pass ? "(≥80% ✓)" : "(<80% ✗)"}`);
-  console.log(`  keyword   : ${pct(report.assertions.keywordRate)}`);
-  console.log(`  schema    : ${pct(report.assertions.schemaValidRate)}`);
+  const summary: Array<{ target: string; n: number; precision: number; recall: number; f1: number; gate: boolean }> = [];
 
-  const date = isoDate();
-  const outPath = path.join(RESULTS_DIR, `${date}.json`);
-  mkdirSync(RESULTS_DIR, { recursive: true });
-  writeFileSync(outPath, JSON.stringify({ date, ...report }, null, 2) + "\n");
-  console.log(`\nWrote ${outPath}`);
+  for (const target of targets) {
+    const datasetPath = path.join(RERANK_DIR, datasetFilename(target));
+    if (!existsSync(datasetPath)) {
+      console.log(`\n${targetLabel(target)}: SKIPPED — no dataset at ${datasetPath}.`);
+      continue;
+    }
+    const cases = parseJsonl(readFileSync(datasetPath, "utf-8"));
+    if (cases.length === 0) {
+      console.log(`\n${targetLabel(target)}: SKIPPED — ${datasetFilename(target)} is empty.`);
+      continue;
+    }
+
+    console.log(
+      `\n═══ ${targetLabel(target)} — model=${model}, ${cases.length} cases, inclusion threshold=${threshold} ═══`,
+    );
+
+    const report = await runRerankEval(cases, call, {
+      vertical: target.vertical,
+      jurisdiction: target.jurisdiction,
+      threshold,
+      model,
+    });
+
+    const m = report.metrics;
+    console.log("─── Metrics @ inclusion threshold " + threshold + " ───");
+    console.log(`  precision : ${m.precision.toFixed(3)}  (tp=${m.tp} fp=${m.fp})`);
+    console.log(`  recall    : ${m.recall.toFixed(3)}  (tp=${m.tp} fn=${m.fn})`);
+    console.log(`  F1        : ${m.f1.toFixed(3)}`);
+    console.log(`  gate      : precision ≥ ${report.gate.precisionTarget} & recall ≥ ${report.gate.recallTarget} → ${report.gate.passed ? "PASS" : "not met"}`);
+    console.log("─── Assertions ───");
+    console.log(`  within ±1 : ${pct(report.assertions.within1Rate)}  ${report.assertions.within1Pass ? "(≥80% ✓)" : "(<80% ✗)"}`);
+    console.log(`  keyword   : ${pct(report.assertions.keywordRate)}`);
+    console.log(`  schema    : ${pct(report.assertions.schemaValidRate)}`);
+
+    const outPath = path.join(RESULTS_DIR, resultFilename(target, date));
+    mkdirSync(RESULTS_DIR, { recursive: true });
+    writeFileSync(outPath, JSON.stringify({ date, ...report }, null, 2) + "\n");
+    console.log(`  wrote ${path.relative(process.cwd(), outPath)}`);
+
+    summary.push({
+      target: targetLabel(target),
+      n: report.n,
+      precision: m.precision,
+      recall: m.recall,
+      f1: m.f1,
+      gate: report.gate.passed,
+    });
+  }
+
+  // Per-(vertical, jurisdiction) summary table.
+  if (summary.length > 0) {
+    const w = Math.max(12, ...summary.map((s) => s.target.length));
+    console.log(`\n═══ Summary ═══`);
+    console.log(`${"target".padEnd(w)}  ${"n".padStart(4)}  ${"prec".padStart(6)}  ${"recall".padStart(6)}  ${"F1".padStart(6)}  gate`);
+    for (const s of summary) {
+      console.log(
+        `${s.target.padEnd(w)}  ${String(s.n).padStart(4)}  ${s.precision.toFixed(3).padStart(6)}  ${s.recall.toFixed(3).padStart(6)}  ${s.f1.toFixed(3).padStart(6)}  ${s.gate ? "PASS" : "—"}`,
+      );
+    }
+  }
 
   // Informational only — do NOT exit non-zero on an unmet gate; this command is
   // a measurement tool, not a quality gate (issue #19 acceptance).

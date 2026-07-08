@@ -13,6 +13,7 @@ const { mockDb, relevanceMock, assembleMock, sentryMock } = vi.hoisted(() => ({
   mockDb: {
     digestRun: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     digest: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    digestDa: { count: vi.fn() },
     user: { findMany: vi.fn() },
   },
   relevanceMock: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("@/modules/digest/assemble", () => ({ assembleAndSendDigest: assembleMoc
 vi.mock("@sentry/nextjs", () => sentryMock);
 
 import { runDigestCron, isDigestComplete } from "@/modules/digest/cron";
+import { cronWeekStartUtc } from "@/lib/cron/retry";
 
 // A non-null relevance result is enough — assembleAndSendDigest is mocked.
 const RELEVANCE = { fallbackUsed: false, results: [] };
@@ -47,6 +49,9 @@ beforeEach(() => {
   mockDb.digest.create.mockResolvedValue({ id: "audit" });
   mockDb.digest.update.mockResolvedValue({});
   mockDb.digest.findFirst.mockResolvedValue(null);
+  // No cards persisted by default → the loop re-scores via runRelevanceForUser
+  // (issue #196 recovery path only triggers when DigestDa rows already exist).
+  mockDb.digestDa.count.mockResolvedValue(0);
 });
 
 describe("isDigestComplete", () => {
@@ -106,6 +111,27 @@ describe("runDigestCron — retry tick (resume)", () => {
     expect(processed).not.toContain("u1");
   });
 
+  it("recovers from PERSISTED cards without re-scoring when the primary persisted them (issue #196)", async () => {
+    // u1's primary tick persisted DigestDa cards but the email send failed. The
+    // retry must re-send from those frozen cards — NOT re-run the relevance
+    // pipeline, whose fresh non-deterministic score could diverge from the
+    // portal (or collapse to a quiet-week email). So runRelevanceForUser is
+    // skipped and assemble is invoked with relevance=null (the recovery signal).
+    mockDb.digestRun.findFirst.mockResolvedValue({ id: "run-1", status: "done" });
+    mockDb.user.findMany.mockResolvedValue(users("u1"));
+    mockDb.digest.findMany
+      .mockResolvedValueOnce([{ userId: "u1", emailStatus: "failed", smsStatus: "skipped" }])
+      .mockResolvedValueOnce([delivered("u1")]);
+    // Cards WERE persisted for u1 on the primary tick.
+    mockDb.digestDa.count.mockResolvedValue(5);
+
+    await runDigestCron();
+
+    expect(relevanceMock).not.toHaveBeenCalled(); // no fresh re-score
+    expect(assembleMock).toHaveBeenCalledTimes(1);
+    expect(assembleMock).toHaveBeenCalledWith("u1", "run-1", null); // recovery signal
+  });
+
   it("is a NO-OP when the primary already served everyone", async () => {
     mockDb.digestRun.findFirst.mockResolvedValue({ id: "run-1", status: "done" });
     mockDb.user.findMany.mockResolvedValue(users("u1", "u2"));
@@ -119,6 +145,73 @@ describe("runDigestCron — retry tick (resume)", () => {
     expect(relevanceMock).not.toHaveBeenCalled();
     expect(result.usersProcessed).toBe(0);
     expect(result.unserved).toBe(0);
+    expect(sentryMock.captureMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("runDigestCron — a preview run must not hijack the weekly run (issue #183)", () => {
+  // An onboarding preview digest (src/modules/digest/preview.ts) creates a
+  // DigestRun with NO weekKey. If a Sunday-morning signup finishes onboarding
+  // inside the cron week window, that preview run sits in the DB when the
+  // weekly cron fires. The cron's idempotent-resume lookup is scoped by
+  // `weekKey` (issue #93), so the null-keyed preview run is invisible to it —
+  // the cron creates a fresh weekly run and the preview user stays eligible for
+  // their real weekly digest. This guards against a regression to the old
+  // `triggeredAt >= weekStart` lookup that would have adopted the preview run.
+  it("creates a NEW weekly run and keeps the preview user eligible when a preview DigestRun already exists this week", async () => {
+    const weekStart = cronWeekStartUtc();
+
+    // Preview run created earlier on Sunday (e.g. a 10:00 Sydney signup).
+    // weekKey is null — the discriminator that keeps preview runs out of the
+    // weekly resume lookup.
+    const previewRun: { id: string; weekKey: Date | null; status: string } = {
+      id: "preview-run",
+      weekKey: null,
+      status: "done",
+    };
+
+    // Filter-aware findFirst mirroring Prisma's `where: { weekKey }` semantics:
+    // the null-keyed preview run never matches an exact weekKey filter. (A
+    // `triggeredAt`-based lookup, by contrast, WOULD have matched it.)
+    mockDb.digestRun.findFirst.mockImplementation(
+      async ({ where }: { where: { weekKey?: Date } }) => {
+        const runs = [previewRun];
+        return runs.find((r) => r.weekKey?.getTime() === where.weekKey?.getTime()) ?? null;
+      },
+    );
+    mockDb.digestRun.create.mockResolvedValue({
+      id: "weekly-run",
+      weekKey: weekStart,
+      status: "running",
+    });
+
+    // The preview user is an active subscriber this week.
+    mockDb.user.findMany.mockResolvedValue(users("preview-user"));
+    // Resume filter is scoped to the WEEKLY run id — the preview user's digest
+    // lives on the preview run, so nothing is delivered under the weekly run
+    // yet and they stay pending.
+    mockDb.digest.findMany
+      .mockResolvedValueOnce([]) // resume filter for weekly-run: nothing delivered
+      .mockResolvedValueOnce([delivered("preview-user")]); // final recount
+
+    const result = await runDigestCron();
+
+    // A fresh weekly run was created — the preview run was NOT adopted.
+    expect(result.resumed).toBe(false);
+    expect(result.runId).toBe("weekly-run");
+    expect(mockDb.digestRun.create).toHaveBeenCalledTimes(1);
+    expect(mockDb.digestRun.create.mock.calls[0][0].data.weekKey).toEqual(weekStart);
+
+    // The resume lookup was scoped by weekKey, not the collision-prone triggeredAt.
+    const where = mockDb.digestRun.findFirst.mock.calls[0][0].where;
+    expect(where).toHaveProperty("weekKey");
+    expect(where).not.toHaveProperty("triggeredAt");
+
+    // The preview user still got their weekly digest, attached to the weekly
+    // run — not the preview run.
+    expect(assembleMock).toHaveBeenCalledWith("preview-user", "weekly-run", RELEVANCE);
+    expect(result.unserved).toBe(0);
+    // No false "retry left users unserved" ERROR page.
     expect(sentryMock.captureMessage).not.toHaveBeenCalled();
   });
 });

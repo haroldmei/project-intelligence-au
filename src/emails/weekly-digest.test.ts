@@ -155,3 +155,154 @@ describe("WeeklyDigestTemplate — lead classes (issue #14)", () => {
     expect(h).not.toContain("Fast-track");
   });
 });
+
+describe("WeeklyDigestTemplate — rated-lead recap (CF-1.7, issue #51; #186)", () => {
+  it("renders the honest 'N of M rated on-target' block when ratedLeadRecap is passed", () => {
+    const { html } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 4,
+      lgas: ["Inner West"],
+      cards: [card("ft-1", "fast_track", "2 Fast Rd", 8)],
+      ratedLeadRecap: { onTarget: 14, rated: 15, rate: 93, weeks: 4 },
+      smsEnabled: false,
+    });
+    expect(html).toContain(
+      "✓ Last 4 weeks: you marked 14 of 15 rated leads on-target (93%)",
+    );
+    // Never the misleading "precision" label (issue #186) — this measures the
+    // user's own thumbs, not FR-013 ground-truth precision.
+    expect(html).not.toContain("precision");
+    // Proof stat sits above the DA cards (design pillar P4).
+    expect(html.indexOf("rated leads on-target")).toBeLessThan(html.indexOf("2 Fast Rd"));
+  });
+
+  it("omits the recap block entirely when ratedLeadRecap is absent", () => {
+    const { html } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 1,
+      lgas: ["Inner West"],
+      cards: [card("ft-1", "fast_track", "2 Fast Rd", 8)],
+      smsEnabled: false,
+    });
+    expect(html).not.toContain("rated leads on-target");
+  });
+
+  it("still shows the recap proof on a quiet (no-lead) week", () => {
+    const { html } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 0,
+      lgas: ["Inner West"],
+      cards: [],
+      dasChecked: 12,
+      ratedLeadRecap: { onTarget: 7, rated: 8, rate: 88, weeks: 4 },
+      smsEnabled: false,
+    });
+    expect(html).toContain(
+      "✓ Last 4 weeks: you marked 7 of 8 rated leads on-target (88%)",
+    );
+    expect(html).toContain("No strong re-roof leads this week");
+  });
+
+  it("shows the <4-week onboarding fallback when no recap stat is available yet", () => {
+    // A user before week 4 (or one who's rated nothing) gets no badge — instead
+    // the email nudges the thumbs behaviour that will populate the stat, mirroring
+    // the portal header so both surfaces stay in lockstep (CF-1.7 acceptance).
+    const { html } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 3,
+      lgas: ["Inner West"],
+      cards: [card("ft-1", "fast_track", "2 Fast Rd", 8)],
+      smsEnabled: false,
+    });
+    expect(html).toContain("Your lead recap unlocks after 4 weeks");
+    expect(html).not.toContain("rated leads on-target");
+  });
+
+  it("does not show the onboarding fallback once the recap badge is present", () => {
+    const { html } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 3,
+      lgas: ["Inner West"],
+      cards: [card("ft-1", "fast_track", "2 Fast Rd", 8)],
+      ratedLeadRecap: { onTarget: 14, rated: 15, rate: 93, weeks: 4 },
+      smsEnabled: false,
+    });
+    expect(html).not.toContain("unlock after 4 weeks");
+  });
+
+  it("does not nag with the onboarding fallback on a quiet (no-lead) week", () => {
+    const { html } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 0,
+      lgas: ["Inner West"],
+      cards: [],
+      dasChecked: 9,
+      smsEnabled: false,
+    });
+    expect(html).not.toContain("unlock after 4 weeks");
+    expect(html).toContain("No strong re-roof leads this week");
+  });
+});
+
+describe("WeeklyDigestTemplate — degraded-ranking note (system-design §7.3, issue #181)", () => {
+  const base = {
+    weekStart: "27 Apr 2026",
+    leadCount: 3,
+    lgas: ["Inner West"],
+    cards: [card("bp-1", "builder_pipeline" as LeadClass, "1 Pipeline St", 8)],
+    smsEnabled: false,
+  };
+
+  it("shows the 'basic mode' outage note when the LLM was unavailable", () => {
+    const { html } = WeeklyDigestTemplate({
+      ...base,
+      fallbackUsed: true,
+      fallbackReason: "llm_unavailable",
+    });
+    expect(html).toContain("Relevance ranking ran in basic mode this week");
+    expect(html).toContain("briefly unavailable");
+    // Must NOT read as a cost/billing throttle — that would misinform the user.
+    expect(html).not.toContain("AI cost cap reached");
+  });
+
+  it("shows the cost-cap note when the weekly ceiling was hit", () => {
+    const { html } = WeeklyDigestTemplate({
+      ...base,
+      fallbackUsed: true,
+      fallbackReason: "cost_cap",
+    });
+    expect(html).toContain("AI cost cap reached");
+    expect(html).not.toContain("basic mode");
+  });
+
+  it("defaults to the cost-cap copy when fallbackUsed but no reason given (back-compat)", () => {
+    const { html } = WeeklyDigestTemplate({ ...base, fallbackUsed: true });
+    expect(html).toContain("AI cost cap reached");
+  });
+
+  it("shows no degraded-ranking note on the normal full-pipeline path", () => {
+    const { html } = WeeklyDigestTemplate(base);
+    expect(html).not.toContain("basic mode");
+    expect(html).not.toContain("AI cost cap reached");
+  });
+});
+
+describe("WeeklyDigestTemplate — personalisation-on note (issue #96 A3)", () => {
+  const base = {
+    weekStart: "27 Apr 2026",
+    leadCount: 1,
+    lgas: ["Inner West"],
+    cards: [card("bp-1", "builder_pipeline" as LeadClass, "1 Pipeline St", 8)],
+    smsEnabled: false,
+  };
+
+  it("renders the one-time note when personalisationActivated is true", () => {
+    const { html } = WeeklyDigestTemplate({ ...base, personalisationActivated: true });
+    expect(html).toContain("Your digest is now personalised");
+  });
+
+  it("omits the note by default", () => {
+    const { html } = WeeklyDigestTemplate(base);
+    expect(html).not.toContain("Your digest is now personalised");
+  });
+});

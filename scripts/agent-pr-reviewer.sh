@@ -123,12 +123,16 @@ if ! flock -n 9; then log "another reviewer run in progress — exiting"; exit 0
 
 # ── Find one PR to review: open, labelled `review-needed`, head under $HEAD_GLOB,
 # not already claimed/terminal. ──────────────────────────────────────────────────
-prs_json="$("$GH" pr list --state open --label review-needed \
-  --json number,headRefName,labels,title,url --limit 30 2>/dev/null || echo '[]')"
+# (no server-side --label here: gh implements it via the SEARCH API, whose index can
+#  lag label churn by hours and hide the PR — the label is filtered client-side below
+#  from live data instead)
+prs_json="$("$GH" pr list --state open \
+  --json number,headRefName,labels,title,url --limit 50 2>/dev/null || echo '[]')"
 [ -z "$prs_json" ] && prs_json='[]'
 
 eligible="$(jq -c --arg pfx "$HEAD_GLOB" 'map(select(
   (.headRefName | startswith($pfx)) and
+  ([.labels[]?.name] | index("review-needed")) and
   ([.labels[]?.name] | index("review-wip")        | not) and
   ([.labels[]?.name] | index("fix-wip")            | not) and
   ([.labels[]?.name] | index("review-approved")    | not) and

@@ -10,10 +10,12 @@ import { db } from "@/lib/db";
 import {
   validateStripeWebhook,
   planFromPriceId,
+  isRepresentablePlan,
   clampAccessUntil,
   MAX_ACCESS_DAYS,
 } from "@/modules/billing/stripe";
 import { env } from "@/lib/env";
+import { sendEmail } from "@/lib/email/client";
 import { captureServer } from "@/lib/analytics/server";
 import * as Sentry from "@sentry/nextjs";
 import pino from "pino";
@@ -118,13 +120,36 @@ async function handleStripeEvent(type: string, obj: Record<string, unknown>): Pr
       const priceId = items?.data?.[0]?.price?.id;
       const plan = priceId ? planFromPriceId(priceId) : undefined;
 
+      // A subscription carrying a plan the app can't represent end-to-end (the
+      // Team price — sold-through in Stripe config but with no seat UI or
+      // per-seat digest fan-out yet) must NOT be written onto the user: doing so
+      // rendered the account as Plan '—' / 1 seat while the customer was billed
+      // AUD 499 Team (issue #164). Alert loudly so ops can refund/downgrade, and
+      // keep the last representable plan so the account stays coherent. The
+      // portal config (createBillingPortalSession) is the front-door lock; this
+      // is the backstop for any other path onto the Team price.
+      const persistablePlan = plan && isRepresentablePlan(plan) ? plan : undefined;
+      if (plan && !persistablePlan) {
+        log.error(
+          { userId: user.id, priceId, plan, type },
+          "[webhook-stripe] unrepresentable plan on subscription — not persisting; billed for a plan the app can't serve",
+        );
+        Sentry.captureMessage(
+          `Stripe subscription carries unrepresentable plan '${plan}' for user ${user.id} — billed but not fulfillable`,
+          {
+            level: "error",
+            tags: { userId: user.id, phase: "billing-unrepresentable-plan", plan },
+          },
+        );
+      }
+
       await db.user.update({
         where: { id: user.id },
         data: {
           subscriptionStatus: status,
           accessUntil: clampAndWarn(periodEnd, { userId: user.id, eventType: type }),
           cancelAtPeriodEnd,
-          ...(plan ? { plan } : {}),
+          ...(persistablePlan ? { plan: persistablePlan } : {}),
         },
       });
       log.info(
@@ -158,6 +183,34 @@ async function handleStripeEvent(type: string, obj: Record<string, unknown>): Pr
         data: { subscriptionStatus: "past_due" },
       });
       log.warn({ userId: user.id, type }, "[webhook-stripe] payment requires action → past_due");
+
+      // Dunning email (FR-018, FR-030): tell the user their card failed and
+      // link them to /account to update it — otherwise past_due silently
+      // churns them. Only on payment_failed: payment_action_required is a
+      // 3DS/SCA challenge (the card is fine, it just needs confirmation), so a
+      // "your payment failed" email would be wrong there — the /account CTA +
+      // Stripe portal 3DS flow already covers it.
+      //
+      // Idempotent by construction: the handler is deduped on event.id, and
+      // Stripe's smart retries each arrive as a distinct payment_failed event,
+      // so the user gets one reminder per retry attempt. A send failure is
+      // logged, not thrown — the past_due write already succeeded and we don't
+      // want Stripe to retry the whole event (which would re-send on success).
+      if (type === "invoice.payment_failed") {
+        try {
+          await sendEmail({
+            to: user.email,
+            template: "payment-failed",
+            props: { manageBillingUrl: `${env.NEXT_PUBLIC_APP_URL}/account` },
+          });
+          log.info({ userId: user.id }, "[webhook-stripe] payment-failed email sent");
+        } catch (err) {
+          log.error({ userId: user.id, err }, "[webhook-stripe] payment-failed email send failed");
+          Sentry.captureException(err, {
+            tags: { userId: user.id, phase: "billing-dunning-email" },
+          });
+        }
+      }
       break;
     }
     case "invoice.payment_succeeded": {

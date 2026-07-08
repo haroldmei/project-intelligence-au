@@ -88,11 +88,39 @@ export function rateLimitResendByAccount(
   return checkRateLimit(`account:${userId}:otp-resend`, 1, 60_000);
 }
 
+/**
+ * Change pending email (issue #92) — 5 requests/hr keyed by account. Each call
+ * writes a new address and dispatches an OTP to it, so a tighter cap than the
+ * generic mutating limit blunts using the endpoint to email-bomb arbitrary
+ * addresses. Independent of the 1/min resend budget.
+ */
+export function rateLimitChangeEmailByAccount(
+  userId: string
+): ReturnType<typeof checkRateLimit> {
+  return checkRateLimit(`account:${userId}:change-email`, 5, 3_600_000);
+}
+
 /** 10 requests/hr keyed by user — for OTP verify. */
 export function rateLimitOtpVerifyByUser(
   userId: string
 ): ReturnType<typeof checkRateLimit> {
   return checkRateLimit(`user:${userId}:otp-verify`, 10, 3_600_000);
+}
+
+/**
+ * 10 requests/hr keyed by (normalized) email — for the session-less
+ * password-reset confirm OTP check (issue #126). The reset flow has no logged-in
+ * user, so the account is identified by the emailed address; keying on the email
+ * bounds brute-force guesses against one account regardless of source IP
+ * (proxy/botnet rotation). Applied BEFORE the user lookup so a real and an
+ * unknown account behave identically (no email enumeration). Kept independent of
+ * rateLimitOtpVerifyByUser so an email-verify burst can't exhaust a legitimate
+ * reset's budget and vice-versa.
+ */
+export function rateLimitPasswordResetConfirmByEmail(
+  email: string
+): ReturnType<typeof checkRateLimit> {
+  return checkRateLimit(`email:${email}:password-reset-confirm`, 10, 3_600_000);
 }
 
 /**

@@ -64,8 +64,11 @@ export async function POST(req: NextRequest): Promise<Response> {
   const session = await lucia.createSession(user.id, {});
   const sessionCookie = lucia.createSessionCookie(session.id);
 
+  // Surface verification status so the client routes unverified users to /verify
+  // instead of /digest (issue #180). Safe to return: the caller has already
+  // proven the password, so this leaks nothing about accounts they don't own.
   return Response.json(
-    { session_set: true },
+    { session_set: true, emailVerified: user.emailVerified },
     {
       status: 200,
       headers: {

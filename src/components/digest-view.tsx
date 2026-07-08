@@ -32,6 +32,7 @@ export function DigestView({
         weekDate={weekDate}
         leadCount={digest.daCount}
         areaLabel={areaLabel}
+        ratedLeadRecap={digest.ratedLeadRecap}
         weeksOfHistory={weeksOfHistory}
       />
 

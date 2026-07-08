@@ -94,6 +94,22 @@ test.describe("Auth — Login", () => {
 });
 
 test.describe("Auth — Signup", () => {
+  // Issue #88 / FR-022 (Spam Act 2003): SMS is opted-IN by default at signup, so
+  // the form must disclose the SMS consent + opt-out at the point the mobile is
+  // collected, wired to the mobile field for screen readers.
+  test("signup form discloses the default SMS opt-in and opt-out (FR-022)", async ({ page }) => {
+    await page.goto("/signup");
+    const disclosure = page.locator("#sms-disclosure");
+    await expect(disclosure).toBeVisible();
+    await expect(disclosure).toContainText(/Sunday SMS/i);
+    await expect(disclosure).toContainText(/STOP/);
+    await expect(disclosure).toContainText(/opt|turn SMS off/i);
+    await expect(page.locator("#mobile_e164")).toHaveAttribute(
+      "aria-describedby",
+      /sms-disclosure/
+    );
+  });
+
   test("signup with duplicate email shows error", async ({ page }) => {
     await page.route("**/api/auth/signup", async (route) => {
       await route.fulfill({
@@ -231,6 +247,48 @@ test.describe("Auth — Password Reset", () => {
     // HTML5 or react-hook-form validation fires
     const invalid = await emailInput.evaluate((el: HTMLInputElement) => !el.validity.valid);
     expect(invalid || true).toBe(true); // at minimum, form doesn't submit
+  });
+
+  // Issue #86: the confirm hop POSTed to /api/auth/reset (404). It now targets
+  // /api/auth/password-reset/confirm and sends the account email (carried in the
+  // reset link) alongside the OTP token so the session-less user is resolvable.
+  test("setting a new password posts token+email to the confirm route and redirects to login", async ({ page }) => {
+    let confirmBody: { token?: string; email?: string; password?: string } | null = null;
+    await page.route("**/api/auth/password-reset/confirm", async (route) => {
+      confirmBody = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true }),
+      });
+    });
+    // The legacy dead endpoint must never be hit.
+    let deadEndpointHit = false;
+    await page.route("**/api/auth/reset", async (route) => {
+      deadEndpointHit = true;
+      await route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
+    });
+
+    await page.goto("/reset?token=654321&email=eli%40example.com");
+    await expect(page.getByRole("heading", { name: /set new password/i })).toBeVisible();
+
+    await page.fill("#password", "correcthorsebattery");
+    await page.fill("#confirmPassword", "correcthorsebattery");
+    await page.getByRole("button", { name: /set new password/i }).click();
+
+    await page.waitForURL(/\/login\?reset=success/, { timeout: 10_000 });
+    expect(deadEndpointHit).toBe(false);
+    expect(confirmBody).toMatchObject({
+      token: "654321",
+      email: "eli@example.com",
+      password: "correcthorsebattery",
+    });
+  });
+
+  test("a reset link missing the email is rejected as invalid", async ({ page }) => {
+    await page.goto("/reset?token=654321");
+    await expect(page.getByText(/invalid reset link/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /set new password/i })).toHaveCount(0);
   });
 });
 

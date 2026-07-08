@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { DigestView } from "@/components/digest-view";
 import { validateRequest } from "@/lib/auth/session";
+import { PATHNAME_HEADER, buildLoginRedirect } from "@/lib/auth/return-to";
 import {
   getCurrentDigest,
   getDigestHistory,
@@ -25,7 +27,11 @@ export default async function DigestPage({
   searchParams: Promise<{ feedback?: string }>;
 }) {
   const auth = await validateRequest();
-  if (!auth) redirect("/login");
+  if (!auth) {
+    // Defence in depth behind the layout gate — preserve returnTo (issue #137).
+    const target = (await headers()).get(PATHNAME_HEADER);
+    redirect(buildLoginRedirect(target));
+  }
 
   const { feedback } = await searchParams;
   const showFeedbackToast = feedback === "recorded";
@@ -37,10 +43,15 @@ export default async function DigestPage({
   ]);
 
   if (!digest) {
+    // A user who abandoned onboarding before the saved-query step is skipped by
+    // the relevance cron forever (relevance/run.ts returns null with no saved
+    // query), so a digest never arrives. Don't promise "arrives Sunday" — that's
+    // a silent activation hole (issue #123). Surface a finish-setup CTA instead.
+    const setupIncomplete = !area?.savedQueryText;
     return (
       <>
         {showFeedbackToast && <FeedbackToast />}
-        <EmptyState />
+        {setupIncomplete ? <FinishSetupPrompt /> : <EmptyState />}
       </>
     );
   }
@@ -50,7 +61,9 @@ export default async function DigestPage({
       {showFeedbackToast && <FeedbackToast />}
       <DigestView
         digest={digest}
-        areaLabel={buildAreaLabel(area)}
+        // Show the area this digest was sent under, not the user's current area
+        // if it changed since (issue #138); fall back to live for legacy digests.
+        areaLabel={digest.areaLabel ?? buildAreaLabel(area)}
         weeksOfHistory={history.filter((h) => h.sentAt).length}
       />
     </>
@@ -65,6 +78,34 @@ function FeedbackToast() {
       className="mx-4 mt-4 rounded-md bg-[#DCFCE7] text-[#14532D] text-sm px-4 py-3"
     >
       Thanks — your feedback was recorded. Your digest gets smarter every week.
+    </div>
+  );
+}
+
+function FinishSetupPrompt() {
+  return (
+    <div className="px-4 py-8 space-y-4">
+      <h1 className="text-2xl font-bold text-[#102A43]">Your Digest</h1>
+      <div className="rounded-md bg-[#FEF3C7] text-[#78350F] text-sm px-4 py-4" role="note">
+        <p className="font-medium">Finish setting up your digest.</p>
+        <p className="mt-1">
+          You haven&apos;t added a search query yet, so we can&apos;t match DA
+          leads for you — your digest won&apos;t arrive until you do.
+        </p>
+        <a
+          href="/account/saved-query"
+          className="mt-3 inline-block rounded-md bg-[#78350F] text-white text-sm font-medium px-4 py-2"
+        >
+          Add your search query
+        </a>
+        <p className="mt-3 text-xs">
+          Covering the right councils too?{" "}
+          <a href="/account/area" className="underline">
+            Check your area
+          </a>
+          .
+        </p>
+      </div>
     </div>
   );
 }

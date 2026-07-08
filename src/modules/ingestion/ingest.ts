@@ -11,6 +11,7 @@
 import { db } from "@/lib/db";
 import pino from "pino";
 import * as Sentry from "@sentry/nextjs";
+import { mostRecentNightlyIngestUtc } from "@/lib/cron/retry";
 import { getEnabledJurisdictions } from "./jurisdictions/registry";
 import { NSW_REGIONS, MS_PER_DAY } from "./jurisdictions/config";
 import type { JurisdictionAdapter, NormalisedApplication } from "./jurisdictions/types";
@@ -71,15 +72,7 @@ export async function runIngest(sinceDaysBack = 1): Promise<RunIngestResult> {
   // delay inside the adapter).
   for (const jurisdiction of getEnabledJurisdictions()) {
     for (const region of jurisdiction.regions) {
-      const result = await ingestRegion(jurisdiction.adapter, region, since);
-      results.push(result);
-      if (!result.failed && jurisdiction.driftDetection) {
-        // Drift is checked per pathway (#10): a CDC-feed drop and a DA-feed drop
-        // are independent signals and must not average each other out.
-        for (const { pathway, count } of result.pathwayCounts) {
-          await checkDrift(region, pathway, count);
-        }
-      }
+      results.push(await ingestRegionWithDrift(jurisdiction, region, since));
     }
   }
 
@@ -88,6 +81,137 @@ export async function runIngest(sinceDaysBack = 1): Promise<RunIngestResult> {
 
   log.info({ totalIngested, totalFailed }, "[ingest] run complete");
   return { results, totalIngested, totalFailed };
+}
+
+/**
+ * Max re-ingest attempts per council per nightly run before the retry cron
+ * stops re-firing and leaves the council to drift detection + Sentry. Bounds
+ * hourly Sentry noise and Vercel invocations when an upstream feed is dead for
+ * the whole night (a persistent outage) rather than briefly flaky (a transient
+ * blip, which is what the retry exists to heal). Counts the original nightly
+ * failure as attempt 1, so the default permits two recovery re-fetches.
+ */
+export const MAX_INGEST_RETRY_ATTEMPTS = 3;
+
+export interface RetryIngestResult extends RunIngestResult {
+  /** Region slugs that were re-fetched this pass (had an unrecovered failure). */
+  retriedCouncils: string[];
+}
+
+/**
+ * Compensating retry for the nightly ingest (issue #125, system-design §5.1 /
+ * §3.3). `runIngest` isolates a per-LGA transient upstream failure — it writes
+ * an `ingestion_log` row with `success=false` and fires Sentry — but does NOT
+ * re-fetch it; the next nightly tick is ~24h away, AFTER the Sunday 17:00 AEST
+ * digest has already read that LGA's DAs. So a Saturday-night ePlanning blip
+ * silently drops that LGA from the Sunday digest with no recovery.
+ *
+ * This is the design-specified compensating control: called inline at the end
+ * of the nightly `/api/cron/ingest` handler, it re-fetches ONLY the councils
+ * that failed during the current run and have not since recovered, so a
+ * transient failure is healed before the digest reads the data.
+ *
+ * Idempotent and self-limiting:
+ *  - `upsertDa` is keyed on `(daId, council)`, so re-fetching a council that
+ *    partially succeeded double-counts nothing.
+ *  - A council with a `success=true` row newer than its latest failure is
+ *    skipped, so a recovered feed and overlapping ticks are both no-ops.
+ *  - A council that has already failed `MAX_INGEST_RETRY_ATTEMPTS` times tonight
+ *    is left to drift detection, so a dead-all-night feed is not retried hourly
+ *    forever.
+ *
+ * Scope note: DA/CDC ingestion only. PCC linking (`runPccIngest`) is inert until
+ * its own flags are set and never writes `success=false` ingestion_log rows, so
+ * it has nothing for this to retry.
+ */
+export async function retryFailedIngest(sinceDaysBack = 1): Promise<RetryIngestResult> {
+  const results: IngestResult[] = [];
+  const since = new Date(Date.now() - sinceDaysBack * MS_PER_DAY);
+
+  const failing = await findUnrecoveredCouncils();
+  if (failing.size === 0) {
+    log.info("[ingest-retry] no unrecovered council failures this run — no-op");
+    return { results, totalIngested: 0, totalFailed: 0, retriedCouncils: [] };
+  }
+
+  const retriedCouncils: string[] = [];
+  for (const jurisdiction of getEnabledJurisdictions()) {
+    for (const region of jurisdiction.regions) {
+      if (!failing.has(region)) continue;
+      retriedCouncils.push(region);
+      results.push(await ingestRegionWithDrift(jurisdiction, region, since));
+    }
+  }
+
+  const totalIngested = results.reduce((s, r) => s + r.ingested, 0);
+  const totalFailed = results.filter((r) => r.failed).length;
+
+  log.info(
+    { retriedCouncils, totalIngested, totalFailed },
+    "[ingest-retry] retry pass complete",
+  );
+  return { results, totalIngested, totalFailed, retriedCouncils };
+}
+
+/**
+ * Fetch one region and run per-pathway drift detection on success. Shared by
+ * the nightly `runIngest` and the compensating `retryFailedIngest` so both
+ * treat a region identically. Drift is checked per pathway (#10): a CDC-feed
+ * drop and a DA-feed drop are independent signals and must not average out.
+ */
+async function ingestRegionWithDrift(
+  jurisdiction: { adapter: JurisdictionAdapter; driftDetection: boolean },
+  region: string,
+  since: Date,
+): Promise<IngestResult> {
+  const result = await ingestRegion(jurisdiction.adapter, region, since);
+  if (!result.failed && jurisdiction.driftDetection) {
+    for (const { pathway, count } of result.pathwayCounts) {
+      await checkDrift(region, pathway, count);
+    }
+  }
+  return result;
+}
+
+/**
+ * Councils whose most recent `ingestion_log` row within the current night's run
+ * is a failure — i.e. they failed and have NOT since recovered — and that have
+ * not yet exhausted `MAX_INGEST_RETRY_ATTEMPTS`. The window is scoped to the
+ * most recent nightly-ingest boundary (13:00 UTC) so we only chase tonight's
+ * failures, and it spans UTC midnight correctly (a Sat-night failure is still
+ * in-window on the Sunday-morning retry ticks before the digest).
+ */
+async function findUnrecoveredCouncils(): Promise<Set<string>> {
+  const windowStart = mostRecentNightlyIngestUtc();
+  const rows = await db.ingestionLog.findMany({
+    where: { runAt: { gte: windowStart } },
+    select: { council: true, success: true, runAt: true },
+    orderBy: { runAt: "asc" },
+  });
+
+  const byCouncil = new Map<
+    string,
+    { lastFail: Date | null; lastSuccess: Date | null; failCount: number }
+  >();
+  for (const row of rows) {
+    const state = byCouncil.get(row.council) ?? { lastFail: null, lastSuccess: null, failCount: 0 };
+    if (row.success) {
+      state.lastSuccess = row.runAt;
+    } else {
+      state.lastFail = row.runAt;
+      state.failCount++;
+    }
+    byCouncil.set(row.council, state);
+  }
+
+  const failing = new Set<string>();
+  for (const [council, { lastFail, lastSuccess, failCount }] of byCouncil) {
+    if (!lastFail) continue; // never failed tonight
+    if (lastSuccess && lastSuccess >= lastFail) continue; // already recovered
+    if (failCount >= MAX_INGEST_RETRY_ATTEMPTS) continue; // give up — drift owns it now
+    failing.add(council);
+  }
+  return failing;
 }
 
 /**

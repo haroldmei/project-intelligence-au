@@ -2,14 +2,20 @@
 
 import { useForm } from "react-hook-form";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import type { LoginInput } from "@/lib/auth/schemas";
+import { sanitizeReturnTo } from "@/lib/auth/return-to";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  // The reset flow redirects to /login?reset=success; acknowledge it so a
+  // tradie coming off a security-critical recovery isn't left guessing whether
+  // their new password took effect (issue #184).
+  const searchParams = useSearchParams();
+  const resetSuccess = searchParams.get("reset") === "success";
   const [showPassword, setShowPassword] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -34,7 +40,21 @@ export default function LoginPage() {
         setServerError(json.error ?? "Login failed. Check your email and password.");
         return;
       }
-      router.push("/digest");
+      // An unverified account has no digest to return to — the Sunday cron skips
+      // it — so send it straight to /verify rather than /digest (issue #180),
+      // avoiding a flash of the portal before the layout's own gate bounces it.
+      if (json.emailVerified === false) {
+        router.push("/verify");
+        return;
+      }
+      // Honour ?returnTo so an email feedback tap that hit the login wall lands
+      // back on /digest?feedback=recorded and its confirmation shows (issue #137).
+      // Read on submit (client-only) to avoid a useSearchParams Suspense boundary;
+      // sanitizeReturnTo blocks open-redirects to external targets.
+      const returnTo = sanitizeReturnTo(
+        new URLSearchParams(window.location.search).get("returnTo"),
+      );
+      router.push(returnTo);
     } catch {
       setServerError("Network error. Please try again.");
     } finally {
@@ -50,6 +70,16 @@ export default function LoginPage() {
           Welcome back. Get into your digest.
         </p>
       </div>
+
+      {resetSuccess && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-md bg-[#DCFCE7] text-[#14532D] text-sm px-4 py-3"
+        >
+          Your password was updated — log in with your new password.
+        </div>
+      )}
 
       {serverError && (
         <div
@@ -147,5 +177,13 @@ export default function LoginPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-[#627D98]">Loading…</div>}>
+      <LoginForm />
+    </Suspense>
   );
 }
