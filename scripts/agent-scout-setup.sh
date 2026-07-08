@@ -20,6 +20,7 @@ gh label create ux-business  --color 1d76db --description "agent-scout: business
 gh label create req          --color 5319e7 --description "agent-scout: requirements-compliance gap (FR→code)" 2>/dev/null || echo "   (req exists)"
 gh label create journey      --color 006b75 --description "agent-scout: end-to-end journey not reachable"      2>/dev/null || echo "   (journey exists)"
 gh label create docs         --color 0075ca --description "agent-scout: docs missing / verbose / unclear"      2>/dev/null || echo "   (docs exists)"
+gh label create security     --color b60205 --description "agent-scout: security vulnerability (exposure/CVE/injection/authz/secret)" 2>/dev/null || echo "   (security exists)"
 gh label create p0           --color b60205 --description "severity: must-fix"                     2>/dev/null || echo "   (p0 exists)"
 gh label create p1           --color fbca04 --description "severity: should-fix"                   2>/dev/null || echo "   (p1 exists)"
 gh label create p2           --color c5def5 --description "severity: nice-to-fix"                  2>/dev/null || echo "   (p2 exists)"
