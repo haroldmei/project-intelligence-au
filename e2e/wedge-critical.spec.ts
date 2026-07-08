@@ -102,7 +102,7 @@ async function installCriticalStubs(page: import("@playwright/test").Page) {
 }
 
 test.describe("Wedge Critical Flow", () => {
-  test("landing → signup → LGA pick → query → pricing → OTP → portal digest → thumb up → undo → reload persists", async ({
+  test("landing → signup → LGA pick → pricing → OTP → portal digest → thumb up → undo → reload persists", async ({
     page,
   }) => {
     // The portal step needs a live DB (RSC validateRequest); gate the same way
@@ -132,24 +132,18 @@ test.describe("Wedge Critical Flow", () => {
     await page.waitForURL("**/onboarding/area");
     await expect(page.getByRole("heading", { name: /choose your service area/i })).toBeVisible({ timeout: 10_000 });
 
-    // Step 4: Select LGA bundle
+    // Step 4: LGA selection (bundles are pre-filled by the stubs)
     await page.getByRole("button", { name: /western sydney/i }).click();
     await page.getByRole("button", { name: /continue/i }).click();
 
-    // Step 5: Onboarding query step
-    await page.waitForURL("**/onboarding/query");
-    await expect(page.getByRole("button", { name: /use the default/i })).toBeVisible();
-    await page.getByRole("button", { name: /use the default/i }).click();
-    await page.getByRole("button", { name: /continue/i }).click();
-
-    // Step 6: Pricing page — Solo pre-selected, 28-day trial CTA
+    // Step 5: Pricing page — Solo pre-selected, 28-day trial CTA
     await page.waitForURL("**/plan");
     await expect(page.getByRole("heading", { name: /choose your plan/i })).toBeVisible();
     const soloCard = page.getByRole("radio", { name: /solo/i });
     await expect(soloCard).toHaveAttribute("aria-checked", "true");
     await page.click('button:has-text("Start 28-day trial")');
 
-    // Step 7: Stripe redirect mock sends us to /digest. The portal layout
+    // Step 6: Stripe redirect mock sends us to /digest. The portal layout
     // redirects unverified users to /verify (issue #180 gate) — enter OTP now.
     await page.waitForURL("**/verify");
     for (let i = 0; i < 6; i++) {
@@ -157,13 +151,13 @@ test.describe("Wedge Critical Flow", () => {
     }
     await page.click('button:has-text("Verify email")');
 
-    // Step 8: Navigate to /digest now that email is verified
+    // Step 7: Navigate to /digest now that email is verified
     await page.goto("/digest");
     await page.waitForURL("**/digest");
     const daCards = page.locator("article[aria-label]");
     await expect(daCards.first()).toBeVisible();
 
-    // Step 9: Tap thumb up on card 1
+    // Step 8: Tap thumb up on card 1
     const firstCard = daCards.first();
     await firstCard.getByRole("button", { name: /thumb up/i }).click();
     await expect(firstCard).toHaveClass(/border-l-\[#16A34A\]/);
@@ -227,9 +221,10 @@ test.describe("Wedge Critical Flow", () => {
     await page.getByRole("button", { name: /inner west & city/i }).click();
     await page.getByRole("button", { name: /continue/i }).click();
 
-    // ── Onboarding query step reached without OTP ────────────────────────────
-    await page.waitForURL("/onboarding/query", { timeout: 10_000 });
-    await expect(page.getByRole("heading", { name: /what kind of jobs/i })).toBeVisible();
+    // ── Plan page reached without OTP (saved-query immutable seed step was
+    //     removed; area redirects directly to /plan per FR-015) ──────────────
+    await page.waitForURL("/plan", { timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: /choose your plan/i })).toBeVisible();
     expect(page.url()).not.toContain("/verify");
   });
 
@@ -244,7 +239,7 @@ test.describe("Wedge Critical Flow", () => {
     await expect(continueBtn).toBeEnabled();
   });
 
-  test("onboarding query step has a Back control that returns to area with the bundle still checked (issue #139)", async ({
+  test("onboarding area step redirects to /plan on selection (saved-query step removed per FR-015)", async ({
     page,
   }) => {
     // Onboarding steps are client components with no RSC auth gate, so this
@@ -269,19 +264,10 @@ test.describe("Wedge Critical Flow", () => {
         body: JSON.stringify({ bundle_ids: savedBundles }),
       });
     });
-    await page.route("**/api/account/saved-query", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ saved_query_text: null }),
-      });
-    });
 
     // The cookie-consent banner intercepts clicks on every page until dismissed.
     const dismissCookieBanner = async () => {
       const banner = page.locator('[role="dialog"][aria-label="Cookie consent"]');
-      // It mounts a beat after navigation — wait for it before dismissing so we
-      // don't race past an as-yet-unrendered banner that then intercepts clicks.
       await banner.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
       const close = page.getByRole("button", {
         name: /close cookie banner|reject analytics cookies/i,
@@ -292,24 +278,15 @@ test.describe("Wedge Critical Flow", () => {
       }
     };
 
-    // Step 3: pick a bundle and advance to the query step.
+    // Step 1: pick a bundle and continue.
     await page.goto("/onboarding/area");
     await dismissCookieBanner();
     await page.getByRole("button", { name: /western sydney/i }).click();
     await page.getByRole("button", { name: /continue/i }).click();
-    await page.waitForURL("**/onboarding/query");
 
-    // Step 4: a Back control is present…
-    const back = page.getByRole("link", { name: /back to service area/i });
-    await expect(back).toBeVisible();
-
-    // …and activating it returns to the area step with the bundle still checked.
-    await back.click();
-    await page.waitForURL("**/onboarding/area");
-    await expect(page.getByRole("button", { name: /western sydney/i })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    // Step 2: FR-015 area redirects directly to /plan (no query step).
+    await page.waitForURL("**/plan");
+    await expect(page.getByRole("heading", { name: /choose your plan/i })).toBeVisible();
   });
 
   test("OTP verify button is disabled until all 6 digits are entered", async ({ page }) => {

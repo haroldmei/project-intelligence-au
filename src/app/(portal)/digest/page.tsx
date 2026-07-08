@@ -99,17 +99,11 @@ function FinishSetupPrompt() {
     <div className="px-4 py-8 space-y-4">
       <h1 className="text-2xl font-bold text-[#102A43]">Your Digest</h1>
       <div className="rounded-md bg-[#FEF3C7] text-[#78350F] text-sm px-4 py-4" role="note">
-        <p className="font-medium">Finish setting up your digest.</p>
+        <p className="font-medium">Your digest is nearly ready.</p>
         <p className="mt-1">
-          You haven&apos;t added a search query yet, so we can&apos;t match DA
-          leads for you — your digest won&apos;t arrive until you do.
+          Your search query was seeded at signup — your first Sunday digest is
+          on the way once you finish setting up your subscription.
         </p>
-        <a
-          href="/account/saved-query"
-          className="mt-3 inline-block rounded-md bg-[#78350F] text-white text-sm font-medium px-4 py-2"
-        >
-          Add your search query
-        </a>
         <p className="mt-3 text-xs">
           Covering the right councils too?{" "}
           <a href="/account/area" className="underline">

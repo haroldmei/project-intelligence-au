@@ -76,9 +76,8 @@ describe("DigestPage empty state — onboarding completeness (issue #123)", () =
     });
     await renderPage(undefined);
 
-    expect(screen.getByText(/finish setting up your digest/i)).toBeInTheDocument();
-    const cta = screen.getByRole("link", { name: /add your search query/i });
-    expect(cta).toHaveAttribute("href", "/account/saved-query");
+    expect(screen.getByText(/your digest is nearly ready/i)).toBeInTheDocument();
+    expect(screen.getByText(/seeded at signup/i)).toBeInTheDocument();
     // The false promise must NOT render for an unset-query user.
     expect(screen.queryByText(/your first digest arrives sunday/i)).toBeNull();
   });

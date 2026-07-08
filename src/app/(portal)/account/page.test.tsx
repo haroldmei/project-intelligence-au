@@ -433,3 +433,26 @@ describe("AccountPage — billing portal failure error (#220)", () => {
     expect(screen.getByRole("button", { name: /manage billing/i })).not.toBeDisabled();
   });
 });
+
+// FR-015: saved-query is immutable in V1. The profile section must display the
+// query text as a read-only Row, not as a clickable link to an editor.
+describe("AccountPage — saved-query immutable display (FR-015)", () => {
+  it("shows the saved query text as read-only, not as an editable link", async () => {
+    mockFetch(baseAccount({ savedQueryText: "roof leaks" }));
+    render(<AccountPage />);
+
+    // The Search query label must exist and the text must be visible.
+    expect(await screen.findByText(/search query/i)).toBeTruthy();
+    expect(screen.getByText("roof leaks")).toBeTruthy();
+
+    // There must NOT be a link to /account/saved-query (the editor was removed).
+    expect(screen.queryByRole("link", { name: /search query/i })).toBeNull();
+  });
+
+  it("shows 'Seeded at signup' when savedQueryText is null (edge case)", async () => {
+    mockFetch(baseAccount({ savedQueryText: null }));
+    render(<AccountPage />);
+
+    expect(await screen.findByText(/seeded at signup/i)).toBeTruthy();
+  });
+});
