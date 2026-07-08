@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useTransition } from "react";
+import React, { useState, useTransition, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { LGABadge } from "@/components/lga-badge";
 import { LeadClassBadge } from "@/components/lead-class-badge";
@@ -53,6 +53,16 @@ export function DACard({
   const [showUndo, setShowUndo] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [liveMessage, setLiveMessage] = useState("");
+  // Tracks the undo-toast timeout so successive rapid thumbs get the full 5s
+  // window (issue #249).
+  const undoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Cleanup on unmount to prevent a stale timer updating unmounted state.
+  useEffect(() => {
+    return () => {
+      if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    };
+  }, []);
+
   // Visible error affordance (issue #59): a failed feedback POST must show a
   // sighted tradie something, not just announce to a screen reader.
   const [errorMessage, setErrorMessage] = useState("");
@@ -76,10 +86,12 @@ export function DACard({
         : `Feedback removed for ${address}`
     );
 
-    // Undo toast for 5 seconds
+    // Undo toast for 5 seconds (issue #249: clear the prior timer so a second
+    // tap gets the full window, not the first tap's leftover timer).
+    if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
     setUndoQueue(prev);
     setShowUndo(true);
-    setTimeout(() => setShowUndo(false), 5000);
+    undoTimeoutRef.current = setTimeout(() => setShowUndo(false), 5000);
 
     startTransition(async () => {
       try {

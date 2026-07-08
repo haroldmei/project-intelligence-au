@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DACard } from "./da-card";
 
@@ -209,5 +209,62 @@ describe("DACard", () => {
     expect(captureClientMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /thumb up for/i }));
     expect(captureClientMock).not.toHaveBeenCalled();
+  });
+
+  // Issue #249: a stale undo-toast setTimeout from the first tap must not cut
+  // the second tap's undo window short. Each thumb action gets the full 5s.
+  it("gives a full 5s undo window from the second tap on rapid successive thumbs", async () => {
+    vi.useFakeTimers();
+    render(<DACard {...PROPS} />);
+    const thumbUp = screen.getByRole("button", { name: /thumb up for/i });
+    const thumbDown = screen.getByRole("button", { name: /thumb down for/i });
+
+    // First thumb at t=0 → toast appears. Use advanceTimersByTimeAsync to
+    // process microtasks (promise resolution inside startTransition) so
+    // isPending becomes false and buttons are re-enabled.
+    fireEvent.click(thumbUp);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(screen.getByText("Feedback saved")).toBeTruthy();
+
+    // Advance 3s (well within the 5s window)
+    act(() => vi.advanceTimersByTime(3000));
+
+    // Second (different) thumb at t=3s → toast re-shows
+    fireEvent.click(thumbDown);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(screen.getByText("Feedback saved")).toBeTruthy();
+
+    // Advance 2s → t=5.001s. Without the fix, the first tap's timer fires
+    // here and hides the toast after only ~2s. With the fix, it's still up.
+    act(() => vi.advanceTimersByTime(2000));
+    expect(screen.getByText("Feedback saved")).toBeTruthy();
+
+    // Advance another 3s → t=8.001s (full 5s from the second tap). The toast
+    // should now be gone.
+    act(() => vi.advanceTimersByTime(3000));
+    expect(screen.queryByText("Feedback saved")).toBeNull();
+
+    vi.useRealTimers();
+  });
+
+  // Regression: unmounting while a toast is showing must not leave a timer
+  // that calls setShowUndo(false) on unmounted state. React 18 silently
+  // swallows this, but it's still wasteful and a latent source of issues.
+  it("clears the undo timeout on unmount", async () => {
+    vi.useFakeTimers();
+    const { unmount } = render(<DACard {...PROPS} />);
+    fireEvent.click(screen.getByRole("button", { name: /thumb up for/i }));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(screen.getByText("Feedback saved")).toBeTruthy();
+
+    unmount();
+
+    // Advance past the 5s mark — should not throw or warn about state
+    // updates on unmounted components.
+    expect(() => {
+      act(() => vi.advanceTimersByTime(5000));
+    }).not.toThrow();
+
+    vi.useRealTimers();
   });
 });
