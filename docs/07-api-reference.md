@@ -1428,18 +1428,18 @@ required to honour them.
 
 | Method | Endpoint | Purpose | Wedge FR |
 |--------|----------|---------|----------|
-| `GET` | `/unsubscribe/{token}` | One-click email opt-out (Spam Act) | FR-023 |
+| `GET` | `/unsubscribe/{token}` | Confirm-unsubscribe interstitial (prefetch-safe, no-op) | FR-023 |
+| `POST` | `/unsubscribe/{token}` | One-click email opt-out (RFC-8058, Spam Act) | FR-023 |
 
 ### GET /unsubscribe/{token}
 
-**One-click email unsubscribe (Spam Act 2003).**
+**Confirm-unsubscribe interstitial (prefetch-safe, no side effects).**
 
-Honour a functional, no-login, no-fee unsubscribe from a link in any email
-(digest, trial reminder, etc.). Uses the same HMAC token pattern as the email
-feedback links — the token carries the `userId`, so **no session is required**.
-On success it sets `User.emailOptIn = false`, which the digest and trial-reminder
-send paths gate on. Idempotent: an already-deleted or already-opted-out user
-still receives a friendly confirmation page.
+Renders a confirm page whose button POSTs to the same URL. Corporate link
+scanners and mail-client prefetch (Outlook SafeLinks, Mimecast, Gmail proxy) fire
+automated GETs against every link in delivered mail — this endpoint deliberately
+does **not** mutate `User.emailOptIn`. Only the POST handler (below) performs the
+opt-out.
 
 **Wedge FR-023 / Spam Act 2003 (Cth):** Provide a working, unauthenticated opt-out.
 
@@ -1451,6 +1451,45 @@ No request body. The HMAC token is in the URL path.
 ```
 https://pi-au.example.com/api/unsubscribe/eyJ1c2VySWQiOiI...
 ```
+
+#### Response
+
+**200 OK** (HTML confirm interstitial):
+
+```html
+<!DOCTYPE html>
+<html>
+<body>
+  <h1>Unsubscribe from marketing emails?</h1>
+  <p>Confirm to stop receiving the weekly Sydney roofing digest and other
+     marketing emails from ProjectIntelligence. We'll still send essential
+     account and billing notices.</p>
+  <form method="POST" action="/api/unsubscribe/{token}">
+    <button type="submit">Unsubscribe</button>
+  </form>
+</body>
+</html>
+```
+
+**400 Bad Request** (invalid or tampered token) returns an HTML page pointing the
+user to their account settings. The endpoint never returns JSON.
+
+---
+
+### POST /unsubscribe/{token}
+
+**One-click email opt-out (Spam Act 2003, RFC-8058 List-Unsubscribe-Post).**
+
+Performs the opt-out mutation: sets `User.emailOptIn = false`, which the digest
+and trial-reminder send paths gate on. Idempotent: an already-deleted or
+already-opted-out user still receives a friendly confirmation page. Reached by
+the inbox one-click "Unsubscribe" button (List-Unsubscribe-Post header) and by
+the form on the GET interstitial above. The HMAC token in the path is the
+authorization, so no session or CSRF token is required.
+
+#### Request
+
+No request body (bare POST — the token in the URL path carries the identity).
 
 #### Response
 
@@ -1472,13 +1511,13 @@ user to their account settings. The endpoint never returns JSON.
 
 #### Token Format
 
-HMAC-signed token containing the `userId`. Signature verified with a secret key
-(`UNSUBSCRIBE_SECRET`, not exposed to clients).
+HMAC-signed token containing the `userId` and a `purpose: "unsubscribe"` domain
+separator. Signature verified with `FEEDBACK_HMAC_SECRET` (not exposed to clients).
 
 #### Curl Example
 
 ```bash
-curl -X GET "https://pi-au.example.com/api/unsubscribe/eyJ1c2VySWQiOiI..."
+curl -X POST "https://pi-au.example.com/api/unsubscribe/eyJ1c2VySWQiOiI..."
 ```
 
 ---
