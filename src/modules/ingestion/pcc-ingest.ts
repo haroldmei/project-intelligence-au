@@ -21,6 +21,7 @@ import pino from "pino";
 import * as Sentry from "@sentry/nextjs";
 import { env } from "@/lib/env";
 import { NSW_REGIONS } from "./jurisdictions/config";
+import { namespaceCdcDaId } from "./cdc";
 import { fetchCouncilPccs, type RawPccRecord } from "./pcc";
 
 const log = pino({ name: "pcc-ingest" });
@@ -52,7 +53,10 @@ export interface PccIngestResult {
  */
 export async function linkCertificate(cc: RawPccRecord): Promise<PccLinkOutcome> {
   const { count } = await db.developmentApplication.updateMany({
-    where: { daId: cc.relatedApplicationId, council: cc.council },
+    where: {
+      daId: { in: [cc.relatedApplicationId, namespaceCdcDaId(cc.relatedApplicationId)] },
+      council: cc.council,
+    },
     data: { constructionCertifiedAt: new Date(cc.issuedDate) },
   });
   return count > 0 ? "linked" : "unmatched";
