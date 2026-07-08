@@ -6,6 +6,21 @@ import { truncateAll, seedLgaBundles, seedTestUser, testDb } from "../setup-test
 // Mock embeddings to avoid live OpenAI calls
 vi.mock("@/lib/ai/embeddings", () => ({
   embed: vi.fn().mockResolvedValue(Array(1536).fill(0.1)),
+  embedBatch: vi.fn().mockImplementation((texts: string[]) =>
+    texts.map(() => Array(1536).fill(0.1)),
+  ),
+  parseVector: (s: string) =>
+    s
+      .replace(/^\[/, "")
+      .replace(/\]$/, "")
+      .split(",")
+      .map(Number),
+}));
+
+// Mock the rerank to avoid live Anthropic API calls in the end-to-end test
+vi.mock("@/lib/ai/rerank", () => ({
+  rerankCandidates: vi.fn(),
+  DIGEST_MIN_RERANK_SCORE: 2,
 }));
 
 beforeEach(async () => {
@@ -293,5 +308,77 @@ describe("seedDefaultSavedQuery (issue #229)", () => {
     expect(DEFAULT_SAVED_QUERY_SEED).toBe(
       "re-roof, membrane replacement, Colorbond roof replacement, asbestos roof removal, roof tiling, metal deck roofing, guttering replacement",
     );
+  });
+});
+
+describe("seedDefaultSavedQuery end-to-end with relevance pipeline (issue #229)", () => {
+  it("runRelevanceForUser produces a candidate set for a freshly-signed-up user with an LGA bundle", async () => {
+    // Create a fresh user without savedQueryText or LGA subscriptions — the
+    // exact state of a trial user who signed up but never visited /onboarding/query.
+    const userId = await testDb.user
+      .create({
+        data: {
+          email: `fresh-signup-${Date.now()}@test.com`,
+          passwordHash: "hashed",
+          emailVerified: false,
+          subscriptionStatus: "trial",
+          trade: "roofing",
+        },
+      })
+      .then((u) => u.id);
+
+    // Seed the FR-015 default saved query (issue #229) — the fix under test.
+    const { seedDefaultSavedQuery } = await import("@/modules/account/service");
+    await seedDefaultSavedQuery(userId);
+
+    // Assign an LGA bundle (the second onboarding step after signup).
+    const { updateLgaBundles } = await import("@/modules/account/service");
+    await updateLgaBundles(userId, ["western_sydney"]);
+
+    // Seed 5 DAs in western_sydney territory (blacktown council) that match
+    // roofing keywords, within the 14-day rule-filter lookback window.
+    // The pipeline surfaces candidates meeting the FR-006 floor and must
+    // produce at least DIGEST_EMAIL_MIN_CARDS (5) to avoid the quiet-week gate.
+    for (let i = 0; i < 5; i++) {
+      await testDb.developmentApplication.create({
+        data: {
+          daId: `TEST-INT-${Date.now()}-${i}`,
+          council: "blacktown",
+          address: `${200 + i} Test St, Blacktown NSW`,
+          description: "Re-roof existing dwelling with Colorbond sheeting",
+          portalUrl: `https://example.com/${200 + i}`,
+          lodgementDate: new Date(),
+          sourceApi: "nsw_planning",
+          approvalPathway: "da",
+        },
+      });
+    }
+
+    // Wire the rerank mock to return a result for every candidate that
+    // reaches stage 3 (the LLM rerank is replaced by a mock that accepts
+    // all candidates with a score above the FR-006 floor).
+    const { rerankCandidates } = await import("@/lib/ai/rerank");
+    (rerankCandidates as ReturnType<typeof vi.fn>).mockImplementation(
+      (input: { candidates: Array<{ daId: string }> }) =>
+        input.candidates.map((c) => ({
+          daId: c.daId,
+          score: 4,
+          why: "Roofing work present in description",
+          confidence: 1,
+          modelUsed: "mock",
+        })),
+    );
+
+    // ACT — run the relevance pipeline for the fresh user.
+    const { runRelevanceForUser } = await import("@/modules/relevance/run");
+    const result = await runRelevanceForUser(userId);
+
+    // ASSERT — a non-null candidate set is returned, proving the seeded
+    // embedding and LGA subscription together unblock the digest pipeline.
+    expect(result).not.toBeNull();
+    expect(result!.results.length).toBeGreaterThan(0);
+    expect(result!.results[0].daId).toBeDefined();
+    // Verify the full pipeline ran (not the degraded embedding-only path).
+    expect(result!.fallbackUsed).toBe(false);
   });
 });
