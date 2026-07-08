@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { verifyCronSecret } from "@/lib/cron/retry";
 import { runIngest } from "@/modules/ingestion/ingest";
 import { runPccIngest } from "@/modules/ingestion/pcc-ingest";
+import { markRulePassMisses } from "@/modules/relevance/mark-rule-misses";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5-minute limit for nightly fetch of 15 LGAs
@@ -34,11 +35,18 @@ export async function GET(request: Request): Promise<NextResponse> {
     // isolated inside runPccIngest and never fails the DA ingest.
     const pcc = await runPccIngest(1);
 
+    // Persist rule-pass misses for recall-audit stratification (issue #221).
+    // Marks DAs in the 15 subscribed councils that fail the roofing keyword
+    // tsquery with ruleFilteredOut=true, excludedReason='rule_filter_miss'.
+    // Idempotent — safe to run every night.
+    const ruleMiss = await markRulePassMisses();
+
     return NextResponse.json({
       ingested: result.totalIngested,
       failed: result.totalFailed,
       perCouncil: result.results,
       pcc: { linked: pcc.linked, unmatched: pcc.unmatched, skipped: pcc.skipped },
+      ruleMiss,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

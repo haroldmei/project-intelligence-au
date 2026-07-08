@@ -43,7 +43,7 @@ async function main(): Promise<void> {
       if (isRefused) {
         await db.developmentApplication.update({
           where: { id: da.id },
-          data: { ruleFilteredOut: true },
+          data: { ruleFilteredOut: true, excludedReason: "refused_withdrawn" },
         });
         refused++;
         console.log(`  ✗ [${da.council}] ${da.daId} — ${detail.decision} (filtered)`);

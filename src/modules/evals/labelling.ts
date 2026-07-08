@@ -16,6 +16,7 @@ export interface UnlabelledDa {
   rawScopeText: string | null;
   estimatedValue: number | null;
   ruleFilteredOut: boolean;
+  excludedReason: string | null;
 }
 
 const DA_SELECT = {
@@ -27,6 +28,7 @@ const DA_SELECT = {
   rawScopeText: true,
   estimatedValue: true,
   ruleFilteredOut: true,
+  excludedReason: true,
 } as const;
 
 function toUnlabelled(rows: Array<Record<string, unknown>>): UnlabelledDa[] {
@@ -39,14 +41,18 @@ function toUnlabelled(rows: Array<Record<string, unknown>>): UnlabelledDa[] {
     rawScopeText: (r.rawScopeText as string | null) ?? null,
     estimatedValue: r.estimatedValue == null ? null : Number(r.estimatedValue),
     ruleFilteredOut: r.ruleFilteredOut as boolean,
+    excludedReason: (r.excludedReason as string | null) ?? null,
   }));
 }
 
 /**
  * DAs not yet labelled *by this labeller for this vertical*, split by the rule
  * filter so the gold set stays stratified across rule-filter hits
- * (ruleFilteredOut=false) AND misses (ruleFilteredOut=true) — labelling only the
- * hits would blind the eval to false negatives the rule pass drops.
+ * (ruleFilteredOut=false) AND misses (ruleFilteredOut=true WITH
+ * excludedReason='rule_filter_miss') — labelling only the hits would blind the
+ * eval to false negatives the rule pass drops. The misses stratum explicitly
+ * targets rule-pass false negatives, NOT refused/withdrawn status exclusions
+ * (which carry excludedReason='refused_withdrawn'; issue #221).
  *
  * Scoped to `jurisdiction` (the DA's own region) and to the `vertical` on the
  * "already labelled" check, so labelling the same DA for a second trade surfaces
@@ -75,7 +81,7 @@ export async function selectUnlabelledStratified(
       take: args.limitPerStratum,
     }),
     db.developmentApplication.findMany({
-      where: { ...base, ruleFilteredOut: true },
+      where: { ...base, ruleFilteredOut: true, excludedReason: "rule_filter_miss" },
       select: DA_SELECT,
       orderBy: { ingestedAt: "desc" },
       take: args.limitPerStratum,

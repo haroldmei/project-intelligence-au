@@ -214,6 +214,11 @@ model DevelopmentApplication {
   // output is byte-identical.
   jurisdiction   String   @default("nsw")
   ruleFilteredOut Boolean @default(false) @map("rule_filtered_out")
+  // Reason this DA was excluded (null = not excluded; rule_filter_miss = failed
+  // the roofing keyword rule pass; refused_withdrawn = determined Refused/WD).
+  // Keeps the two meanings distinct for the eval harness's 'misses' stratum
+  // (FR-004 recall audit) and the status-exclusion path (#221).
+  excludedReason String? @map("excluded_reason")
   ingestedAt     DateTime @default(now()) @map("ingested_at")
 
   lgaId String? @map("lga_id")

@@ -61,14 +61,16 @@ describe("docs/07-api-reference.md route coverage", () => {
   // Field-level parity for GET /api/cron/ingest (issue #112): the handler always
   // runs runPccIngest and returns a `pcc` object, but the response schema had
   // omitted it. Pin every key of the object literal so the doc can't re-drift.
-  it("documents the ingest response `pcc` object and its keys (issue #112)", () => {
+  // Also pins the `ruleMiss` response field (issue #221).
+  it("documents the ingest response `pcc` and `ruleMiss` objects and their keys (issue #112, #221)", () => {
     const route = readFileSync(
       path.resolve(process.cwd(), "src/app/api/cron/ingest/route.ts"),
       "utf8",
     );
-    // Sanity: the route really does return the pcc object we're documenting.
+    // Sanity: the route really does return the pcc + ruleMiss objects we're documenting.
     expect(route).toContain("pcc: { linked: pcc.linked, unmatched: pcc.unmatched, skipped: pcc.skipped }");
-    for (const key of ["pcc", "pcc.linked", "pcc.unmatched", "pcc.skipped"]) {
+    expect(route).toContain("ruleMiss");
+    for (const key of ["pcc", "pcc.linked", "pcc.unmatched", "pcc.skipped", "ruleMiss"]) {
       expect(doc, `docs/07-api-reference.md must document the \`${key}\` response field`).toContain(
         `\`${key}\``,
       );
