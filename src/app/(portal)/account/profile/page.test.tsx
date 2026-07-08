@@ -1,6 +1,8 @@
 // Component test for the profile page (#166). Clearing the mobile field and
 // saving must actually remove the number — send `null`, not undefined — and the
 // green "Saved." toast must reflect the true post-save state (empty field).
+// issue #245: when clearing the number while SMS is enabled the toast must
+// explicitly disclose that the SMS digest has been disabled.
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import ProfilePage from "./page";
@@ -12,9 +14,10 @@ let putBody: Record<string, unknown> | null = null;
 /**
  * Mock GET /api/account/me with the given account, and echo PUT requests back
  * as the server would after honouring the write (so `mobile_e164: null` in the
- * request yields `mobile_e164: null` in the response).
+ * request yields `mobile_e164: null` in the response, and smsOptIn is set to
+ * false when the mobile is cleared).
  */
-function mockFetch(me: { email?: string; mobile_e164?: string | null }) {
+function mockFetch(me: { email?: string; mobile_e164?: string | null; smsOptIn?: boolean }) {
   putBody = null;
   global.fetch = vi.fn((url: FetchArgs[0], init?: FetchArgs[1]) => {
     const u = String(url);
@@ -25,7 +28,9 @@ function mockFetch(me: { email?: string; mobile_e164?: string | null }) {
       putBody = JSON.parse(String(init.body)) as Record<string, unknown>;
       // Server honours the removal: the persisted mobile is whatever was sent.
       const mobile_e164 = (putBody.mobile_e164 ?? null) as string | null;
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ...me, mobile_e164 }) } as Response);
+      // Simulate server behaviour (#245): clearing the mobile also disables SMS.
+      const smsOptIn = mobile_e164 === null ? false : (me.smsOptIn ?? false);
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ...me, mobile_e164, smsOptIn }) } as Response);
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
   }) as unknown as typeof fetch;
@@ -50,8 +55,9 @@ describe("ProfilePage — clearing the mobile number", () => {
     expect(putBody).toEqual({ mobile_e164: null });
   });
 
-  it("keeps the field empty and shows Saved. after a successful removal (#166)", async () => {
-    mockFetch({ email: "a@b.com", mobile_e164: "+61400000000" });
+  it("keeps the field empty and shows Saved. after a successful removal when SMS was already off (#166, #245)", async () => {
+    // SMS was already off — no disclosure needed, just "Saved."
+    mockFetch({ email: "a@b.com", mobile_e164: "+61400000000", smsOptIn: false });
     render(<ProfilePage />);
 
     const input = (await screen.findByLabelText(/mobile number/i)) as HTMLInputElement;
@@ -63,6 +69,41 @@ describe("ProfilePage — clearing the mobile number", () => {
     await screen.findByText("Saved.");
     // The input must not snap back to the old number — that was the false-success bug.
     expect(input.value).toBe("");
+  });
+
+  it("shows an explicit disclosure toast when clearing a number with SMS enabled (#245)", async () => {
+    mockFetch({ email: "a@b.com", mobile_e164: "+61400000000", smsOptIn: true });
+    render(<ProfilePage />);
+
+    const input = (await screen.findByLabelText(/mobile number/i)) as HTMLInputElement;
+    await waitFor(() => expect(input.value).toBe("+61400000000"));
+
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    // Must disclose that the SMS digest was turned off, not just "Saved."
+    const toast = await screen.findByRole("status");
+    expect(toast).toHaveTextContent("SMS digest turned off");
+    expect(toast).toHaveTextContent("no mobile on file");
+    // The bare "Saved." must not be the only feedback — it would hide the side-effect.
+    expect(toast.textContent).not.toBe("Saved.");
+  });
+
+  it("shows only Saved. when changing number while SMS is on (#245 regression)", async () => {
+    // Changing the number (not clearing) keeps SMS on — no disclosure needed.
+    mockFetch({ email: "a@b.com", mobile_e164: "+61400000000", smsOptIn: true });
+    render(<ProfilePage />);
+
+    const input = (await screen.findByLabelText(/mobile number/i)) as HTMLInputElement;
+    await waitFor(() => expect(input.value).toBe("+61400000000"));
+
+    fireEvent.change(input, { target: { value: "+61499999999" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    const toast = await screen.findByRole("status");
+    expect(toast).toHaveTextContent("Saved.");
+    // No disclosure about SMS since the number wasn't cleared.
+    expect(toast.textContent).not.toMatch(/SMS digest turned off/i);
   });
 
   it("still sends a valid number unchanged when the field is filled", async () => {
