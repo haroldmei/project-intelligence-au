@@ -343,6 +343,12 @@ export async function assembleAndSendDigest(
       // 0 leads even though its DigestDa rows now exist (issue #161). Left
       // untouched on a per-channel retry whose cards + count were already persisted.
       ...(cardsAlreadyPersisted ? {} : { daCount }),
+      // Backfill fallbackUsed on the audit-stub recovery path (issue #227).
+      // The stub was written with fallbackUsed:false, so a recovery that degraded
+      // to the embedding-only path must overwrite it — otherwise the portal
+      // history shows a normal week while the delivered email said 'basic mode'.
+      // Left untouched on a pure per-channel retry (relevance is null then).
+      ...(relevance ? { fallbackUsed: relevance.fallbackUsed } : {}),
     },
   });
 
