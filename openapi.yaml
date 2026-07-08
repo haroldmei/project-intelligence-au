@@ -6,7 +6,7 @@ info:
     API for ProjectIntelligence AU (PI-AU) — a SaaS product delivering weekly curated digests
     of roofing-relevant Development Applications to Sydney subcontractor businesses.
 
-    **Wedge:** The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+    **Wedge:** The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo inc GST, signup in 60 seconds.
 
     **Tech Stack Contract:** docs/00-tech-stack.md (LOCKED 2026-04-28)
 
@@ -1798,9 +1798,9 @@ components:
       properties:
         plan:
           type: string
-          enum: [solo, team]
+          enum: [solo]
           example: solo
-          description: Solo = AUD 199/mo (1 seat); Team = AUD 499/mo (3 seats)
+          description: Solo = AUD 99/mo inc GST. Team is deferred (returns 422).
       required:
         - plan
 
