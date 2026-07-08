@@ -306,3 +306,70 @@ describe("WeeklyDigestTemplate — personalisation-on note (issue #96 A3)", () =
     expect(html).not.toContain("Your digest is now personalised");
   });
 });
+
+describe("WeeklyDigestTemplate — portalUrl escaping (issue #233)", () => {
+  const maliciousUrl = "https://x.com/da\" onmouseover=\"alert(1)\" onclick=\"<script>bad()</script>";
+  const { html } = WeeklyDigestTemplate({
+    weekStart: "27 Apr 2026",
+    leadCount: 1,
+    lgas: ["Inner West"],
+    cards: [
+      {
+        id: "xss-1",
+        address: "1 Safe St",
+        lga: "Inner West",
+        why: "y",
+        scope: "s",
+        applicant: "",
+        relevanceScore: 5,
+        portalUrl: maliciousUrl,
+        thumbUpUrl: "https://pi-au.example.com/api/feedback?id=xss-1&v=1&token=abc",
+        thumbDownUrl: "https://pi-au.example.com/api/feedback?id=xss-1&v=0&token=abc",
+      },
+    ],
+    smsEnabled: false,
+  });
+
+  it("entity-encodes double-quote in portalUrl to prevent attribute breakout", () => {
+    // The raw " would break the href="…" attribute boundary, injecting onmouseover/onclick
+    // as real HTML attributes. With escapeHtml, " becomes &quot; so the entire URL stays
+    // safely inside the href value. The text "onmouseover" appears only as part of the
+    // URL content (after &quot;), never as a real attribute.
+    expect(html).toContain("&quot;");
+    // Assert the href attribute is well-formed: there's exactly one opening " after href=
+    // before the URL content starts, meaning no unescaped " broke the boundary.
+    const hrefMatch = html.match(/<a href="([^"]*)"/);
+    expect(hrefMatch).not.toBeNull();
+    // The href value must contain the entity-encoded quote (proving it wasn't a raw ").
+    expect(hrefMatch![1]).toContain("&quot;");
+  });
+
+  it("entity-encodes < and > in portalUrl to prevent tag injection", () => {
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toContain("<script>");
+  });
+
+  it("preserves safe https:// URLs in the href", () => {
+    const { html: h } = WeeklyDigestTemplate({
+      weekStart: "27 Apr 2026",
+      leadCount: 1,
+      lgas: ["Inner West"],
+      cards: [
+        {
+          id: "safe-1",
+          address: "2 Normal St",
+          lga: "Inner West",
+          why: "y",
+          scope: "s",
+          applicant: "",
+          relevanceScore: 5,
+          portalUrl: "https://council.nsw.gov.au/da/12345",
+          thumbUpUrl: "https://pi-au.example.com/api/feedback?id=safe-1&v=1&token=abc",
+          thumbDownUrl: "https://pi-au.example.com/api/feedback?id=safe-1&v=0&token=abc",
+        },
+      ],
+      smsEnabled: false,
+    });
+    expect(h).toContain("https://council.nsw.gov.au/da/12345");
+  });
+});
