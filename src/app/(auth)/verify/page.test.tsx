@@ -1,6 +1,6 @@
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import VerifyPage from "./page";
+import { VerifyForm } from "./verify-form";
 
 // Stable router reference (real Next.js useRouter is stable across renders) so
 // the [router]-dependency effect runs once — a fresh object each call would
@@ -43,34 +43,34 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("VerifyPage", () => {
+describe("VerifyForm", () => {
   it("renders heading and step indicator", () => {
-    render(<VerifyPage />);
+    render(<VerifyForm />);
     expect(screen.getByRole("heading", { name: /Check your email/i })).toBeTruthy();
     expect(screen.getByText(/Step 2 of 5/i)).toBeTruthy();
   });
 
   it("renders 6 OTP digit inputs", () => {
-    render(<VerifyPage />);
+    render(<VerifyForm />);
     for (let i = 1; i <= 6; i++) {
       expect(screen.getByLabelText(new RegExp(`Digit ${i} of 6`, "i"))).toBeTruthy();
     }
   });
 
   it("renders verify button (disabled by default)", () => {
-    render(<VerifyPage />);
+    render(<VerifyForm />);
     const btn = screen.getByRole("button", { name: /verify email/i });
     expect(btn).toBeTruthy();
     expect((btn as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("shows the destination email once /api/auth/me resolves (issue #92)", async () => {
-    render(<VerifyPage />);
+    render(<VerifyForm />);
     await waitFor(() => expect(screen.getByText("eil@exmaple.com")).toBeTruthy());
   });
 
   it("lets a user correct a mistyped email and re-sends the code (issue #92)", async () => {
-    render(<VerifyPage />);
+    render(<VerifyForm />);
     await waitFor(() => expect(screen.getByText("eil@exmaple.com")).toBeTruthy());
 
     // Open the change-email editor and submit the corrected address.
@@ -91,7 +91,7 @@ describe("VerifyPage", () => {
   });
 
   it("surfaces a server error when the new email is already taken", async () => {
-    render(<VerifyPage />);
+    render(<VerifyForm />);
     await waitFor(() => expect(screen.getByText("eil@exmaple.com")).toBeTruthy());
 
     // Re-stub: change-email now rejects with a 409.
@@ -122,7 +122,7 @@ describe("VerifyPage", () => {
 
   describe("resend code behavior", () => {
     it("shows success banner when resend succeeds", async () => {
-      render(<VerifyPage _testInitialCountdown={0} />);
+      render(<VerifyForm _testInitialCountdown={0} />);
 
       await waitFor(() => expect(screen.getByText("eil@exmaple.com")).toBeTruthy());
       expect(screen.getByRole("button", { name: "Resend code" })).toBeTruthy();
@@ -149,7 +149,7 @@ describe("VerifyPage", () => {
         }),
       );
 
-      render(<VerifyPage _testInitialCountdown={0} />);
+      render(<VerifyForm _testInitialCountdown={0} />);
 
       await waitFor(() => expect(screen.getByText("eil@exmaple.com")).toBeTruthy());
       expect(screen.getByRole("button", { name: "Resend code" })).toBeTruthy();
@@ -177,7 +177,7 @@ describe("VerifyPage", () => {
         }),
       );
 
-      render(<VerifyPage _testInitialCountdown={0} />);
+      render(<VerifyForm _testInitialCountdown={0} />);
 
       await waitFor(() => expect(screen.getByText("eil@exmaple.com")).toBeTruthy());
       expect(screen.getByRole("button", { name: "Resend code" })).toBeTruthy();
