@@ -770,7 +770,7 @@ Update the authenticated user's saved search query. The query is re-embedded ser
 
 | Field | Type | Required | Validation |
 |-------|------|----------|------------|
-| `saved_query_text` | string | Yes | 1–500 chars |
+| `saved_query_text` | string | Yes | 5–500 chars |
 
 #### Response
 
@@ -788,7 +788,7 @@ Update the authenticated user's saved search query. The query is re-embedded ser
 |--------|------|-------------|
 | `400` | — | Invalid JSON body |
 | `401` | — | Unauthorized (no active session) |
-| `422` | — | Validation error (empty, > 500 chars) |
+| `422` | — | Validation error (< 5 chars, > 500 chars) |
 
 #### Curl Example
 
