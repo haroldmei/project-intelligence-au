@@ -1588,6 +1588,7 @@ Idempotent handler for Stripe events (subscription created/updated/deleted, invo
 | `customer.subscription.updated` | Update subscription status and access period |
 | `customer.subscription.deleted` | Update `user.subscriptionStatus = "cancelled"` |
 | `invoice.payment_failed` | Update `user.subscriptionStatus = "past_due"` |
+| `invoice.payment_action_required` | Card needs 3DS/SCA confirmation → set `user.subscriptionStatus = "past_due"` (no dunning email; /account CTA + Stripe portal 3DS flow covers it) |
 | `invoice.payment_succeeded` | Update `user.subscriptionStatus = "active"` if was `past_due` |
 
 #### Response
