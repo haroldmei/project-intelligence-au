@@ -364,11 +364,26 @@ async function checkDrift(council: string, pathway: string, todayCount: number):
   const avg = logs.reduce((s, r) => s + r.daCount, 0) / logs.length;
 
   if (todayCount === 0 || (avg > 0 && todayCount / avg < 0.5)) {
-    const msg = `Ingestion drift on ${council} (${pathway}): today=${todayCount}, 7d_avg=${avg.toFixed(1)}`;
-    log.warn({ council, pathway, todayCount, avg }, msg);
+    // FR-003: alert must include the source API name and the last successful
+    // ingestion timestamp so on-call triage can identify the affected upstream
+    // feed and staleness. Query the most recent row with actual data (> 0 count)
+    // to skip the just-written 0-count row for this drift cycle.
+    const lastSuccess = await db.ingestionLog.findFirst({
+      where: { council, approvalPathway: pathway, success: true, daCount: { gt: 0 } },
+      orderBy: { runAt: "desc" },
+      select: { sourceApi: true, runAt: true },
+    });
+
+    const sourceApi = lastSuccess?.sourceApi ?? "unknown";
+    const lastSuccessAt = lastSuccess?.runAt.toISOString() ?? "unknown";
+
+    const msg =
+      `Ingestion drift on ${council} (${pathway}): today=${todayCount}, ` +
+      `7d_avg=${avg.toFixed(1)}, source_api=${sourceApi}, last_success_at=${lastSuccessAt}`;
+    log.warn({ council, pathway, todayCount, avg, sourceApi, lastSuccessAt }, msg);
     Sentry.captureMessage(msg, {
       level: "warning",
-      tags: { council, pathway, phase: "ingestion-drift" },
+      tags: { council, pathway, phase: "ingestion-drift", source_api: sourceApi, last_success_at: lastSuccessAt },
     });
   }
 }
