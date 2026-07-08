@@ -71,7 +71,16 @@ export default function ProfilePage() {
         const updated = (await res.json()) as AccountDTO;
         setAccount(updated);
         setMobile(updated.mobile_e164 ?? "");
-        setToast("Saved.");
+        // issue #245: clearing the number while SMS was enabled also turns off the
+        // SMS digest (server sets smsOptIn=false). Disclose this in the toast so
+        // the user isn't surprised by a missing Sunday digest next week.
+        const clearingNumber = !next;
+        const wasSmsEnabled = account?.smsOptIn ?? false;
+        if (clearingNumber && wasSmsEnabled) {
+          setToast("Saved. SMS digest turned off — no mobile on file.");
+        } else {
+          setToast("Saved.");
+        }
       }
     } catch {
       setSaveError("Network error. Please try again.");
