@@ -9,6 +9,7 @@ const validateRequest = vi.fn();
 const getCurrentDigest = vi.fn();
 const getMyArea = vi.fn();
 const getDigestHistory = vi.fn();
+const isUserEntitled = vi.fn();
 const redirect = vi.fn((_url: string) => {
   throw new Error("REDIRECT");
 });
@@ -20,6 +21,7 @@ vi.mock("@/modules/portal/loaders", () => ({
   getCurrentDigest: () => getCurrentDigest(),
   getMyArea: () => getMyArea(),
   getDigestHistory: () => getDigestHistory(),
+  isUserEntitled: () => isUserEntitled(),
 }));
 vi.mock("next/navigation", () => ({ redirect: (u: string) => redirect(u) }));
 vi.mock("@/components/digest-view", () => ({
@@ -38,6 +40,7 @@ beforeEach(() => {
   validateRequest.mockResolvedValue({ user: { id: "user-1" } });
   getMyArea.mockResolvedValue({ lgaBundles: [{ label: "Inner West" }] });
   getDigestHistory.mockResolvedValue([{ sentAt: new Date() }]);
+  isUserEntitled.mockResolvedValue(true); // Not lapsed — existing tests assume entitled.
 });
 
 describe("DigestPage feedback toast", () => {
@@ -89,5 +92,33 @@ describe("DigestPage empty state — onboarding completeness (issue #123)", () =
 
     expect(screen.getByText(/your first digest arrives sunday/i)).toBeInTheDocument();
     expect(screen.queryByText(/finish setting up your digest/i)).toBeNull();
+  });
+});
+
+// Issue #236 — entitlement-lapsed state
+describe("DigestPage lapsed-trial branch (issue #236)", () => {
+  it("renders the LapsedTrialPrompt when the user is NOT entitled (trial past 28d)", async () => {
+    isUserEntitled.mockResolvedValue(false);
+    getCurrentDigest.mockResolvedValue(null);
+    await renderPage(undefined);
+
+    // Must show the re-subscribe CTA.
+    const link = screen.getByRole("link", { name: /subscribe to keep your sunday digest/i });
+    expect(link).toHaveAttribute("href", "/plan");
+    // Must NOT show the false 'arrives Sunday' copy.
+    expect(screen.queryByText(/your first digest arrives sunday/i)).toBeNull();
+  });
+
+  it("renders the LapsedTrialPrompt even when a stale digest exists", async () => {
+    // A lapsed user might have a stale digest from before the entitlement window
+    // closed. The page must show the re-subscribe prompt, not the stale digest.
+    isUserEntitled.mockResolvedValue(false);
+    getCurrentDigest.mockResolvedValue({ id: "stale-d1" });
+    await renderPage(undefined);
+
+    expect(screen.getByRole("link", { name: /subscribe to keep your sunday digest/i })).toBeInTheDocument();
+    expect(screen.queryByText(/your first digest arrives sunday/i)).toBeNull();
+    // The DigestView must NOT render.
+    expect(screen.queryByTestId("digest-view")).toBeNull();
   });
 });
