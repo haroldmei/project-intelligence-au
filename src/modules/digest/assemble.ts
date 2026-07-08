@@ -443,14 +443,25 @@ function buildUnsubscribeUrl(userId: string): string {
  * job is (re-roof vs demolition vs extension) without tapping through — the
  * scope is the whole point of the top-3 teaser.
  *
- * Stays within FR-011's budget of 3 concatenated parts (≤ 480 chars). The scope
+ * Stays within FR-011's budget of 3 concatenated segments (≤ 459 GSM-7 / ≤ 201
+ * UCS-2). Uses encoding-aware capping so non-GSM-7 chars in source data never
+ * silently blow the segment budget. The scope
  * is capped to ≤ 20 words (FR-011) and shrinks first, then addresses truncate,
  * and only as a last resort is a card dropped — surfacing the "fewer leads but
  * still scoped" tradeoff rather than silently omitting the scope field. Sender-id
  * + STOP footer strings come from the centralised SMS client so this call site
  * and the client can never drift apart.
  */
-const SMS_MAX_CHARS = 480;
+// ─── SMS encoding constants (FR-011: ≤ 3 concatenated segments) ────
+// GSM-7 (GSM 03.38 default alphabet): 153 chars per concatenated segment.
+// UCS-2 (forced by any non-GSM-7 character): 67 chars per segment.
+// The flat 480 from the original spec was always wrong — that's 4 GSM-7
+// segments, not 3. A message of 459 GSM-7 chars packs into 3 segments.
+const SMS_GSM7_CHARS_PER_SEGMENT = 153;
+const SMS_UCS2_CHARS_PER_SEGMENT = 67;
+const SMS_MAX_SEGMENTS = 3;
+const SMS_GSM7_MAX_CHARS = SMS_GSM7_CHARS_PER_SEGMENT * SMS_MAX_SEGMENTS; // 459
+const SMS_UCS2_MAX_CHARS = SMS_UCS2_CHARS_PER_SEGMENT * SMS_MAX_SEGMENTS;  // 201
 const SMS_FOOTER = `\n${SMS_STOP_FOOTER}`;
 const SMS_ADDRESS_FALLBACK_LEN = 40;
 // FR-011/UI-003: scope is "≤ 20 words". Within the SMS budget the char cap is
@@ -468,7 +479,20 @@ function smsScopeToken(scope: string | undefined, maxLen: number): string {
   const clean = (scope ?? "").replace(/\s+/g, " ").trim();
   if (!clean) return "";
   const words = clean.split(" ").slice(0, SMS_SCOPE_MAX_WORDS).join(" ");
-  return words.length > maxLen ? `${words.slice(0, maxLen - 1)}…` : words;
+  return words.length > maxLen ? `${words.slice(0, maxLen - 2)}..` : words;
+}
+
+/**
+ * Check whether `s` is encodable in the GSM 03.38 default alphabet (basic or
+ * extension table). A message that passes this test fits 153 chars per segment;
+ * any non-representable character forces UCS-2 (67 chars/segment).
+ */
+function isGsm7Safe(s: string): boolean {
+  // GSM 03.38 basic charset + extension table, per 3GPP TS 23.038 v19.0.0 §6.2.1.
+  // Covers: LF, CR, SP through _ (excluding `), a–z + {|}~, Latin-1 Supplement
+  // chars, Greek uppercase, and the Euro sign.
+  return /^[\x0a\x0d\x20-\x5f\x61-\x7e¡£¤¥§¿ÄÅÆÇÉÑÖØÜßàäåæçèéìñòöøùüΓΔΘΛΞΠΣΦΨΩ€]*$/
+    .test(s);
 }
 
 export function buildSmsBody(
@@ -487,7 +511,7 @@ export function buildSmsBody(
     addressLen: number,
     scopeLen: number,
   ) => {
-    const addr = c.address.length > addressLen ? `${c.address.slice(0, addressLen - 1)}…` : c.address;
+    const addr = c.address.length > addressLen ? `${c.address.slice(0, addressLen - 2)}..` : c.address;
     const scope = smsScopeToken(c.scope, scopeLen);
     const scopeSeg = scope ? ` | ${scope}` : "";
     const val = c.value ? ` | ${c.value}` : "";
@@ -499,17 +523,23 @@ export function buildSmsBody(
     return `${header}${lines.join("\n\n")}${SMS_FOOTER}`;
   };
 
+  // Determine the cap for the actual encoding: GSM-7 caps at 459 (3×153),
+  // UCS-2 caps at 201 (3×67). Runs per-pass because truncation can remove
+  // a non-GSM-7 char and move the body back to GSM-7.
+  const encodingMax = (body: string) =>
+    isGsm7Safe(body) ? SMS_GSM7_MAX_CHARS : SMS_UCS2_MAX_CHARS;
+
   // First pass: full addresses, full scope.
   let body = assemble((c) => c.address.length, SMS_SCOPE_MAX_LEN);
-  if (body.length <= SMS_MAX_CHARS) return body;
+  if (body.length <= encodingMax(body)) return body;
 
   // Second pass: truncate addresses to a fixed length, keep full scope.
   body = assemble(() => SMS_ADDRESS_FALLBACK_LEN, SMS_SCOPE_MAX_LEN);
-  if (body.length <= SMS_MAX_CHARS) return body;
+  if (body.length <= encodingMax(body)) return body;
 
   // Third pass: also tighten the scope before shedding a whole lead.
   body = assemble(() => SMS_ADDRESS_FALLBACK_LEN, SMS_SCOPE_FALLBACK_LEN);
-  if (body.length <= SMS_MAX_CHARS) return body;
+  if (body.length <= encodingMax(body)) return body;
 
   // Last resort: drop the lowest-ranked card (still scoped) rather than silently
   // omitting the scope field from every line.
