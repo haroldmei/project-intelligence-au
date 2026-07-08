@@ -53,7 +53,7 @@ const jsonLd = {
 const FEATURES = [
   {
     id: "digest",
-    step: "Step 5",
+    step: "Step 1",
     title: "Sunday digest. 15 LGAs. One email.",
     today:
       "You open four council portals Sunday night, give up on the other 11, and still miss the good jobs.",
@@ -64,7 +64,7 @@ const FEATURES = [
   },
   {
     id: "vocab",
-    step: "Step 4",
+    step: "Step 2",
     title: "Roofing vocabulary, not keyword soup.",
     today:
       "Cordell keyword-matches \"roof\" across all trades — you get hospital cladding in Newcastle and granny-flat pergolas in Wollongong.",
@@ -75,7 +75,7 @@ const FEATURES = [
   },
   {
     id: "signup",
-    step: "Step 1",
+    step: "Step 3",
     title: "Signup in 60 seconds. No sales call.",
     today:
       "Cordell's signup is a demo booking, a quote, 3–10 business days, and an annual contract you can't cancel online.",
@@ -358,7 +358,7 @@ export default function MarketingPage() {
 
           {/* ═══════════════════════════════════════════════════════════════
               FEATURE BLOCKS (3)
-              Tied to wedge workflow steps 5, 4, 1 per locked constraint.
+              Cards presented in ascending visitor-facing order (1→2→3).
           ═══════════════════════════════════════════════════════════════ */}
           <section
             id="how-it-works"
