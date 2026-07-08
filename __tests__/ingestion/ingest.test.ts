@@ -205,7 +205,23 @@ describe("drift detection", () => {
     (fetchWithRetry as ReturnType<typeof vi.fn>).mockResolvedValue({ applications: [] });
     await runIngest(1);
 
+    // FR-003: alert must carry source API name and last success timestamp.
     expect(captureMessage).toHaveBeenCalled();
+    const calls = (captureMessage as ReturnType<typeof vi.fn>).mock.calls;
+    const driftCall = calls.find(
+      (call: unknown[]) =>
+        (call[1] as { tags?: { phase?: string } } | undefined)?.tags?.phase === "ingestion-drift",
+    );
+    expect(driftCall).toBeDefined();
+
+    const tags = (driftCall as [string, { tags: Record<string, string> }])[1].tags;
+    expect(tags.source_api).toBe("nsw_planning");
+    expect(tags.last_success_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+
+    // Message should include both values.
+    const msg = (driftCall as [string])[0];
+    expect(msg).toContain("source_api=nsw_planning");
+    expect(msg).toContain("last_success_at=");
   });
 });
 
@@ -350,5 +366,10 @@ describe("CDC ingestion through runIngest (#10)", () => {
       (call: unknown[]) => (call[1] as { tags?: { pathway?: string } } | undefined)?.tags?.pathway === "cdc",
     );
     expect(cdcDriftCalls.length).toBeGreaterThan(0);
+
+    // FR-003: CDC drift alert must also carry the source API and last success timestamp.
+    const cdcTags = (cdcDriftCalls[0] as [string, { tags: Record<string, string> }])[1].tags;
+    expect(cdcTags.source_api).toBe("nsw_cdc");
+    expect(cdcTags.last_success_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   });
 });
