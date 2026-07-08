@@ -3,8 +3,8 @@
 // Vitest + real Postgres test DB (TEST_DATABASE_URL).
 //
 // A per-LGA transient upstream failure on the Saturday-night ingest must be
-// re-fetched (by the hourly /api/cron/ingest-retry cron) BEFORE the Sunday
-// 17:00 digest reads that LGA's DAs — the nightly ingest itself has no retry.
+// re-fetched (by the inline retry pass at the end of the nightly ingest handler)
+// BEFORE the Sunday 17:00 digest reads that LGA's DAs.
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 
 vi.mock("@/modules/ingestion/fetch", () => ({

@@ -1745,6 +1745,7 @@ Nightly ETL of newly lodged DAs — and, additively, NSW CDC records — from th
 3. Upsert into `development_applications` table (both DA and CDC records, keyed on `(daId, council)`; CDC ids are namespaced with a `CDC-` prefix so a CDC number can never overwrite a DA of the same council-issued reference)
 4. Log ingestion results and drift detection — **one `ingestion_log` row per `(council, approval_pathway)`** (`da`, `cdc`, …), and drift is checked per pathway, so a CDC-feed outage is detected independently of healthy DA volume (and vice versa)
 5. Link the day's Construction Certificates (PCCs) to their DAs (issue #13). Runs after the DA upsert so the referenced DAs already exist. No-op (returns `skipped: true`, all counts `0`) unless **both** `PCC_INGEST_ENABLED` and `NSW_PLANNING_API_KEY` are set — inert until the feed is switched on. A CC with no matching DA is counted as `unmatched` and skipped, not created as a new DA.
+6. **Compensating retry** — re-fetch any councils that failed in the steps above, so a transient upstream failure is healed before the digest reads the data (issue #125). Idempotent and self-limiting: a council with a `success=true` row newer than its latest failure is skipped; a council exceeding `MAX_INGEST_RETRY_ATTEMPTS` failures is left to drift detection. No-op on a healthy night.
 
 **Ingest feed flags** — the two additive expansion feeds have opposite defaults:
 
@@ -1777,6 +1778,7 @@ No request body.
     "randwick": { "ingested": 45, "failed": 1 },
     "manly": { "ingested": 47, "failed": 1 }
   },
+  "retry": { "retriedCouncils": ["blacktown"], "ingested": 7, "failed": 0 },
   "pcc": { "linked": 0, "unmatched": 0, "skipped": true }
 }
 ```
@@ -1786,6 +1788,10 @@ No request body.
 | `ingested` | integer | Total new DAs ingested across all LGAs |
 | `failed` | integer | Total DAs that failed to ingest |
 | `perCouncil` | array | One result per council (LGA). Each carries `pathwayCounts` — the per-pathway ingested split (e.g. `[{ pathway: "da", count }, { pathway: "cdc", count }]`), so the DA and CDC volumes are visible separately |
+| `retry` | object | Inline compensating retry result (issue #125): `{ retriedCouncils, ingested, failed }` |
+| `retry.retriedCouncils` | string[] | Council slugs that had an unrecovered failure after the main fetch and were re-fetched |
+| `retry.ingested` | integer | DAs ingested during the retry pass |
+| `retry.failed` | integer | Councils that failed again on the retry pass |
 | `pcc` | object | CC→DA linking result (issue #13): `{ linked, unmatched, skipped }` |
 | `pcc.linked` | integer | CCs successfully linked to an existing DA |
 | `pcc.unmatched` | integer | CCs with no matching DA in our store (skipped, not created) |
@@ -1797,72 +1803,6 @@ No request body.
 |--------|------|-------------|
 | `401` | — | Invalid or missing `CRON_SECRET` |
 | `500` | — | Cron execution error |
-
----
-
-### GET /api/cron/ingest-retry
-
-**Compensating ingestion retry (Vercel Cron) — issue #125.**
-
-Vercel Cron handler — **hourly at :15 (`15 * * * *`)**.
-
-The nightly ingest (`GET /api/cron/ingest`) isolates a per-LGA transient upstream
-failure — it writes an `ingestion_log` row with `success = false` and fires
-Sentry — but does **not** re-fetch it; the next nightly tick is ~24h away, after
-the Sunday 17:00 AEST digest has already read that LGA's DAs. Vercel Cron cannot
-dynamically re-fire a failed job, so this secondary hourly poll is the design's
-compensating control (system-design §3.3/§5.1):
-
-1. Query `ingestion_log` for councils that failed during the **current night's
-   run** (scoped to the most recent 13:00 UTC nightly boundary) and have **not
-   since recovered**.
-2. Re-run ingestion for **only** those councils (idempotent — `upsertDa` is keyed
-   on `(daId, council)`).
-3. Give up on a council after `MAX_INGEST_RETRY_ATTEMPTS` failures in the night,
-   leaving a persistent outage to drift detection.
-
-A transient Saturday-night failure is thus healed before the Sunday digest reads
-the data. A no-op on a healthy night (nothing failed / everything recovered).
-
-**Not for client consumption.** Vercel Cron calls this endpoint.
-
-#### Security
-
-- **Authentication:** Bearer token in `Authorization` header
-- **Source:** Vercel Cron, time-based trigger
-
-#### Request
-
-No request body.
-
-#### Response
-
-**200 OK:**
-
-```json
-{
-  "retried": ["blacktown"],
-  "ingested": 7,
-  "failed": 0,
-  "perCouncil": [{ "council": "blacktown", "ingested": 7, "failed": false }]
-}
-```
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `retried` | string[] | Council slugs re-fetched this pass (had an unrecovered failure) |
-| `ingested` | integer | Total DAs ingested across retried councils |
-| `failed` | integer | Councils that failed again on this retry pass |
-| `perCouncil` | object[] | Per-council retry results |
-
-#### Errors
-
-| Status | Code | Description |
-|--------|------|-------------|
-| `401` | — | Invalid or missing `CRON_SECRET` |
-| `500` | — | Cron execution error |
-
----
 
 ### GET /api/cron/trial-reminder
 

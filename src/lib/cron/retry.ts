@@ -18,10 +18,10 @@
 // resume logic lives in src/modules/digest/cron.ts.
 //
 // Nightly ingestion has the same shape (issue #125): a per-LGA transient
-// upstream failure can't be re-fired in-process, so a separate hourly cron
-// (`15 * * * *` → /api/cron/ingest-retry) polls ingestion_log for the current
-// night's unrecovered failures and re-fetches just those, scoped to the run
-// window via `mostRecentNightlyIngestUtc`. The recovery logic lives in
+// upstream failure can't be re-fired in-process, so `retryFailedIngest` is
+// called inline at the end of the nightly `/api/cron/ingest` handler to re-fetch
+// just the unrecovered failures, scoped to the run window via
+// `mostRecentNightlyIngestUtc`. The recovery logic lives in
 // `retryFailedIngest` in src/modules/ingestion/ingest.ts.
 import { env } from "@/lib/env";
 
@@ -57,7 +57,7 @@ export const NIGHTLY_INGEST_UTC_HOUR = 13;
 
 /**
  * The UTC instant of the most recent nightly-ingest fire (13:00 UTC) at or
- * before `now`. Used by the compensating ingest-retry cron (issue #125) to
+ * before `now`. Used by the inline ingest retry pass (issue #125) to
  * scope "which councils failed tonight" to the current night's run — a failure
  * written at Sat 13:00 UTC stays in-window for every hourly retry tick right up
  * to the Sunday 07:00 UTC digest, and correctly rolls to the new boundary once

@@ -420,7 +420,7 @@ sequenceDiagram
   end
   alt any LGA failure
     Ing->>DB: mark failed LGAs in ingestion_log (success=false)
-    Note over Ing,Cron: Retry handled by secondary Vercel Cron at<br/>`15 * * * *` which re-checks ingestion_log for pending/failed LGAs
+    Note over Ing,Cron: Retry handled inline after the nightly ingest fetch<br/>which re-checks ingestion_log for pending/failed LGAs
   end
 ```
 
@@ -553,7 +553,7 @@ Key topology facts (every one cites the contract):
 - **No Kubernetes, no Cloud Run, no service mesh** (`not_in_stack.kubernetes`, wedge §6).
 - **Single Postgres node** (`database.pooler: prisma-accelerate`, `not_in_stack.qdrant`, `not_in_stack.pinecone`).
 - **No multi-region** — preview tier is single-region.
-- **Cron** is `vercel-cron` (`contract.deploy.cron_target`). Three scheduled jobs: digest (`0 7 * * 0`), nightly ingestion (`0 13 * * *`), and daily trial-reminder check (`0 6 * * *`). A fourth secondary cron (`15 * * * *`) handles ingestion retry by re-checking `ingestion_log` for failed LGAs from the prior hour — Vercel Cron does not support dynamic retry scheduling, so this is a separate polling entry rather than a dynamic re-fire.
+- **Cron** is `vercel-cron` (`contract.deploy.cron_target`). Three scheduled jobs: digest (`0 7 * * 0`), nightly ingestion (`0 13 * * *`), and daily trial-reminder check (`0 6 * * *`). The nightly ingest handler also runs a compensating retry pass inline after the main fetch — no separate cron entry (issue #125) — re-checking `ingestion_log` for failed LGAs and re-fetching them so a transient upstream failure is healed before the digest reads the data.
 - **Cloud provider** is GCP (`contract.cloud.provider`) — used only for Postgres (Cloud SQL), Secret Manager, and Cloud Storage. No GKE, no Cloud Run, no GCP Load Balancer.
 
 ### 5.2 CI/CD Pipeline

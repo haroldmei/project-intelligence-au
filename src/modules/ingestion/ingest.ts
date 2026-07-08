@@ -106,9 +106,9 @@ export interface RetryIngestResult extends RunIngestResult {
  * digest has already read that LGA's DAs. So a Saturday-night ePlanning blip
  * silently drops that LGA from the Sunday digest with no recovery.
  *
- * This is the design-specified secondary control: invoked by the hourly
- * `/api/cron/ingest-retry` cron (`15 * * * *`), it re-fetches ONLY the councils
- * that failed during the current night's run and have not since recovered, so a
+ * This is the design-specified compensating control: called inline at the end
+ * of the nightly `/api/cron/ingest` handler, it re-fetches ONLY the councils
+ * that failed during the current run and have not since recovered, so a
  * transient failure is healed before the digest reads the data.
  *
  * Idempotent and self-limiting:

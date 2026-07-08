@@ -1,11 +1,10 @@
 // Guard: the deploy runbook's cron inventory must stay in sync with the crons
 // vercel.json actually registers (issue #203).
 //
-// The runbook previously listed only five of the seven registered crons —
-// omitting `/api/cron/ingest-retry` (#125) and `/api/cron/verification-reminder`
-// (FR-016) — and hardcoded "All five entries above", so an operator auditing
-// registered crons or debugging a missing retry/reminder had no reference for
-// two shipped jobs. This test reads vercel.json's crons array and asserts (1)
+// The runbook previously listed only five of the six registered crons —
+// omitting `/api/cron/verification-reminder` (FR-016) — and hardcoded
+// "All five entries above", so an operator auditing registered crons or
+// debugging a missing reminder had no reference for a shipped job. This test reads vercel.json's crons array and asserts (1)
 // every registered path appears in the runbook, and (2) no "<N> entries above"
 // sentence states a count that disagrees with the number of registered crons.
 // It greps the runbook (like the sibling cron-schedule guards) rather than

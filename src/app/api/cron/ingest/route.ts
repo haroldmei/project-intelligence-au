@@ -7,11 +7,15 @@
 //   AEST is UTC+10 (non-daylight-saving); Sydney observes AEDT (UTC+11) in summer.
 //   For the nightly cron, 13:00 UTC lands at 23:00 AEST / 00:00 AEDT — acceptable drift.
 //
+// Inline compensating retry: after the main fetch and PCC linking, retryFailedIngest
+// re-fetches any LGAs that failed during this run so a transient Saturday-night
+// failure is healed before the Sunday digest. No separate /api/cron/ingest-retry cron.
+//
 // Contract: deploy.cron_target = vercel-cron (system-design §5.1)
 // Auth: Vercel Cron secret header (contract.security.secrets_manager: gcp-secret-manager)
 import { NextResponse } from "next/server";
 import { verifyCronSecret } from "@/lib/cron/retry";
-import { runIngest } from "@/modules/ingestion/ingest";
+import { runIngest, retryFailedIngest } from "@/modules/ingestion/ingest";
 import { runPccIngest } from "@/modules/ingestion/pcc-ingest";
 
 export const runtime = "nodejs";
@@ -22,9 +26,6 @@ export async function GET(request: Request): Promise<NextResponse> {
   if (authError) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    // In-process retry was removed — Vercel function timeout (300s) is
-    // shorter than the previous 2-min sleep + retry, so it was a no-op.
-    // A failed ingest surfaces as 500 + Sentry; the next daily tick retries.
     const result = await runIngest(1);
 
     // Link the day's Construction Certificates to their DAs (issue #13). Runs
@@ -34,10 +35,21 @@ export async function GET(request: Request): Promise<NextResponse> {
     // isolated inside runPccIngest and never fails the DA ingest.
     const pcc = await runPccIngest(1);
 
+    // Inline compensating retry (issue #125): re-fetch any LGAs that failed
+    // during this run so a transient upstream failure is healed before the
+    // Sunday digest reads that LGA's DAs. Idempotent and self-limiting — a
+    // no-op on a healthy night.
+    const retry = await retryFailedIngest(1);
+
     return NextResponse.json({
       ingested: result.totalIngested,
       failed: result.totalFailed,
       perCouncil: result.results,
+      retry: {
+        retriedCouncils: retry.retriedCouncils,
+        ingested: retry.totalIngested,
+        failed: retry.totalFailed,
+      },
       pcc: { linked: pcc.linked, unmatched: pcc.unmatched, skipped: pcc.skipped },
     });
   } catch (err) {

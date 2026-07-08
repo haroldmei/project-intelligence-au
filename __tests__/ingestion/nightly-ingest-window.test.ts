@@ -1,5 +1,5 @@
 // Unit tests for mostRecentNightlyIngestUtc — the run-window boundary the
-// ingest-retry cron uses to scope "which councils failed tonight" (issue #125).
+// inline ingest retry pass uses to scope "which councils failed tonight" (issue #125).
 //
 // The boundary must span UTC midnight rather than reset at 00:00 UTC: the
 // nightly ingest fires 13:00 UTC (Sat), and its failures must stay in-window for
