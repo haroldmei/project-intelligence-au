@@ -36,6 +36,8 @@ export function CookieConsent() {
   };
 
   const handleClose = () => {
+    localStorage.setItem(COOKIE_CONSENT_KEY, "rejected");
+    setPreference("rejected");
     setShowBanner(false);
   };
 
