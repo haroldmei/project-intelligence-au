@@ -27,6 +27,7 @@ import {
   fetchCouncilPccs,
 } from "@/modules/ingestion/pcc";
 import { linkCertificate, runPccIngest } from "@/modules/ingestion/pcc-ingest";
+import { namespaceCdcDaId } from "@/modules/ingestion/cdc";
 import { truncateAll, testDb } from "../setup-test-db";
 
 const mockFetch = fetchWithRetry as unknown as ReturnType<typeof vi.fn>;
@@ -217,6 +218,50 @@ describe("linkCertificate (real DB)", () => {
       where: { daId: "DA-2025/1234", council: "penrith" },
     });
     expect(da?.constructionCertifiedAt).toBeNull();
+  });
+
+  it("links a CC to a CDC application (namespaced daId) and stamps constructionCertifiedAt", async () => {
+    // A CDC application is stored with a CDC- namespaced daId (#10).
+    await testDb.developmentApplication.create({
+      data: {
+        daId: namespaceCdcDaId("2024/0421"),
+        council: "blacktown",
+        address: "8 Tin Roof Ave, Blacktown",
+        description: "Tile-to-metal re-roof (Complying Development Certificate)",
+        lodgementDate: new Date("2024-10-01"),
+        portalUrl: "https://portal/cdc/2024-0421",
+        sourceApi: "nsw_cdc",
+        approvalPathway: "cdc",
+      },
+    });
+
+    // The CC references the bare number — not CDC-prefixed.
+    const outcome = await linkCertificate({
+      certificateNumber: "CC-2026/0501",
+      relatedApplicationId: "2024/0421",
+      council: "blacktown",
+      issuedDate: "2026-07-01",
+      portalUrl: null,
+    });
+
+    expect(outcome).toBe("linked");
+    const da = await testDb.developmentApplication.findFirst({
+      where: { daId: namespaceCdcDaId("2024/0421"), council: "blacktown" },
+    });
+    expect(da?.constructionCertifiedAt?.toISOString().slice(0, 10)).toBe("2026-07-01");
+  });
+
+  it("still returns 'unmatched' for a genuine no-match even with the CDC seam", async () => {
+    const outcome = await linkCertificate({
+      certificateNumber: "CC-9999",
+      // Even after namespacing, there is no such application in the DB.
+      relatedApplicationId: "NONEXISTENT-0001",
+      council: "blacktown",
+      issuedDate: "2026-07-01",
+      portalUrl: null,
+    });
+
+    expect(outcome).toBe("unmatched");
   });
 });
 
