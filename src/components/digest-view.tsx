@@ -81,11 +81,8 @@ export function DigestView({
       {digest.cards.length === 0 ? (
         <div className="px-4 py-8">
           <p className="text-sm text-[#627D98]">
-            No leads matched your search this week. Try refining your{" "}
-            <Link href="/account/saved-query" className="underline text-[#D97706]">
-              search query
-            </Link>{" "}
-            or expanding your{" "}
+            No leads matched your search this week. Your search query was seeded
+            at signup and cannot be edited in V1. Try expanding your{" "}
             <Link href="/account/area" className="underline text-[#D97706]">
               service area
             </Link>
