@@ -12,6 +12,7 @@ import { serializeLuciaCookie } from "@/lib/auth/session";
 import { SignupSchema } from "@/lib/auth/schemas";
 import { sendEmail } from "@/lib/email/client";
 import { captureServer } from "@/lib/analytics/server";
+import { seedDefaultSavedQuery } from "@/modules/account/service";
 
 // E2E auto-verification bypass: test-mode Stripe + emails on the .test
 // reserved-TLD subdomain we own. Disappears the moment STRIPE_SECRET_KEY
@@ -84,6 +85,16 @@ export async function POST(req: NextRequest): Promise<Response> {
       emailVerified: autoVerify,
       smsOptIn: true,
     },
+  });
+
+  // Seed the FR-015 default saved-query embedding so even a trial user who
+  // abandons before the onboarding query step has a working saved query and
+  // their Sunday digest fires from the first week (issue #229). Best-effort:
+  // if the OpenAI embed call or DB write fails, signup still succeeds — the
+  // worst case is a null embedding (pre-#229 behaviour).
+  await seedDefaultSavedQuery(user.id).catch(() => {
+    // Caught internally by seedDefaultSavedQuery; this outer catch is a
+    // safety net so a thrown error can never crash the signup response.
   });
 
   // Analytics: account created + 28-day trial begins at signup (issue #17).
