@@ -129,6 +129,22 @@ test.describe("Auth — Signup", () => {
     await expect(page.getByRole("alert").filter({ hasText: /already exists/i })).toBeVisible();
   });
 
+  // Issue #219: signup password min-length hint is persistent before submit.
+  test("signup password field shows a persistent 12-char hint before submit", async ({ page }) => {
+    await page.goto("/signup");
+
+    // Hint element is visible
+    const hint = page.locator("#password-hint");
+    await expect(hint).toBeVisible();
+    await expect(hint).toContainText(/at least 12/i);
+
+    // Hint is wired via aria-describedby on the password input
+    await expect(page.locator("#password")).toHaveAttribute(
+      "aria-describedby",
+      "password-hint"
+    );
+  });
+
   test("signup validation — password too short shows error", async ({ page }) => {
     await page.goto("/signup");
     await page.fill("#email", "newuser@example.com");
