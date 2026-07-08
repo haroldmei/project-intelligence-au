@@ -46,6 +46,7 @@ export default function AccountPage() {
   const [isResumeLoading, setIsResumeLoading] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
   const [resubError, setResubError] = useState<string | null>(null);
+  const [billingError, setBillingError] = useState<string | null>(null);
   // Set from the ?billing hint Stripe Checkout appends to its success/cancel URLs.
   const [justCheckedOut, setJustCheckedOut] = useState(false);
   const [checkoutCancelled, setCheckoutCancelled] = useState(false);
@@ -112,12 +113,14 @@ export default function AccountPage() {
 
   async function handleManageBilling() {
     setIsPortalLoading(true);
+    setBillingError(null);
     try {
       const res = await fetch("/api/billing/portal", { method: "POST" });
       const json = await res.json();
       if (!res.ok || !json.portal_url) throw new Error("portal failed");
       window.location.href = json.portal_url;
     } catch {
+      setBillingError("Couldn't open the billing page — please try again or contact support.");
       setIsPortalLoading(false);
     }
   }
@@ -388,6 +391,11 @@ export default function AccountPage() {
                 >
                   {isPortalLoading ? "Opening Stripe…" : "Update your card"}
                 </Button>
+                {billingError && (
+                  <p role="alert" className="text-sm text-[#DC2626]">
+                    {billingError}
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={() => setCancelOpen(true)}
@@ -407,6 +415,7 @@ export default function AccountPage() {
             )}
 
             {!needsCheckout && !isPastDue && !isProvisioning && (
+              <>
               <button
                 type="button"
                 onClick={handleManageBilling}
@@ -416,6 +425,12 @@ export default function AccountPage() {
               >
                 {isPortalLoading ? "Opening Stripe…" : "Manage billing (update card, invoices)"}
               </button>
+              {billingError && (
+                <p role="alert" className="text-sm text-[#DC2626]">
+                  {billingError}
+                </p>
+              )}
+              </>
             )}
           </div>
         </div>
