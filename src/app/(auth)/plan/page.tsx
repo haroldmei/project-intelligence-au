@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PRICING, PRICE_MONTHLY_INC_GST, TRIAL_LENGTH_LABEL } from "@/lib/pricing";
+import { getDigestArrivalString } from "@/lib/digest-arrival";
 
 // Team plan is gated off until the multi-seat flow is built (no team-creation
 // UI, no invites, no per-seat digest fan-out). Re-add the team entry below to
@@ -129,7 +130,7 @@ export default function PlanPage() {
 
       <div className="text-center text-xs text-[#829AB1] space-y-1">
         <p>Your card is not charged for {PRICING.trialDays} days.</p>
-        <p>First digest arrives Sunday 6 pm AEST.</p>
+        <p>{getDigestArrivalString()}</p>
       </div>
     </div>
   );

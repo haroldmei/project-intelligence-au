@@ -62,6 +62,10 @@ export default defineConfig({
       // Pure lib modules with no DB / no @/lib/env (e.g. pricing, the single
       // source of truth for price + trial length). jsdom-safe, always-on.
       "src/lib/pricing.test.ts",
+      // Digest arrival time computation (FR-015 §3.4) — pure date logic, no
+      // DB / no @/lib/env, jsdom-safe and always-on. Tests "this Sunday" vs
+      // "next Sunday" branching at the 60-hour cutoff.
+      "src/lib/digest-arrival.test.ts",
       // Client-side analytics init (#17) — consent gating for posthog-js. Reads
       // process.env.NEXT_PUBLIC_* directly (no @/lib/env), posthog-js mocked, so
       // jsdom-safe. The server helper is tested in the backend suite.

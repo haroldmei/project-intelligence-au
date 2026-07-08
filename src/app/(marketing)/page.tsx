@@ -12,6 +12,7 @@ import {
   PRICE_MONTHLY_INC_GST,
   GST_SUFFIX,
 } from "@/lib/pricing";
+import { getDigestArrivalString } from "@/lib/digest-arrival";
 
 // ── JSON-LD Product schema for pricing tiers ──────────────────────────────
 const jsonLd = {
@@ -80,7 +81,7 @@ const FEATURES = [
     today:
       "Cordell's signup is a demo booking, a quote, 3–10 business days, and an annual contract you can't cancel online.",
     withUs:
-      "Email, mobile, card. Done. 28-day trial, first digest this Sunday.",
+      "Email, mobile, card. Done. 28-day trial. Sunday digest.",
     detail:
       "Pick your LGA bundles from a pre-built list (Western Sydney, Inner West, Northern, Southern — or all four). Your roofing saved search is pre-seeded. Card on file; not charged for 28 days. Cancel anytime from Account → Subscription — no ticket, no phone call, no hostage situation.",
   },
@@ -571,7 +572,7 @@ export default function MarketingPage() {
                 Ready for your first Sunday digest?
               </h2>
               <p className="text-[#9FB3C8] text-sm leading-relaxed">
-                {PRICE_MONTHLY_WITH_GST}. {PRICING.trialDays}-day trial. First digest arrives this Sunday at 6&nbsp;pm. Cancel anytime — no ticket, no phone call.
+                {PRICE_MONTHLY_WITH_GST}. {PRICING.trialDays}-day trial. {getDigestArrivalString()} Cancel anytime — no ticket, no phone call.
               </p>
               <Link
                 href="/signup"
