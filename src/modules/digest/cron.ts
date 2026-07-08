@@ -131,16 +131,20 @@ export async function runDigestCron(): Promise<DigestCronResult> {
       // the status string — otherwise a self-signup trial (accessUntil:null, no
       // Stripe subscription) that never enters checkout gets the digest free
       // forever, because nothing ever transitions it off "trial".
-      ...entitledDigestWhere(),
-      // Issue #217 — channel-union pre-filter. A user who has unsubscribed from
-      // email (emailOptIn:false) but opted into SMS with a mobile on file must
-      // still be processed, because assembleAndSendDigest independently gates
-      // each channel (email: skipped_optout, SMS: sent when smsOptIn && mobile).
-      // Without this OR, such users are silently dropped — no SMS sent, no
-      // unserved alert fires (they never entered the loop to fail).
-      OR: [
-        { emailOptIn: true },
-        { smsOptIn: true, mobile_e164: { not: null } },
+      // Issue #217 + entitlement (issue #87) — both OR conditions must survive.
+      // ...entitledDigestWhere() spreads { OR: [subStatusConditions] }, so a
+      // second flat `OR` at the same level would silently overwrite it via JS
+      // property semantics. Wrapping both in AND preserves both gates: the user
+      // must be entitled (active/trial/past_due) AND reachable via at least one
+      // channel (emailOptIn, or smsOptIn with a mobile number).
+      AND: [
+        entitledDigestWhere(),
+        {
+          OR: [
+            { emailOptIn: true },
+            { smsOptIn: true, mobile_e164: { not: null } },
+          ],
+        },
       ],
     },
     select: { id: true, email: true },

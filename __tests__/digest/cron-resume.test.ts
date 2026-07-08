@@ -265,7 +265,7 @@ describe("runDigestCron — SMS-only subscriber (issue #217)", () => {
     expect(result.unserved).toBe(0);
   });
 
-  it("builds the OR filter in findMany (both-opt-outs-excluded — the Prisma query shape)", async () => {
+  it("builds AND[entitlement, channel-union] in findMany (prevents OR overwrite — the Prisma query shape)", async () => {
     mockDb.user.findMany.mockResolvedValue([]);
     mockDb.digest.findMany
       .mockResolvedValueOnce([])
@@ -273,18 +273,33 @@ describe("runDigestCron — SMS-only subscriber (issue #217)", () => {
 
     await runDigestCron();
 
-    // Capture the WHERE clause passed to findMany and verify the OR condition
-    // exists — this is the shape-level proof that a user with both opt-ins false
-    // (or smsOptIn:true but no mobile) is excluded by the query itself.
+    // Capture the WHERE clause passed to findMany and verify the AND structure
+    // — this is the shape-level proof that:
+    //   1. The entitlement OR (subscriptionStatus branches from issue #87)
+    //      survived and was NOT overwritten by the channel-union OR.
+    //   2. A user with both opt-ins false (or smsOptIn:true but no mobile) is
+    //      excluded by the channel-union OR.
     const where = mockDb.user.findMany.mock.calls[0][0].where;
-    expect(where).toHaveProperty("OR");
-    expect(where.OR).toEqual(
-      expect.arrayContaining([
+    expect(where.AND).toHaveLength(2);
+
+    // AND[0] = entitlement conditions from entitledDigestWhere() — must
+    // contain the subscription-status branches for active/trial/past_due.
+    expect(where.AND[0]).toHaveProperty("OR");
+    expect(where.AND[0].OR).toContainEqual({ subscriptionStatus: "active" });
+
+    // AND[1] = channel-union conditions from the issue #217 fix.
+    expect(where.AND[1]).toEqual({
+      OR: [
         { emailOptIn: true },
         { smsOptIn: true, mobile_e164: { not: null } },
-      ]),
-    );
-    // emailOptIn:true is no longer a flat condition at the WHERE root
+      ],
+    });
+
+    // Prove no overwrite: the two OR arrays are different objects.
+    expect(where.AND[0].OR).not.toBe(where.AND[1].OR);
+
+    // No flat OR or emailOptIn at the where root.
+    expect(where.OR).toBeUndefined();
     expect(where.emailOptIn).toBeUndefined();
   });
 });
