@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -92,7 +93,16 @@ export default function MyAreaPage() {
 
   return (
     <div className="px-4 py-6 space-y-5 max-w-xl">
-      <h1 className="text-2xl font-bold text-[#102A43]">My Service Area</h1>
+      <div className="flex items-center gap-2">
+        <Link
+          href="/account"
+          aria-label="Back to account settings"
+          className="text-[#627D98] hover:text-[#1E3A5F] min-h-[44px] flex items-center pr-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D97706] rounded"
+        >
+          ← Account
+        </Link>
+        <h1 className="text-xl font-semibold text-[#102A43]">My Service Area</h1>
+      </div>
       <p className="text-sm text-[#627D98]">
         Your digest covers these LGA bundles:
       </p>
