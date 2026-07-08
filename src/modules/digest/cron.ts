@@ -132,10 +132,16 @@ export async function runDigestCron(): Promise<DigestCronResult> {
       // Stripe subscription) that never enters checkout gets the digest free
       // forever, because nothing ever transitions it off "trial".
       ...entitledDigestWhere(),
-      // Spam Act 2003: skip users who have unsubscribed. assembleAndSendDigest
-      // also re-checks at send time to catch opt-outs that land mid-run, but
-      // filtering here avoids the wasted assembly work up front.
-      emailOptIn: true,
+      // Issue #217 — channel-union pre-filter. A user who has unsubscribed from
+      // email (emailOptIn:false) but opted into SMS with a mobile on file must
+      // still be processed, because assembleAndSendDigest independently gates
+      // each channel (email: skipped_optout, SMS: sent when smsOptIn && mobile).
+      // Without this OR, such users are silently dropped — no SMS sent, no
+      // unserved alert fires (they never entered the loop to fail).
+      OR: [
+        { emailOptIn: true },
+        { smsOptIn: true, mobile_e164: { not: null } },
+      ],
     },
     select: { id: true, email: true },
     take: 1000,
