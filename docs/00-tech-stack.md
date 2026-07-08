@@ -3,10 +3,10 @@
 ## Date: 2026-04-28
 ## Stack version: 2026-Q2
 ## Scale tier: preview
-## Wedge: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds.
+## Wedge: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo (GST included), signup in 60 seconds.
 ## Constraints: ai_heavy, mobile_first
 
-<!-- WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 199/mo, signup in 60 seconds. -->
+<!-- WEDGE: The Sunday-night roofing DA digest for Sydney subbies — 15 LGAs, 5–15 leads, AUD 99/mo (GST included), signup in 60 seconds. -->
 
 > This document is the **binding contract** for tech choices. Every
 > downstream skill reads it. To change a vendor or pin, rerun
@@ -100,10 +100,11 @@ analytics:
 payments:
   provider: stripe
   billing_region: au                       # AUD pricing; GST via Stripe AU
+  # repriced 2026-07 — solo AUD 99 inc GST, 28-day trial, Team deferred pending multi-seat; see docs/16
   plans:
-    solo: "AUD 199/mo"
-    team: "AUD 499/mo (3 seats)"
-  trial: "14-day full-access; no free tier"
+    solo: "AUD 99/mo (GST included)"
+    team: "deferred — see docs/16 (multi-seat not yet shipped)"
+  trial: "28-day full-access; no free tier"
 
 ai:
   provider: anthropic
@@ -264,7 +265,7 @@ At next review, evaluate:
 | deployer | deploy (preview_tier_target: vercel, iac: none), cloud |
 | auth-engineer | auth (lucia, argon2id, email-otp-or-sms-otp, no SSO) |
 | ai-features | ai (full §4 spec: provider, models, embedding_model, vector_store, eval, cost_tracking) |
-| pricing | payments (stripe AU, AUD 199/499 tiers, 14-day trial, no free tier) |
+| pricing | payments (stripe AU, AUD 99 Solo-only, 28-day trial, no free tier; repriced 2026-07, see docs/16) |
 | legal-compliance | security.public_data_only, payments.billing_region |
 
 ---
