@@ -47,7 +47,7 @@ async function installApiStubs(page: Page, user: TestUser) {
     await route.fulfill({
       status: 201,
       contentType: "application/json",
-      body: JSON.stringify({ userId: "stub-user-id", otpDispatched: true }),
+      body: JSON.stringify({ userId: "stub-user-id", otpDispatched: true, nextStep: "/onboarding/area" }),
       headers: { "Set-Cookie": "lucia_session=stub-session; Path=/; HttpOnly; SameSite=Lax" },
     });
   });

@@ -81,4 +81,12 @@ describe("POST /api/auth/signup", () => {
     expect(res.status).toBe(422);
     expect(mockDb.user.create).not.toHaveBeenCalled();
   });
+
+  it("returns nextStep:/onboarding/area for a real (non-e2e) user (issue #230)", async () => {
+    const res = await POST(req(validBody));
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { nextStep: string; otpDispatched: boolean };
+    expect(json.nextStep).toBe("/onboarding/area");
+    expect(json.otpDispatched).toBe(true);
+  });
 });
