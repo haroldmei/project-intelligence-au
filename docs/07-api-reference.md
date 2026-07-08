@@ -1201,9 +1201,9 @@ Billing endpoints integrate with Stripe AU. All endpoints require active Lucia s
 **Stripe Contract:**
 - **Provider:** Stripe AU
 - **Region:** Australia (AUD)
-- **Plans:** Solo (AUD 199/mo), Team (AUD 499/mo, 3 seats)
-- **Trial:** 14 days full access, no free tier
-- **Tax:** GST handled by Stripe (no app-side logic)
+- **Plan:** Solo (AUD 99/mo, GST inclusive). Team is deferred — POST {"plan":"team"} returns 422.
+- **Trial:** 28-day full-access trial, no free tier
+- **Tax:** GST included in the headline price (no app-side tax calculation)
 
 | Method | Endpoint | Purpose | Wedge FR |
 |--------|----------|---------|----------|
@@ -1229,7 +1229,7 @@ Create a Stripe Checkout session for a billing plan. Returns a Stripe Checkout U
 
 | Field | Type | Required | Values | Notes |
 |-------|------|----------|--------|-------|
-| `plan` | string | Yes | `solo`, `team` | Solo = AUD 199/mo; Team = AUD 499/mo (3 seats) |
+| `plan` | string | Yes | `solo` | Solo = AUD 99/mo inc GST. Team is deferred (POST {"plan":"team"} returns 422). |
 
 #### Response
 
