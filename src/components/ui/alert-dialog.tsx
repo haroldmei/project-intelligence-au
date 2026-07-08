@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { Button } from "./button";
 
 interface AlertDialogProps {
@@ -17,8 +18,13 @@ interface AlertDialogProps {
 }
 
 /**
- * Minimal AlertDialog — no Radix dependency, same keyboard behaviour.
- * Focus traps to dialog; Escape closes; default focus on cancel (safe default).
+ * Minimal AlertDialog — no Radix dependency.
+ *
+ * - Focus traps to dialog (Tab / Shift+Tab cycle)
+ * - Escape closes
+ * - Default focus on cancel (safe default)
+ * - Restores focus to trigger on close
+ * - Marks background siblings aria-hidden while open
  */
 export function AlertDialog({
   open,
@@ -33,6 +39,8 @@ export function AlertDialog({
 }: AlertDialogProps) {
   const cancelRef = React.useRef<HTMLButtonElement>(null);
   const dialogRef = React.useRef<HTMLDivElement>(null);
+
+  useFocusTrap(open, dialogRef);
 
   // Focus the cancel button when dialog opens
   React.useEffect(() => {
@@ -56,6 +64,7 @@ export function AlertDialog({
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="alert-dialog-title"
@@ -70,7 +79,6 @@ export function AlertDialog({
       />
       {/* Dialog card */}
       <div
-        ref={dialogRef}
         className={cn(
           "relative z-10 w-full max-w-sm mx-4 bg-white rounded-xl shadow-md p-6 flex flex-col gap-4",
           "md:max-w-md"
