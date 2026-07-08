@@ -539,8 +539,8 @@ All account endpoints require an active Lucia session.
 | `PUT` | `/account/me` | Update account profile | FR-017 |
 | `GET` | `/account/lga-bundles` | Get selected LGA bundles | FR-020 |
 | `PUT` | `/account/lga-bundles` | Update selected LGA bundles | FR-020 |
-| `GET` | `/account/saved-query` | Get saved search query | FR-025 |
-| `PUT` | `/account/saved-query` | Update saved search query | FR-025 |
+| `GET` | `/account/saved-query` | Get saved search query | FR-015 |
+| `PUT` | `/account/saved-query` | **Immutable in V1** — returns 403 (FR-V2-001) | FR-015 |
 | `POST` | `/account/email-opt-in` | Re-subscribe to the email digest | FR-022 |
 | `POST` | `/account/email-opt-out` | Opt out of the email digest | FR-022 |
 | `POST` | `/account/sms-opt-in` | Opt in to SMS digests | FR-022 |
@@ -723,7 +723,7 @@ curl -X PUT http://localhost:3000/api/account/lga-bundles \
 
 Retrieve the authenticated user's saved search query text. The embedding is stored server-side.
 
-**Wedge FR-025:** Enable personalised relevance scoring via saved query.
+**Wedge FR-015:** Enable relevance scoring via immutable saved query (pre-seeded at account creation).
 
 #### Request
 
@@ -756,9 +756,11 @@ curl -X GET http://localhost:3000/api/account/saved-query \
 
 ### PUT /account/saved-query
 
-**Update user's saved search query.**
+**Immutable in V1 — returns 403.**
 
-Update the authenticated user's saved search query. The query is re-embedded server-side using OpenAI text-embedding-3-small.
+The saved query cannot be updated in V1 per FR-015. The pre-seeded roofing
+vocabulary embedding is set at account creation and is immutable. Custom saved
+queries are deferred to FR-V2-001 (Out-of-wedge → V2).
 
 #### Request
 
@@ -774,11 +776,11 @@ Update the authenticated user's saved search query. The query is re-embedded ser
 
 #### Response
 
-**200 OK:**
+**403 Forbidden:**
 
 ```json
 {
-  "saved_query_text": "Residential roof repairs and reroof work in Sydney"
+  "error": "Saved query cannot be changed in V1. Custom queries are available in V2."
 }
 ```
 
@@ -786,18 +788,8 @@ Update the authenticated user's saved search query. The query is re-embedded ser
 
 | Status | Code | Description |
 |--------|------|-------------|
-| `400` | — | Invalid JSON body |
 | `401` | — | Unauthorized (no active session) |
-| `422` | — | Validation error (< 5 chars, > 500 chars) |
-
-#### Curl Example
-
-```bash
-curl -X PUT http://localhost:3000/api/account/saved-query \
-  -H "Content-Type: application/json" \
-  -b cookies.txt \
-  -d '{"saved_query_text": "Residential roof repairs and reroof work in Sydney"}'
-```
+| `403` | — | Saved query is immutable in V1 (FR-015 / FR-V2-001) |
 
 ---
 
@@ -2065,7 +2057,7 @@ curl -X GET http://localhost:3000/s/abc123def456 \
 | FR-022 | Email & SMS preferences | `POST /account/email-opt-in`, `POST /account/email-opt-out`, `POST /account/sms-opt-in`, `POST /account/sms-opt-out` | ✅ Implemented |
 | FR-023 | Email feedback & unsubscribe | `GET /feedback/{token}`, `GET /unsubscribe/{token}` | ✅ Implemented |
 | FR-024 | Portal feedback | `POST /feedback` | ✅ Implemented |
-| FR-025 | Saved query | `GET/PUT /account/saved-query` | ✅ Implemented |
+| FR-015 | Saved query (immutable V1) | `GET /account/saved-query` | ✅ Implemented (PUT returns 403 — FR-V2-001) |
 | FR-026 | Digest history & export | `GET /export/digest/{id}.csv` (history via RSC loaders, not a JSON API) | ✅ Implemented |
 | FR-028 | Trial reminder | `GET /cron/trial-reminder` | ✅ Implemented |
 | FR-029 | SMS STOP handling | `POST /api/webhooks/twilio` | ✅ Implemented |

@@ -31,7 +31,7 @@ describe("AreaPage", () => {
     mockFetch(() => ({ bundle_ids: [] }));
     render(<AreaPage />);
     expect(screen.getByRole("heading", { name: /choose your service area/i })).toBeTruthy();
-    expect(screen.getByText(/Step 3 of 5/i)).toBeTruthy();
+    expect(screen.getByText(/Step 3 of 4/i)).toBeTruthy();
   });
 
   it("starts with the Continue button disabled when nothing is saved", async () => {

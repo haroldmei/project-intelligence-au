@@ -261,10 +261,9 @@ export default function AccountPage() {
             href="/account/profile"
             value={account.mobile_e164 ?? "Add a number"}
           />
-          <RowLink
+          <Row
             label="Search query"
-            href="/account/saved-query"
-            value={account.savedQueryText ? "Edit" : "Add a description"}
+            value={account.savedQueryText ?? "Seeded at signup"}
           />
           <RowLink label="Notifications" href="/account/sms" />
           <RowLink label="Storm briefs" href="/account/storm-brief" />

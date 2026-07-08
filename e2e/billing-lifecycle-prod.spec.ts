@@ -101,14 +101,11 @@ async function completeOnboardingArea(page: Page): Promise<void> {
   await page.getByRole("button", { name: /western sydney/i }).first().click();
   await page.getByRole("button", { name: /^continue$/i }).click();
 
-  // Step 4 — saved-query capture. Use the default to keep the test
-  // deterministic (and to exercise the default-fill path).
-  await page.waitForURL("**/onboarding/query", { timeout: 30_000 });
-  await dismissCookieBanner(page);
-  await page.getByRole("button", { name: /use the default/i }).click();
-  await page.getByRole("button", { name: /^continue$/i }).click();
+  // FR-015: saved-query step removed in V1 (immutable seed step). Area
+  // redirects directly to /plan. The pre-seeded roofing vocabulary embedding
+  // is set at account creation (seedDefaultSavedQuery in signup route).
 
-  // Step 5 — plan picker.
+  // Step 4 — plan picker.
   await page.waitForURL("**/plan", { timeout: 30_000 });
   await dismissCookieBanner(page);
 }

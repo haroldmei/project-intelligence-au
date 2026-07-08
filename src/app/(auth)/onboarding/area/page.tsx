@@ -36,7 +36,7 @@ export default function AreaPage() {
   const [serverError, setServerError] = useState<string | null>(null);
 
   // Pre-fill previously saved bundles so a user returning from a later step
-  // (issue #139: the Back link on /onboarding/query) sees their earlier pick
+  // (issue #139: the Back link on /onboarding/area) sees their earlier pick
   // still checked. Guard with prev.size === 0 so a resolving fetch never
   // clobbers a selection the user made while it was in flight.
   useEffect(() => {
@@ -77,7 +77,7 @@ export default function AreaPage() {
         setServerError(json.error ?? "Failed to save area. Please try again.");
         return;
       }
-      router.push("/onboarding/query");
+      router.push("/plan");
     } catch {
       setServerError("Network error. Please try again.");
     } finally {
@@ -88,7 +88,7 @@ export default function AreaPage() {
   return (
     <div className="bg-white rounded-xl border border-[#E5E5E5] shadow-sm p-6 space-y-5">
       <div className="flex items-center justify-end text-xs text-[#829AB1]">
-        <span>Step 3 of 5</span>
+        <span>Step 3 of 4</span>
       </div>
 
       <div>
