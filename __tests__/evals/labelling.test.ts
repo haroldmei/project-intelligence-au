@@ -25,6 +25,7 @@ async function seedDA(opts: {
   council?: string;
   description?: string;
   ruleFilteredOut?: boolean;
+  excludedReason?: string | null;
   estimatedValue?: number | null;
   lgaId?: string | null;
   jurisdiction?: string;
@@ -40,6 +41,7 @@ async function seedDA(opts: {
       lodgementDate: new Date(),
       sourceApi: "nsw_planning",
       ruleFilteredOut: opts.ruleFilteredOut ?? false,
+      excludedReason: opts.excludedReason ?? null,
       estimatedValue: opts.estimatedValue ?? 120000,
       lgaId: opts.lgaId ?? null,
       ...(opts.jurisdiction ? { jurisdiction: opts.jurisdiction } : {}),
@@ -51,7 +53,9 @@ async function seedDA(opts: {
 describe("selectUnlabelledStratified", () => {
   it("returns rule-hits and rule-misses that the labeller hasn't labelled", async () => {
     const hit = await seedDA({ ruleFilteredOut: false });
-    const miss = await seedDA({ ruleFilteredOut: true });
+    // Misses are DAs excluded by the rule pass (excludedReason='rule_filter_miss'),
+    // not status-excluded DAs (excludedReason='refused_withdrawn' — issue #221).
+    const miss = await seedDA({ ruleFilteredOut: true, excludedReason: "rule_filter_miss" });
 
     const { hits, misses } = await selectUnlabelledStratified(testDb, {
       labelledBy: "founder",
@@ -113,6 +117,27 @@ describe("selectUnlabelledStratified", () => {
     for (let i = 0; i < 3; i++) await seedDA({ ruleFilteredOut: false });
     const { hits } = await selectUnlabelledStratified(testDb, { labelledBy: "x", limitPerStratum: 2 });
     expect(hits).toHaveLength(2);
+  });
+
+  it("rejects refused/withdrawn DAs from the misses stratum (#221)", async () => {
+    // A DA excluded for status (refused/withdrawn) must NOT appear in 'misses'
+    // — it was never a rule-pass false negative.
+    await seedDA({ ruleFilteredOut: true, excludedReason: "refused_withdrawn" });
+
+    const { misses } = await selectUnlabelledStratified(testDb, {
+      labelledBy: "founder",
+      limitPerStratum: 10,
+    });
+    expect(misses).toHaveLength(0);
+  });
+
+  it("exposes excludedReason on the UnlabelledDa shape (#221)", async () => {
+    await seedDA({ ruleFilteredOut: true, excludedReason: "rule_filter_miss" });
+    const { misses } = await selectUnlabelledStratified(testDb, {
+      labelledBy: "founder",
+      limitPerStratum: 10,
+    });
+    expect(misses[0].excludedReason).toBe("rule_filter_miss");
   });
 });
 

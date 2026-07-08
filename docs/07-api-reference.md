@@ -1779,7 +1779,8 @@ No request body.
     "randwick": { "ingested": 45, "failed": 1 },
     "manly": { "ingested": 47, "failed": 1 }
   },
-  "pcc": { "linked": 0, "unmatched": 0, "skipped": true }
+  "pcc": { "linked": 0, "unmatched": 0, "skipped": true },
+  "ruleMiss": { "marked": 80, "unmarked": 2 }
 }
 ```
 
@@ -1792,6 +1793,9 @@ No request body.
 | `pcc.linked` | integer | CCs successfully linked to an existing DA |
 | `pcc.unmatched` | integer | CCs with no matching DA in our store (skipped, not created) |
 | `pcc.skipped` | boolean | `true` when the PCC step no-oped (`PCC_INGEST_ENABLED` / `NSW_PLANNING_API_KEY` unset) |
+| `ruleMiss` | object | Rule-pass miss marker result (issue #221): `{ marked, unmarked }` |
+| `ruleMiss.marked` | integer | DAs newly marked as rule-pass misses (ruleFilteredOut=true, excluded_reason='rule_filter_miss') |
+| `ruleMiss.unmarked` | integer | DAs reverted from rule-pass miss because they now match the query (vocabulary drift recovery) |
 
 #### Errors
 
