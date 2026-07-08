@@ -2,6 +2,7 @@
 
 > One-line per iteration. Format: `- [YYYY-MM-DD] iter-N: <verdict> — <one-line summary>`
 
+- [2026-07-08] iter-16: SHIPPED-LOCAL (issue #232) — fix stale pricing in docs/00-tech-stack.md (payments block still showed 199/499/14-day, contradicting repriced src/lib/pricing.ts). Wedge line, payments YAML block, and downstream-skill summary table updated to solo AUD 99 inc GST, Team deferred, 28-day trial; reconciliation note added. grep for '199' and '14-day' returns nothing. Market re-analysis skipped — scoped doc-fix off a scout-filed heuristic violation, no market delta.
 - [2026-07-08] iter-15: SHIPPED-LOCAL (issue #235) — add '← Account' back link to My Service Area page matching every other account sub-page. Wrapped the bare `<h1>` in the flex header row with `<Link href="/account" aria-label="Back to account settings">← Account</Link>` (identical pattern to profile / sms / saved-query / storm-brief). New component test asserts link with href='/account' and accessible name 'Back to account settings' is present. fe suite: 302 pass (43 files). tsc 0 errors. Market re-analysis skipped — scoped UX-consistency fix off a scout-filed heuristic violation, no market delta.
 - [2026-07-08] iter-11: SHIPPED-LOCAL (issue #239) — fix PUT /account/saved-query doc: validation bound says 5–500 chars (not 1–500), 422 error says < 5 chars (not empty). docs/07-api-reference.md:773/791 corrected; code was already correct. Market re-analysis skipped — scoped docs fix off a scout-filed heuristic violation, no market delta.
 
