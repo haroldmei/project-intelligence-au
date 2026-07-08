@@ -119,4 +119,78 @@ describe("VerifyPage", () => {
       expect(screen.getByText(/an account with this email already exists/i)).toBeTruthy(),
     );
   });
+
+  describe("resend code behavior", () => {
+    it("shows success banner when resend succeeds", async () => {
+      render(<VerifyPage _testInitialCountdown={0} />);
+
+      await waitFor(() => expect(screen.getByText("eil@exmaple.com")).toBeTruthy());
+      expect(screen.getByRole("button", { name: "Resend code" })).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/A new code has been sent/i)).toBeTruthy();
+      });
+    });
+
+    it("shows error when resend returns 429 (throttled)", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => {
+          if (String(url).endsWith("/api/auth/me")) {
+            return { ok: true, status: 200, json: async () => ({ email: "eil@exmaple.com", emailVerified: false }) } as Response;
+          }
+          return {
+            ok: false,
+            status: 429,
+            json: async () => ({ error: "Please wait before requesting another OTP." }),
+          } as Response;
+        }),
+      );
+
+      render(<VerifyPage _testInitialCountdown={0} />);
+
+      await waitFor(() => expect(screen.getByText("eil@exmaple.com")).toBeTruthy());
+      expect(screen.getByRole("button", { name: "Resend code" })).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
+
+      await waitFor(() => {
+        const alert = screen.getByRole("alert");
+        expect(alert.textContent).toMatch(/Please wait before requesting another OTP/i);
+      });
+      // Success banner must NOT be shown
+      expect(screen.queryByText(/A new code has been sent/i)).toBeNull();
+
+      vi.unstubAllGlobals();
+    });
+
+    it("shows network error when fetch rejects", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => {
+          if (String(url).endsWith("/api/auth/me")) {
+            return { ok: true, status: 200, json: async () => ({ email: "eil@exmaple.com", emailVerified: false }) } as Response;
+          }
+          throw new Error("Network failure");
+        }),
+      );
+
+      render(<VerifyPage _testInitialCountdown={0} />);
+
+      await waitFor(() => expect(screen.getByText("eil@exmaple.com")).toBeTruthy());
+      expect(screen.getByRole("button", { name: "Resend code" })).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
+
+      await waitFor(() => {
+        const alert = screen.getByRole("alert");
+        expect(alert.textContent).toMatch(/Network error/i);
+      });
+      expect(screen.queryByText(/A new code has been sent/i)).toBeNull();
+
+      vi.unstubAllGlobals();
+    });
+  });
 });
