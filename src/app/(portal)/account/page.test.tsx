@@ -307,3 +307,56 @@ describe("AccountPage — trial charge disclosure (#238)", () => {
     expect(await screen.findByRole("button", { name: /cancel subscription/i })).toBeTruthy();
   });
 });
+
+// Issue #231 — a cancelled user clicking Resubscribe when the checkout POST
+// fails must see an error instead of a silent loading revert. The catch
+// handler was only calling setIsResubLoading(false) without setting any error
+// state, so the button just flickered back to 'Resubscribe' with no feedback.
+describe("AccountPage — resubscribe checkout failure error (#231)", () => {
+  function mockFetchWithCheckoutFail(account: AccountDTO) {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    global.fetch = vi.fn((url: FetchArgs[0], init?: FetchArgs[1]) => {
+      const u = String(url);
+      calls.push({ url: u, init: init as RequestInit });
+      if (u === "/api/account/me") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(account),
+        } as Response);
+      }
+      if (u === "/api/billing/checkout") {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({ error: "server error" }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    }) as unknown as typeof fetch;
+    return calls;
+  }
+
+  it("renders a role=alert error when the checkout POST fails and re-enables the button", async () => {
+    mockFetchWithCheckoutFail(
+      baseAccount({
+        subscriptionStatus: "cancelled",
+        accessUntil: "2026-02-01T00:00:00.000Z",
+      }),
+    );
+    render(<AccountPage />);
+
+    // Wait for the cancelled-state UI to render.
+    const resubBtn = await screen.findByRole("button", { name: /resubscribe/i });
+    expect(resubBtn).toBeTruthy();
+
+    // Click Resubscribe — triggers handleResubscribe which posts to checkout.
+    fireEvent.click(resubBtn);
+
+    // Wait for the error alert to appear.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/couldn't start checkout/i);
+
+    // The button should be re-enabled (isResubLoading=false).
+    expect(screen.getByRole("button", { name: /resubscribe/i })).not.toBeDisabled();
+  });
+});
