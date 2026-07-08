@@ -219,7 +219,7 @@ export function WeeklyDigestTemplate(props: {
               <table style="width: 100%;">
                 <tr>
                   <td>
-                    <a href="${card.portalUrl}" style="color: #1E3A5F; text-decoration: none; font-size: 14px; font-weight: 600;">View DA →</a>
+                    <a href="${escapeHtml(card.portalUrl)}" style="color: #1E3A5F; text-decoration: none; font-size: 14px; font-weight: 600;">View DA →</a>
                   </td>
                   <td style="text-align: right;">
                     <!-- Thumb buttons: 44×44px link with HMAC-signed token -->
