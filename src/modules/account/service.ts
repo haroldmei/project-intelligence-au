@@ -13,6 +13,14 @@ import pino from "pino";
 
 const log = pino({ name: "account" });
 
+/**
+ * FR-015 default saved-query text — seeded at account creation so trial users
+ * who don't finish the onboarding query step still receive a digest.
+ * Explicitly matches docs/02-system-requirements.md §FR-015 verbatim.
+ */
+export const DEFAULT_SAVED_QUERY_SEED =
+  "re-roof, membrane replacement, Colorbond roof replacement, asbestos roof removal, roof tiling, metal deck roofing, guttering replacement";
+
 /** Full account DTO returned from GET /api/account/me */
 export interface AccountDTO {
   id: string;
@@ -142,6 +150,38 @@ export async function updateSavedQuery(
     include: { lgaBundles: true },
   });
   return toDTO(user);
+}
+
+/**
+ * Seed the default FR-015 saved query embedding at account creation.
+ *
+ * Called synchronously from the signup route so the embedding is non-null
+ * before the HTTP response is sent. A trial user who abandons before the
+ * onboarding query step still has a working saved query — the relevance
+ * pipeline can produce candidates and the first Sunday digest will fire.
+ *
+ * If the OpenAI embed call or the DB write fails, the error is logged but
+ * NOT propagated: the user account still exists and signup succeeds. The
+ * worst-case outcome is the same as the pre-#229 bug (null embedding), so
+ * best-effort is strictly better than the status quo.
+ */
+export async function seedDefaultSavedQuery(userId: string): Promise<void> {
+  try {
+    const embedding = await embed(DEFAULT_SAVED_QUERY_SEED, { userId });
+    const pgVec = `[${embedding.join(",")}]`;
+
+    await db.$executeRaw`
+      UPDATE users SET
+        saved_query_text = ${DEFAULT_SAVED_QUERY_SEED},
+        saved_query_embedding = ${pgVec}::vector
+      WHERE id = ${userId}
+    `;
+
+    log.info({ userId }, "[account] default saved-query seeded at account creation");
+    captureServer(userId, "default_saved_query_seeded", {});
+  } catch (err) {
+    log.error({ userId, err }, "[account] failed to seed default saved query — signup continues");
+  }
 }
 
 /**

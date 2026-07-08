@@ -224,3 +224,74 @@ describe("deleteAccount", () => {
     expect(user).toBeNull();
   });
 });
+
+describe("seedDefaultSavedQuery (issue #229)", () => {
+  it("sets saved_query_text and saved_query_embedding for a fresh user", async () => {
+    // Create a user WITHOUT savedQueryText (fresh signup, no onboarding query step).
+    const userId = await testDb.user
+      .create({
+        data: {
+          email: `seed-happy-${Date.now()}@test.com`,
+          passwordHash: "hashed",
+          emailVerified: true,
+          subscriptionStatus: "trial",
+          trade: "roofing",
+        },
+      })
+      .then((u) => u.id);
+
+    const { seedDefaultSavedQuery, DEFAULT_SAVED_QUERY_SEED } = await import(
+      "@/modules/account/service"
+    );
+    await seedDefaultSavedQuery(userId);
+
+    // Verify saved_query_text matches the FR-015 default.
+    const user = await testDb.user.findUnique({
+      where: { id: userId },
+      select: { savedQueryText: true },
+    });
+    expect(user?.savedQueryText).toBe(DEFAULT_SAVED_QUERY_SEED);
+
+    // Verify saved_query_embedding is non-null by reading via raw SQL
+    // (Prisma can't type Unsupported("vector(1536)")).
+    const rows = await testDb.$queryRaw<{ saved_query_embedding: string | null }[]>`
+      SELECT saved_query_embedding::text FROM users WHERE id = ${userId}
+    `;
+    expect(rows[0]?.saved_query_embedding).not.toBeNull();
+    expect(rows[0]!.saved_query_embedding).toMatch(/^\[[\d., -]+\]$/);
+  });
+
+  it("does not throw when the embed call fails (best-effort resilience)", async () => {
+    const userId = await testDb.user
+      .create({
+        data: {
+          email: `seed-fail-${Date.now()}@test.com`,
+          passwordHash: "hashed",
+          emailVerified: true,
+          subscriptionStatus: "trial",
+          trade: "roofing",
+        },
+      })
+      .then((u) => u.id);
+
+    // Make the embed mock throw on the next invocation.
+    const { embed } = await import("@/lib/ai/embeddings");
+    (embed as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("OpenAI outage"));
+
+    const { seedDefaultSavedQuery } = await import("@/modules/account/service");
+
+    // Must NOT throw — the error is caught internally.
+    await expect(seedDefaultSavedQuery(userId)).resolves.toBeUndefined();
+
+    // The user still exists — no DB corruption.
+    const user = await testDb.user.findUnique({ where: { id: userId } });
+    expect(user).not.toBeNull();
+  });
+
+  it("exports the FR-015 default query text constant", async () => {
+    const { DEFAULT_SAVED_QUERY_SEED } = await import("@/modules/account/service");
+    expect(DEFAULT_SAVED_QUERY_SEED).toBe(
+      "re-roof, membrane replacement, Colorbond roof replacement, asbestos roof removal, roof tiling, metal deck roofing, guttering replacement",
+    );
+  });
+});

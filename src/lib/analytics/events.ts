@@ -15,6 +15,8 @@ export interface AnalyticsEventProperties {
   email_verified: Record<string, never>;
   /** First saved-query save — end of the onboarding flow. */
   onboarding_completed: Record<string, never>;
+  /** Default FR-015 saved-query embedded and persisted at account creation (issue #229). */
+  default_saved_query_seeded: Record<string, never>;
   /** LGA bundle selection saved (activation step — FR-031 `lga_bundle_selected`). */
   lga_bundle_selected: { bundleCount: number };
   /** 28-day trial began (at signup, or on a checkout that grants a trial). */

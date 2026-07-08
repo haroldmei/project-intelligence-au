@@ -14,6 +14,7 @@ const {
   serializeCookieMock,
   sendEmailMock,
   captureServerMock,
+  seedDefaultSavedQueryMock,
 } = vi.hoisted(() => ({
   mockDb: { user: { findUnique: vi.fn(), create: vi.fn() } },
   hashPasswordMock: vi.fn(),
@@ -23,6 +24,7 @@ const {
   serializeCookieMock: vi.fn(),
   sendEmailMock: vi.fn(),
   captureServerMock: vi.fn(),
+  seedDefaultSavedQueryMock: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
@@ -34,6 +36,7 @@ vi.mock("@/lib/auth/rate-limit", () => ({ rateLimitByIp: rateLimitMock }));
 vi.mock("@/lib/auth/session", () => ({ serializeLuciaCookie: serializeCookieMock }));
 vi.mock("@/lib/email/client", () => ({ sendEmail: sendEmailMock }));
 vi.mock("@/lib/analytics/server", () => ({ captureServer: captureServerMock }));
+vi.mock("@/modules/account/service", () => ({ seedDefaultSavedQuery: seedDefaultSavedQueryMock }));
 
 import { POST } from "@/app/api/auth/signup/route";
 import type { NextRequest } from "next/server";
@@ -63,6 +66,7 @@ beforeEach(() => {
   serializeCookieMock.mockReturnValue("session=sess-1");
   createOtpMock.mockResolvedValue("123456");
   sendEmailMock.mockResolvedValue(undefined);
+  seedDefaultSavedQueryMock.mockResolvedValue(undefined);
 });
 
 describe("POST /api/auth/signup", () => {
@@ -88,5 +92,19 @@ describe("POST /api/auth/signup", () => {
     const json = (await res.json()) as { nextStep: string; otpDispatched: boolean };
     expect(json.nextStep).toBe("/onboarding/area");
     expect(json.otpDispatched).toBe(true);
+  });
+
+  it("seeds the default FR-015 saved-query embedding at account creation (issue #229)", async () => {
+    const res = await POST(req(validBody));
+    expect(res.status).toBe(201);
+    expect(seedDefaultSavedQueryMock).toHaveBeenCalledTimes(1);
+    expect(seedDefaultSavedQueryMock).toHaveBeenCalledWith("user-1");
+  });
+
+  it("skips seed when user creation fails (validation error)", async () => {
+    const res = await POST(req({ ...validBody, mobile_e164: "not-a-mobile" }));
+    expect(res.status).toBe(422);
+    expect(mockDb.user.create).not.toHaveBeenCalled();
+    expect(seedDefaultSavedQueryMock).not.toHaveBeenCalled();
   });
 });
