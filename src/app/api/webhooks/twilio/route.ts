@@ -54,6 +54,14 @@ export async function POST(request: Request): Promise<Response> {
       });
       log.info({ from, body, updated: updated.count }, "[webhook-twilio] STOP processed");
     }
+  } else if (["START", "UNSTOP", "YES"].includes(body)) {
+    if (from) {
+      const updated = await db.user.updateMany({
+        where: { mobile_e164: from },
+        data: { smsOptIn: true },
+      });
+      log.info({ from, body, updated: updated.count }, "[webhook-twilio] START processed");
+    }
   }
 
   // Empty TwiML response — Twilio sends its own STOP confirmation message

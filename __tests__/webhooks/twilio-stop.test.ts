@@ -55,3 +55,51 @@ describe("POST /api/webhooks/twilio — STOP handler", () => {
     expect(user?.smsOptIn).toBe(true);
   });
 });
+
+describe("POST /api/webhooks/twilio — START handler", () => {
+  it("flips smsOptIn=true on START", async () => {
+    const userId = await seedTestUser({ mobile: "+61400000081" });
+    await testDb.user.update({ where: { id: userId }, data: { smsOptIn: false } });
+
+    const res = await POST(inbound({ Body: "START", From: "+61400000081" }));
+    expect(res.status).toBe(200);
+
+    const user = await testDb.user.findUnique({ where: { id: userId } });
+    expect(user?.smsOptIn).toBe(true);
+  });
+
+  it("recognises the lowercase 'yes' keyword", async () => {
+    const userId = await seedTestUser({ mobile: "+61400000082" });
+    await testDb.user.update({ where: { id: userId }, data: { smsOptIn: false } });
+
+    await POST(inbound({ Body: "yes", From: "+61400000082" }));
+
+    const user = await testDb.user.findUnique({ where: { id: userId } });
+    expect(user?.smsOptIn).toBe(true);
+  });
+
+  it("recognises the 'unstop' keyword", async () => {
+    const userId = await seedTestUser({ mobile: "+61400000083" });
+    await testDb.user.update({ where: { id: userId }, data: { smsOptIn: false } });
+
+    await POST(inbound({ Body: "UNSTOP", From: "+61400000083" }));
+
+    const user = await testDb.user.findUnique({ where: { id: userId } });
+    expect(user?.smsOptIn).toBe(true);
+  });
+
+  it("round-trips STOP→START→smsOptIn=true", async () => {
+    const userId = await seedTestUser({ mobile: "+61400000084" });
+    await testDb.user.update({ where: { id: userId }, data: { smsOptIn: true } });
+
+    // First, STOP the user
+    await POST(inbound({ Body: "STOP", From: "+61400000084" }));
+    let user = await testDb.user.findUnique({ where: { id: userId } });
+    expect(user?.smsOptIn).toBe(false);
+
+    // Then, START them — the same mobile flips back to opted in
+    await POST(inbound({ Body: "START", From: "+61400000084" }));
+    user = await testDb.user.findUnique({ where: { id: userId } });
+    expect(user?.smsOptIn).toBe(true);
+  });
+});
