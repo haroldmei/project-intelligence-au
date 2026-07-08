@@ -8,13 +8,18 @@ import { Input } from "@/components/ui/input";
 const OTP_LENGTH = 6;
 const RESEND_COUNTDOWN = 60;
 
-export default function VerifyPage() {
+export default function VerifyPage({
+  _testInitialCountdown,
+}: { _testInitialCountdown?: number } = {}) {
   const router = useRouter();
   const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(""));
   const [serverError, setServerError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [resendCountdown, setResendCountdown] = useState(RESEND_COUNTDOWN);
+  const [resendCountdown, setResendCountdown] = useState(
+    _testInitialCountdown ?? RESEND_COUNTDOWN,
+  );
   const [resendSent, setResendSent] = useState(false);
+  const [resendError, setResendError] = useState<string | null>(null);
   // Destination email — shown so a typo at signup is visible (issue #92).
   const [email, setEmail] = useState<string | null>(null);
   // Inline "change email" affordance.
@@ -121,13 +126,19 @@ export default function VerifyPage() {
 
   async function handleResend() {
     if (resendCountdown > 0) return;
+    setResendError(null);
     try {
-      await fetch("/api/auth/verify-email/resend", { method: "POST" });
-      setResendCountdown(RESEND_COUNTDOWN);
-      setResendSent(true);
-      setTimeout(() => setResendSent(false), 4000);
+      const res = await fetch("/api/auth/verify-email/resend", { method: "POST" });
+      if (res.ok) {
+        setResendCountdown(RESEND_COUNTDOWN);
+        setResendSent(true);
+        setTimeout(() => setResendSent(false), 4000);
+      } else {
+        const json = await res.json();
+        setResendError(json.error ?? "Could not resend code. Please try again.");
+      }
     } catch {
-      /* silent */
+      setResendError("Network error. Please try again.");
     }
   }
 
@@ -263,6 +274,16 @@ export default function VerifyPage() {
           className="rounded-md bg-[#DCFCE7] text-[#14532D] text-sm px-4 py-3"
         >
           A new code has been sent.
+        </div>
+      )}
+
+      {resendError && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="rounded-md bg-[#FEE2E2] text-[#7F1D1D] text-sm px-4 py-3"
+        >
+          {resendError}
         </div>
       )}
 
