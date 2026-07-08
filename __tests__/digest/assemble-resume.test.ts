@@ -201,6 +201,31 @@ describe("assembleAndSendDigest — recovering a failed audit stub (issue #161)"
     expect(result.daCount).toBe(RELEVANCE.results.length);
   });
 
+  it("retry over a 'failed' audit stub backfills fallbackUsed when relevance degraded (issue #227)", async () => {
+    // The audit stub: written by recordAuditDigest with fallbackUsed:false.
+    mockDb.digest.findFirst.mockResolvedValue({
+      id: "digest-1",
+      emailStatus: "failed",
+      smsStatus: null,
+      fallbackUsed: false,
+    });
+    mockDb.digestDa.count.mockResolvedValue(0);
+
+    // Degraded relevance — the recovery run used the embedding-only path.
+    const degradedRel = {
+      ...RELEVANCE,
+      fallbackUsed: true,
+      fallbackReason: "llm_unavailable",
+    };
+
+    await assembleAndSendDigest("user-1", "run-1", degradedRel);
+
+    // The update must write fallbackUsed:true so the portal/history view does
+    // not contradict the 'basic mode' email the user received (issue #227).
+    const updateArg = mockDb.digest.update.mock.calls.at(-1)?.[0];
+    expect(updateArg.data.fallbackUsed).toBe(true);
+  });
+
   it("a real per-channel retry (cards already persisted) does NOT re-create cards or rewrite daCount", async () => {
     mockDb.digest.findFirst.mockResolvedValue({
       id: "digest-1",
