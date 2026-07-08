@@ -131,11 +131,21 @@ export async function runDigestCron(): Promise<DigestCronResult> {
       // the status string — otherwise a self-signup trial (accessUntil:null, no
       // Stripe subscription) that never enters checkout gets the digest free
       // forever, because nothing ever transitions it off "trial".
-      ...entitledDigestWhere(),
-      // Spam Act 2003: skip users who have unsubscribed. assembleAndSendDigest
-      // also re-checks at send time to catch opt-outs that land mid-run, but
-      // filtering here avoids the wasted assembly work up front.
-      emailOptIn: true,
+      // Issue #217 + entitlement (issue #87) — both OR conditions must survive.
+      // ...entitledDigestWhere() spreads { OR: [subStatusConditions] }, so a
+      // second flat `OR` at the same level would silently overwrite it via JS
+      // property semantics. Wrapping both in AND preserves both gates: the user
+      // must be entitled (active/trial/past_due) AND reachable via at least one
+      // channel (emailOptIn, or smsOptIn with a mobile number).
+      AND: [
+        entitledDigestWhere(),
+        {
+          OR: [
+            { emailOptIn: true },
+            { smsOptIn: true, mobile_e164: { not: null } },
+          ],
+        },
+      ],
     },
     select: { id: true, email: true },
     take: 1000,

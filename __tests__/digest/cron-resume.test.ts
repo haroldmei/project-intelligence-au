@@ -216,6 +216,94 @@ describe("runDigestCron — a preview run must not hijack the weekly run (issue 
   });
 });
 
+describe("runDigestCron — SMS-only subscriber (issue #217)", () => {
+  // The cron's user query used to filter on emailOptIn:true alone, silently
+  // dropping subscribers who had unsubscribed from email but were still opted
+  // into SMS with a mobile on file. The fix uses an OR condition so a user
+  // entitled to ANY channel enters the pipeline — assembleAndSendDigest
+  // independently gates each channel (email → skipped_optout, SMS → sent).
+  //
+  // The mock simulates what the corrected Prisma WHERE clause produces: it
+  // returns these users. The test proves they enter the assembly loop correctly.
+  it("processes an SMS-only subscriber (emailOptIn:false, smsOptIn:true, mobile present)", async () => {
+    const smsUserEmail = "sms-only@example.com";
+    mockDb.user.findMany.mockResolvedValue([
+      { id: "sms-user", email: smsUserEmail },
+    ]);
+    mockDb.digest.findMany
+      .mockResolvedValueOnce([]) // resume filter: nothing delivered yet
+      .mockResolvedValueOnce([{ userId: "sms-user", emailStatus: "skipped_optout", smsStatus: "sent" }]); // final recount
+
+    // The user enters the pipeline. assembleAndSendDigest will independently
+    // gate email (skipped_optout because emailOptIn:false) and SMS (sent because
+    // smsOptIn:true && mobile_e164 set) — this test proves the cron loop DOES
+    // NOT skip them at the pre-filter.
+    const result = await runDigestCron();
+
+    expect(assembleMock).toHaveBeenCalledTimes(1);
+    expect(assembleMock).toHaveBeenCalledWith("sms-user", expect.any(String), RELEVANCE);
+    expect(result.usersProcessed).toBe(1);
+    expect(result.unserved).toBe(0);
+  });
+
+  it("handles email-only subscriber alongside SMS-only subscriber (mixed channel)", async () => {
+    mockDb.user.findMany.mockResolvedValue([
+      { id: "email-user", email: "email@example.com" },
+      { id: "sms-user", email: "sms@example.com" },
+    ]);
+    mockDb.digest.findMany
+      .mockResolvedValueOnce([]) // resume filter: nothing delivered yet
+      .mockResolvedValueOnce([
+        { userId: "email-user", emailStatus: "sent", smsStatus: "skipped" },
+        { userId: "sms-user", emailStatus: "skipped_optout", smsStatus: "sent" },
+      ]);
+
+    const result = await runDigestCron();
+
+    expect(assembleMock).toHaveBeenCalledTimes(2);
+    expect(result.usersProcessed).toBe(2);
+    expect(result.unserved).toBe(0);
+  });
+
+  it("builds AND[entitlement, channel-union] in findMany (prevents OR overwrite — the Prisma query shape)", async () => {
+    mockDb.user.findMany.mockResolvedValue([]);
+    mockDb.digest.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await runDigestCron();
+
+    // Capture the WHERE clause passed to findMany and verify the AND structure
+    // — this is the shape-level proof that:
+    //   1. The entitlement OR (subscriptionStatus branches from issue #87)
+    //      survived and was NOT overwritten by the channel-union OR.
+    //   2. A user with both opt-ins false (or smsOptIn:true but no mobile) is
+    //      excluded by the channel-union OR.
+    const where = mockDb.user.findMany.mock.calls[0][0].where;
+    expect(where.AND).toHaveLength(2);
+
+    // AND[0] = entitlement conditions from entitledDigestWhere() — must
+    // contain the subscription-status branches for active/trial/past_due.
+    expect(where.AND[0]).toHaveProperty("OR");
+    expect(where.AND[0].OR).toContainEqual({ subscriptionStatus: "active" });
+
+    // AND[1] = channel-union conditions from the issue #217 fix.
+    expect(where.AND[1]).toEqual({
+      OR: [
+        { emailOptIn: true },
+        { smsOptIn: true, mobile_e164: { not: null } },
+      ],
+    });
+
+    // Prove no overwrite: the two OR arrays are different objects.
+    expect(where.AND[0].OR).not.toBe(where.AND[1].OR);
+
+    // No flat OR or emailOptIn at the where root.
+    expect(where.OR).toBeUndefined();
+    expect(where.emailOptIn).toBeUndefined();
+  });
+});
+
 describe("runDigestCron — fail loud", () => {
   it("retry pass with leftover failures emits a Sentry ERROR with the count", async () => {
     mockDb.digestRun.findFirst.mockResolvedValue({ id: "run-1", status: "failed" });
