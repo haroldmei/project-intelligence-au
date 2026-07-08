@@ -24,6 +24,35 @@ const EMBEDDING_MODEL = "text-embedding-3-small";
 const EMBEDDING_DIMS = 1536;
 
 /**
+ * Character budget for each embedding input. text-embedding-3-small has an
+ * ~8,192-token context window. At ~4 chars/token for typical English text,
+ * 30,000 chars ≈ 7,500 tokens, leaving safe headroom below the model limit.
+ * Per FR-005, DA embedding input must be truncated to 8,000 tokens if necessary.
+ */
+export const MAX_EMBEDDING_CHARS = 30_000;
+
+/**
+ * Truncate a string to the embedding character budget, cutting on a space
+ * boundary near the limit to avoid splitting words. Returns the original
+ * string unchanged if it's within budget.
+ *
+ * This is the enforced guard so a single oversized DA text (e.g. a council
+ * SEE/scope blob) never causes embedBatch to 400 on the entire batch.
+ */
+export function truncateForEmbedding(text: string): string {
+  if (text.length <= MAX_EMBEDDING_CHARS) return text;
+  // Cut at the last space before the limit so we don't split a word
+  const cut = text.slice(0, MAX_EMBEDDING_CHARS);
+  const lastSpace = cut.lastIndexOf(" ");
+  if (lastSpace > MAX_EMBEDDING_CHARS * 0.8) {
+    // Found a space far enough in — cut there
+    return cut.slice(0, lastSpace).trim();
+  }
+  // No suitable break point — cut hard at the limit
+  return cut.trim();
+}
+
+/**
  * Lazily-created OpenAI client — kept lazy so tests can mock OpenAI without
  * having to set OPENAI_API_KEY. Validation of the key happened at import of
  * @/lib/env, so we know it's set by the time getClient() is called.
@@ -61,10 +90,11 @@ export async function embed(
   if (!text || text.trim().length === 0) {
     throw new Error("[embeddings] cannot embed empty string");
   }
+  const truncated = truncateForEmbedding(text);
   const client = getClient();
   const res = await client.embeddings.create({
     model: EMBEDDING_MODEL,
-    input: text,
+    input: truncated,
     // OpenAI returns 1536 dims by default for this model; explicit for clarity.
     dimensions: EMBEDDING_DIMS,
     encoding_format: "float",
@@ -108,9 +138,12 @@ export async function embedBatch(
     );
   }
   const client = getClient();
+  // FR-005: truncate each input to the embedding token budget so a single
+  // oversized DA (e.g. a council SEE/scope blob) never 400s the whole batch.
+  const truncated = texts.map(truncateForEmbedding);
   const res = await client.embeddings.create({
     model: EMBEDDING_MODEL,
-    input: texts,
+    input: truncated,
     dimensions: EMBEDDING_DIMS,
     encoding_format: "float",
   });

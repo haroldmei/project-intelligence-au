@@ -42,9 +42,11 @@ export async function vectorRank({
   const toEmbed = candidates.filter((c) => !embeddedSet.has(c.daId));
 
   // Batch embed new DAs (lazy, per system-design §3.4)
+  // FR-005: embedding input is description + raw_scope_text (truncated to
+  // 8,000 tokens if necessary). Truncation is applied inside embedBatch.
   if (toEmbed.length > 0) {
     const texts = toEmbed.map(
-      (c) => `${c.address} ${c.description} ${c.rawScopeText ?? ""}`.trim(),
+      (c) => `${c.description} ${c.rawScopeText ?? ""}`.trim(),
     );
     log.info({ count: toEmbed.length, userId }, "[vector] embedding new DAs");
 
