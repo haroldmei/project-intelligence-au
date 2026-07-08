@@ -40,7 +40,7 @@ test.describe("Verify — change a mistyped email (issue #92)", () => {
       await route.fulfill({
         status: 201,
         contentType: "application/json",
-        body: JSON.stringify({ userId: "u1", otpDispatched: true, nextStep: "/verify" }),
+        body: JSON.stringify({ userId: "u1", otpDispatched: true, nextStep: "/onboarding/area" }),
         headers: { "Set-Cookie": "lucia_session=valid; Path=/; HttpOnly; SameSite=Lax" },
       });
     });
@@ -74,7 +74,7 @@ test.describe("Verify — change a mistyped email (issue #92)", () => {
       });
     });
 
-    // ── Sign up with the typo ────────────────────────────────────────────────
+    // ── Sign up with the typo → lands on /onboarding/area (issue #230) ───────
     await page.goto("/signup");
     await dismissCookieBanner(page);
     await page.fill("#email", TYPO_EMAIL);
@@ -82,6 +82,12 @@ test.describe("Verify — change a mistyped email (issue #92)", () => {
     await page.fill("#mobile_e164", "400000009");
     await page.check("#acceptTerms");
     await page.click('button[type="submit"]');
+
+    // The user lands on /onboarding/area, not /verify — OTP is not required
+    // before LGA setup. Navigate to /verify manually to test the change-email
+    // recovery path (the test's actual concern).
+    await page.waitForURL(/\/onboarding\/area/, { timeout: 10_000 });
+    await page.goto("/verify");
 
     // ── /verify shows the (wrong) address — the typo is now visible ──────────
     await page.waitForURL(/\/verify/, { timeout: 10_000 });

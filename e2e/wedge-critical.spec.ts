@@ -31,7 +31,8 @@ async function installCriticalStubs(page: import("@playwright/test").Page) {
     await route.fulfill({
       status: 201,
       contentType: "application/json",
-      body: JSON.stringify({ userId: "test-user-id", otpDispatched: true }),
+      // Issue #230: signup redirects to /onboarding/area, not /verify
+      body: JSON.stringify({ userId: "test-user-id", otpDispatched: true, nextStep: "/onboarding/area" }),
       headers: { "Set-Cookie": "lucia_session=test-session; Path=/; HttpOnly; SameSite=Lax" },
     });
   });
@@ -53,6 +54,14 @@ async function installCriticalStubs(page: import("@playwright/test").Page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ bundle_ids: ["western_sydney"] }),
+    });
+  });
+
+  await page.route("**/api/account/saved-query", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ saved_query_text: null }),
     });
   });
 
@@ -93,7 +102,7 @@ async function installCriticalStubs(page: import("@playwright/test").Page) {
 }
 
 test.describe("Wedge Critical Flow", () => {
-  test("landing → signup → OTP → LGA pick → pricing → digest cards → thumb up → undo → reload persists", async ({
+  test("landing → signup → LGA pick → query → pricing → OTP → portal digest → thumb up → undo → reload persists", async ({
     page,
   }) => {
     // The portal step needs a live DB (RSC validateRequest); gate the same way
@@ -118,33 +127,43 @@ test.describe("Wedge Critical Flow", () => {
     await page.check("#acceptTerms");
     await page.click('button[type="submit"]');
 
-    // Step 3: OTP verification page
-    await page.waitForURL("**/verify");
-    await expect(page.getByRole("heading", { name: /check your email/i })).toBeVisible({ timeout: 10_000 });
-    for (let i = 0; i < 6; i++) {
-      await page.fill(`#otp-${i}`, TEST_OTP[i]);
-    }
-    await expect(page.getByRole("button", { name: /verify email/i })).toBeEnabled();
-    await page.click('button:has-text("Verify email")');
-
-    // Step 4: LGA bundle selection at /onboarding/area
+    // Step 3 (issue #230): Signup redirects to LGA setup, not /verify.
+    // OTP is NOT required before onboarding — proceed immediately.
     await page.waitForURL("**/onboarding/area");
+    await expect(page.getByRole("heading", { name: /choose your service area/i })).toBeVisible({ timeout: 10_000 });
+
+    // Step 4: Select LGA bundle
     await page.getByRole("button", { name: /western sydney/i }).click();
     await page.getByRole("button", { name: /continue/i }).click();
 
-    // Step 5: Pricing page — Solo pre-selected, 28-day trial CTA
+    // Step 5: Onboarding query step
+    await page.waitForURL("**/onboarding/query");
+    await expect(page.getByRole("button", { name: /use the default/i })).toBeVisible();
+    await page.getByRole("button", { name: /use the default/i }).click();
+    await page.getByRole("button", { name: /continue/i }).click();
+
+    // Step 6: Pricing page — Solo pre-selected, 28-day trial CTA
     await page.waitForURL("**/plan");
     await expect(page.getByRole("heading", { name: /choose your plan/i })).toBeVisible();
     const soloCard = page.getByRole("radio", { name: /solo/i });
     await expect(soloCard).toHaveAttribute("aria-checked", "true");
     await page.click('button:has-text("Start 28-day trial")');
 
-    // Step 6: Portal /digest renders the week's cards
+    // Step 7: Stripe redirect mock sends us to /digest. The portal layout
+    // redirects unverified users to /verify (issue #180 gate) — enter OTP now.
+    await page.waitForURL("**/verify");
+    for (let i = 0; i < 6; i++) {
+      await page.fill(`#otp-${i}`, TEST_OTP[i]);
+    }
+    await page.click('button:has-text("Verify email")');
+
+    // Step 8: Navigate to /digest now that email is verified
+    await page.goto("/digest");
     await page.waitForURL("**/digest");
     const daCards = page.locator("article[aria-label]");
     await expect(daCards.first()).toBeVisible();
 
-    // Step 7: Tap thumb up on card 1
+    // Step 9: Tap thumb up on card 1
     const firstCard = daCards.first();
     await firstCard.getByRole("button", { name: /thumb up/i }).click();
     await expect(firstCard).toHaveClass(/border-l-\[#16A34A\]/);
@@ -154,13 +173,64 @@ test.describe("Wedge Critical Flow", () => {
     await expect(undoToast).toBeVisible();
     await expect(firstCard.getByRole("button", { name: /undo/i })).toBeVisible();
 
-    // Step 8: Reload — thumb-up state persists
+    // Step 10: Reload — thumb-up state persists
     await page.reload();
     await page.waitForURL("**/digest");
     const firstCardAfterReload = page.locator("article[aria-label]").first();
     await expect(
       firstCardAfterReload.getByRole("button", { name: /thumb up/i }),
     ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("signup → LGA-setup with no OTP step (issue #230 acceptance criterion)", async ({ page }) => {
+    // This test drives the acceptance criterion for issue #230: the user signs up
+    // and completes LGA selection WITHOUT entering an OTP. The verify page is
+    // never visited. Uses stubs — no DB needed.
+    let savedBundles: string[] = [];
+    await page.route("**/api/auth/signup", async (route) => {
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({ userId: "u1", otpDispatched: true, nextStep: "/onboarding/area" }),
+        headers: { "Set-Cookie": "lucia_session=stub; Path=/; HttpOnly; SameSite=Lax" },
+      });
+    });
+    await page.route("**/api/account/lga-bundles", async (route) => {
+      const method = route.request().method();
+      if (method === "PUT") {
+        savedBundles = route.request().postDataJSON()?.bundle_ids ?? [];
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ bundle_ids: method === "PUT" ? savedBundles : [] }),
+      });
+    });
+
+    // ── Sign up ──────────────────────────────────────────────────────────────
+    await page.goto("/signup");
+    await page.fill("#email", `test+no-otp-${Date.now()}@example.com`);
+    await page.fill("#password", "TestPassword123!");
+    await page.fill("#mobile_e164", "400000009");
+    await page.check("#acceptTerms");
+    await page.click('button[type="submit"]');
+
+    // ── Landing page is /onboarding/area, NOT /verify (issue #230) ───────────
+    await page.waitForURL("/onboarding/area", { timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: /choose your service area/i })).toBeVisible();
+
+    // ── The /verify page was never visited ───────────────────────────────────
+    expect(page.url()).not.toContain("/verify");
+
+    // ── Complete LGA selection ───────────────────────────────────────────────
+    await page.getByRole("button", { name: /western sydney/i }).click();
+    await page.getByRole("button", { name: /inner west & city/i }).click();
+    await page.getByRole("button", { name: /continue/i }).click();
+
+    // ── Onboarding query step reached without OTP ────────────────────────────
+    await page.waitForURL("/onboarding/query", { timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: /what kind of jobs/i })).toBeVisible();
+    expect(page.url()).not.toContain("/verify");
   });
 
   test("LGA bundle continue button is disabled until at least one bundle is selected", async ({ page }) => {

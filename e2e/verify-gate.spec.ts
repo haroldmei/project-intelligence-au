@@ -25,14 +25,14 @@ test.describe("Portal verification gate (issue #180)", () => {
   }) => {
     test.skip(!DB_AVAILABLE, "Requires PLAYWRIGHT_DB=1 — portal layout gate needs DB auth (BUG-002)");
 
-    // ── Sign up → valid session, emailVerified=false, lands on /verify ────────
+    // ── Sign up → valid session, emailVerified=false, lands on /onboarding/area
     await page.goto("/signup");
     await page.fill('[id="email"]', user.email);
     await page.fill('[id="password"]', user.password);
     await page.fill('[id="mobile_e164"]', "400000000");
     await page.check('[id="acceptTerms"]');
     await page.click('button[type="submit"]');
-    await page.waitForURL("**/verify");
+    await page.waitForURL("**/onboarding/area");
 
     // ── Unverified user requesting /digest is redirected to /verify ───────────
     await page.goto("/digest");

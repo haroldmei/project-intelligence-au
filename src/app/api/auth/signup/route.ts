@@ -107,7 +107,13 @@ export async function POST(req: NextRequest): Promise<Response> {
     {
       userId: user.id,
       otpDispatched: !autoVerify,
-      nextStep: autoVerify ? "/onboarding/area" : "/verify",
+      // Issue #230 (FR-014/016): OTP is required before the FIRST DIGEST, not
+      // before LGA setup — allows onboarding to proceed. Both e2e auto-verify
+      // and real users land on /onboarding/area immediately after signup. The
+      // OTP email has already been sent (line 98–103), and the digest cron
+      // hard-filters emailVerified:true (src/modules/digest/cron.ts:129), so
+      // an unverified user never receives a digest.
+      nextStep: "/onboarding/area",
     },
     {
       status: 201,
