@@ -38,6 +38,20 @@ describe("CookieConsent", () => {
     expect(initAnalyticsMock).not.toHaveBeenCalled();
   });
 
+  it("X close persists rejection and the banner stays hidden on re-mount", () => {
+    // First render — banner shows
+    const { unmount } = render(<CookieConsent />);
+    expect(screen.getByRole("dialog", { name: /cookie consent/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /close cookie banner/i }));
+    expect(window.localStorage.getItem("pi_cookie_consent")).toBe("rejected");
+    expect(initAnalyticsMock).not.toHaveBeenCalled();
+
+    // Unmount and re-render — banner must NOT reappear (preference persisted)
+    unmount();
+    render(<CookieConsent />);
+    expect(screen.queryByRole("dialog", { name: /cookie consent/i })).toBeNull();
+  });
+
   it("stays hidden once a preference already exists", () => {
     window.localStorage.setItem("pi_cookie_consent", "accepted");
     render(<CookieConsent />);
