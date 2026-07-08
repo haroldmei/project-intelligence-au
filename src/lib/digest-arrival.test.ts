@@ -49,33 +49,42 @@ describe("getDigestArrival", () => {
   });
 
   describe('"next Sunday" branch (< 60 hours to next digest)', () => {
-    it("returns 'next' on Saturday morning (Saturday 10:00 AEST, ~32h)", () => {
+    it("returns 'next' on Saturday morning (Saturday 10:00 AEST, ~32h) — date is +7d", () => {
       // Saturday 2026-07-11 10:00 AEST = 2026-07-11 00:00 UTC
+      // "next Sunday" must promise the Sunday after the upcoming one (19 July).
       const saturday = new Date("2026-07-11T00:00:00Z");
       const result = getDigestArrival(saturday);
       expect(result.prefix).toBe("next");
       expect(result.full).toContain("next Sunday");
+      expect(result.full).toContain("19 July 2026");
+      expect(result.full).not.toContain("12 July 2026");
       expect(result.full).toContain(REASSURANCE);
     });
 
-    it("returns 'next' on Friday evening (Friday 20:00 AEST, ~46h)", () => {
+    it("returns 'next' on Friday evening (Friday 20:00 AEST, ~46h) — date is +7d", () => {
       // Friday 2026-07-10 20:00 AEST = 2026-07-10 10:00 UTC
+      // "next Sunday" must promise the Sunday after the upcoming one (19 July).
       const friday = new Date("2026-07-10T10:00:00Z");
       const result = getDigestArrival(friday);
       expect(result.prefix).toBe("next");
       expect(result.full).toContain("next Sunday");
+      expect(result.full).toContain("19 July 2026");
+      expect(result.full).not.toContain("12 July 2026");
     });
 
   });
 
   describe("same-Sunday edge case", () => {
-    it("returns 'next' on Sunday before 18:00 (8h to digest, <60h)", () => {
+    it("returns 'next' on Sunday before 18:00 (8h to digest, <60h — date is +7d)", () => {
       // Sunday 2026-07-12 10:00 AEST = 2026-07-12 00:00 UTC
       // Digest fires at 18:00 AEST → 8h away → <60h → "next Sunday"
+      // Must promise 19 July, not 12 July.
       const sundayMorning = new Date("2026-07-12T00:00:00Z");
       const result = getDigestArrival(sundayMorning);
       expect(result.prefix).toBe("next");
       expect(result.full).toContain("next Sunday");
+      expect(result.full).toContain("19 July 2026");
+      expect(result.full).not.toContain("12 July 2026");
     });
 
     it("returns 'this' on Sunday after 18:00 (166h to next digest, >=60h)", () => {

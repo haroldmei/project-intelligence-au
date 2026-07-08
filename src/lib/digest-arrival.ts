@@ -96,13 +96,15 @@ export function getDigestArrival(now?: Date): DigestArrival {
   const prefix = hoursUntil < CUTOFF_HOURS ? ("next" as const) : ("this" as const);
 
   // ── Format the digest Sunday for the message ───────────────────────
+  // When prefix is "next" the promise refers to the digest *after* the
+  // upcoming one — add 7 days so the formatted date matches the promise.
   const dateStr = new Intl.DateTimeFormat("en-AU", {
     timeZone: "Australia/Sydney",
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
-  }).format(new Date(nextDigestUtcMs));
+  }).format(new Date(nextDigestUtcMs + (prefix === "next" ? 7 * 24 * 60 * 60 * 1000 : 0)));
 
   return {
     prefix,
