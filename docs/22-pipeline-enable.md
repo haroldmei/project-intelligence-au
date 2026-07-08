@@ -13,7 +13,7 @@ data/das/<week>.json  →  scripts/import-das.ts  →  development_applications
                                                 +  da_embeddings
                                                 +  ingestion_log
                                                        │
-              vercel.json cron (Sun 17:00 AEST)        │
+              vercel.json cron (Sun 17:00 AEST + 20:00 AEST resume retry)        │
                               │                        │
                               ▼                        ▼
                         runDigestCron() ──── reads ────┘
@@ -139,7 +139,7 @@ If `embedded < das`, the embed step partially failed — re-run the script (idem
 
 ## Triggering Sunday's digest manually
 
-The cron is configured in `vercel.json` to fire `/api/cron/digest` at Sun 07:00 UTC (= 17:00 AEST). To trigger a run **now** for testing:
+The cron is configured in `vercel.json` to fire `/api/cron/digest` at Sun 07:00 UTC (= 17:00 AEST), with an idempotent resume/retry tick at 10:00 UTC (= 20:00 AEST) that re-processes only the users the primary left unserved and is a no-op after a fully-successful run. To trigger a run **now** for testing:
 
 ```bash
 CRON_SECRET=$(grep '^CRON_SECRET=' .env.production.local | cut -d= -f2- | tr -d '"')
@@ -203,8 +203,8 @@ Per `docs/18-roadmap-3-month.md`:
 1. **Mon–Wed**: researcher pulls fresh DAs from council portals (NSW Planning Portal e-services, council DA-tracker pages) and writes them into `data/das/<week>.json`.
 2. **Thu**: founder reviews the file (~15 min for 50–100 records); validates scope text reads accurately.
 3. **Thu evening**: run `pnpm import-das` against prod. Verify counts via SQL.
-4. **Sun 17:00 AEST**: Vercel fires `/api/cron/digest`. Subscribers receive emails by 17:30 AEST.
-5. **Sun evening**: monitor Sentry + Resend dashboard for delivery failures.
+4. **Sun 17:00 AEST**: Vercel fires `/api/cron/digest` (primary tick). Subscribers receive emails by 17:30 AEST.
+5. **Sun evening**: monitor Sentry + Resend dashboard for delivery failures. **Do NOT manually re-trigger the cron before 20:00 AEST** — a second idempotent resume tick fires at 10:00 UTC (= 20:00 AEST) that re-processes only the users the primary left unserved, and is a no-op after a fully-successful run.
 
 Once council scrapers are live (`src/modules/ingestion/sources.ts` already has the NSW Planning Portal + DA Leads adapters; they need real API keys + endpoint URLs), the manual flow becomes a **fallback** rather than the primary source. The same `development_applications` table receives both — the `source_api` column distinguishes them.
 
