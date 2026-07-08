@@ -114,7 +114,7 @@ export default function SignupPage() {
               type={showPassword ? "text" : "password"}
               autoComplete="new-password"
               error={!!errors.password}
-              aria-describedby={errors.password ? "password-error" : undefined}
+              aria-describedby={errors.password ? "password-error" : "password-hint"}
               className="pr-12"
               {...register("password", {
                 required: "Password is required.",
@@ -133,6 +133,9 @@ export default function SignupPage() {
               {showPassword ? "🙈" : "👁"}
             </button>
           </div>
+          <p id="password-hint" className="text-xs text-[#829AB1]">
+            At least 12 characters
+          </p>
           {errors.password && (
             <p id="password-error" className="text-xs text-[#DC2626]" role="alert">
               {errors.password.message}

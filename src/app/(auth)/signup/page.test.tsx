@@ -34,6 +34,17 @@ describe("SignupPage", () => {
     expect(screen.getByRole("button", { name: /create account/i })).toBeTruthy();
   });
 
+  // Issue #219: password hint must be visible and wired before any submit.
+  it("shows a persistent password hint wired via aria-describedby (password-hint)", () => {
+    render(<SignupPage />);
+    const hint = screen.getByText(/At least 12 characters/i);
+    expect(hint).toBeTruthy();
+    expect(hint.getAttribute("id")).toBe("password-hint");
+
+    const passwordInput = screen.getByLabelText(/^password$/i);
+    expect(passwordInput.getAttribute("aria-describedby")).toBe("password-hint");
+  });
+
   // Issue #88 / FR-022 (Spam Act 2003): SMS is opted-IN by default at signup, so
   // the signup form MUST disclose the SMS consent + a clear opt-out at the point
   // the mobile number is collected.
