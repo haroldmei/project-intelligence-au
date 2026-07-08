@@ -45,6 +45,7 @@ export default function AccountPage() {
   const [isResubLoading, setIsResubLoading] = useState(false);
   const [isResumeLoading, setIsResumeLoading] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
+  const [resubError, setResubError] = useState<string | null>(null);
   // Set from the ?billing hint Stripe Checkout appends to its success/cancel URLs.
   const [justCheckedOut, setJustCheckedOut] = useState(false);
   const [checkoutCancelled, setCheckoutCancelled] = useState(false);
@@ -142,6 +143,7 @@ export default function AccountPage() {
 
   async function handleResubscribe(plan: "solo" | "team") {
     setIsResubLoading(true);
+    setResubError(null);
     try {
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
@@ -152,6 +154,7 @@ export default function AccountPage() {
       if (!res.ok || !json.checkout_url) throw new Error("checkout failed");
       window.location.href = json.checkout_url;
     } catch {
+      setResubError("Couldn't start checkout. Please try again.");
       setIsResubLoading(false);
     }
   }
@@ -325,6 +328,11 @@ export default function AccountPage() {
                 >
                   {isResubLoading ? "Redirecting…" : "Resubscribe"}
                 </Button>
+                {resubError && (
+                  <p role="alert" className="text-sm text-[#DC2626]">
+                    {resubError}
+                  </p>
+                )}
               </>
             ) : isPendingCancellation ? (
               <>
