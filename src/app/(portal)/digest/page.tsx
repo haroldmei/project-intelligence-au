@@ -2,12 +2,14 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { DigestView } from "@/components/digest-view";
+import { LapsedTrialPrompt } from "@/components/lapsed-trial-prompt";
 import { validateRequest } from "@/lib/auth/session";
 import { PATHNAME_HEADER, buildLoginRedirect } from "@/lib/auth/return-to";
 import {
   getCurrentDigest,
   getDigestHistory,
   getMyArea,
+  isUserEntitled,
   type MyArea,
 } from "@/modules/portal/loaders";
 
@@ -36,11 +38,21 @@ export default async function DigestPage({
   const { feedback } = await searchParams;
   const showFeedbackToast = feedback === "recorded";
 
-  const [digest, area, history] = await Promise.all([
+  const [digest, area, history, entitled] = await Promise.all([
     getCurrentDigest(auth.user.id),
     getMyArea(auth.user.id),
     getDigestHistory(auth.user.id, 100),
+    isUserEntitled(auth.user.id),
   ]);
+
+  // Issue #236: A self-signup trial that has passed its 28-day entitlement
+  // window is not entitled to receive the paid digest. The digest cron already
+  // gates on isDigestEntitled, but the portal page had no awareness of this —
+  // it would show either a stale digest or the false "arrives Sunday" copy.
+  // Intercept here so lapsed users see a re-subscribe prompt instead.
+  if (!entitled) {
+    return <LapsedTrialPrompt />;
+  }
 
   if (!digest) {
     // A user who abandoned onboarding before the saved-query step is skipped by

@@ -6,6 +6,10 @@
 // Called by frontend-developer's server components — pure data loaders, no UI here.
 import { db } from "@/lib/db";
 import {
+  isDigestEntitled,
+  type EntitlementUser,
+} from "@/modules/billing/entitlement";
+import {
   toLeadClass,
   type LeadClass,
 } from "@/modules/relevance/lead-class";
@@ -306,6 +310,24 @@ export async function getMyArea(userId: string): Promise<MyArea | null> {
     smsOptIn: user.smsOptIn,
     mobile_e164: user.mobile_e164,
   };
+}
+
+/**
+ * Check whether a user is currently entitled to receive the paid deliverable
+ * (weekly digest, storm brief). Fetches the minimum User fields needed by
+ * isDigestEntitled and returns the boolean result.
+ *
+ * Issue #236: the portal — particularly /digest — needs to know when a
+ * self-signup trial has lapsed so it can render a re-subscribe prompt instead
+ * of a stale digest or the false "arrives Sunday" EmptyState copy.
+ */
+export async function isUserEntitled(userId: string): Promise<boolean> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { subscriptionStatus: true, accessUntil: true, createdAt: true },
+  });
+  if (!user) return false;
+  return isDigestEntitled(user as EntitlementUser);
 }
 
 async function getUserFeedbackMap(
