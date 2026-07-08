@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { Button } from "@/components/ui/button";
 
 interface DeleteAccountDialogProps {
@@ -23,12 +24,17 @@ const CONFIRM_WORD = "DELETE";
  * 'Delete account' in your account settings" promise (issue #96 A1). Wraps
  * DELETE /api/account/delete, which cancels Stripe, invalidates the session,
  * and cascade-deletes the user. A type-to-confirm gate arms the button.
+ *
+ * Focus is trapped while open and restored to the trigger on close.
  */
 export function DeleteAccountDialog({ open, onOpenChange, onDeleted }: DeleteAccountDialogProps) {
   const [confirmText, setConfirmText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(open, dialogRef);
 
   // Reset transient state whenever the dialog opens, and focus the input.
   useEffect(() => {
@@ -70,6 +76,7 @@ export function DeleteAccountDialog({ open, onOpenChange, onDeleted }: DeleteAcc
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="delete-account-title"
