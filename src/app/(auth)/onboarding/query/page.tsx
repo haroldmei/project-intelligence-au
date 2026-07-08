@@ -73,7 +73,7 @@ export default function QueryPage() {
   const trimmed = text.trim();
   const tooShort = trimmed.length < MIN_LENGTH;
   const tooLong = trimmed.length > MAX_LENGTH;
-  const charCountColour = tooLong ? "text-[#DC2626]" : trimmed.length > MAX_LENGTH * 0.9 ? "text-[#D97706]" : "text-[#829AB1]";
+  const charCountColour = tooShort || tooLong ? "text-[#DC2626]" : trimmed.length > MAX_LENGTH * 0.9 ? "text-[#D97706]" : "text-[#829AB1]";
 
   return (
     <div className="bg-white rounded-xl border border-[#E5E5E5] shadow-sm p-6 space-y-5">
@@ -121,9 +121,15 @@ export default function QueryPage() {
             We use this to score every DA each Sunday — only the leads worth your time will be in your digest.
           </p>
           <p id="saved-query-count" className={`text-xs ${charCountColour}`}>
-            {trimmed.length} / {MAX_LENGTH}
+            {trimmed.length} / {MAX_LENGTH}{" "}
+            <span className="text-[#829AB1]">(min {MIN_LENGTH})</span>
           </p>
         </div>
+        {tooShort && (
+          <p className="text-xs text-[#DC2626]" role="alert">
+            A few more words — min {MIN_LENGTH} characters
+          </p>
+        )}
       </div>
 
       <button
